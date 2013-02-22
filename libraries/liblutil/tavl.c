@@ -1,8 +1,8 @@
 /* avl.c - routines to implement an avl tree */
-/* $OpenLDAP: pkg/ldap/libraries/liblutil/tavl.c,v 1.10.2.5 2008/02/11 23:24:14 kurt Exp $ */
+/* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2005-2008 The OpenLDAP Foundation.
+ * Copyright 2005-2012 The OpenLDAP Foundation.
  * Portions Copyright (c) 2005 by Howard Chu, Symas Corp.
  * All rights reserved.
  *
@@ -21,6 +21,7 @@
 
 #include "portable.h"
 
+#include <limits.h>
 #include <stdio.h>
 #include <ac/stdlib.h>
 
@@ -34,6 +35,9 @@
 
 #define AVL_INTERNAL
 #include "avl.h"
+
+/* Maximum tree depth this host's address space could support */
+#define MAX_TREE_DEPTH	(sizeof(void *) * CHAR_BIT)
 
 static const int avl_bfs[] = {LH, RH};
 
@@ -189,8 +193,8 @@ tavl_delete( Avlnode **root, void* data, AVL_CMP fcmp )
 	int side, side_bf, shorter, nside = -1;
 
 	/* parent stack */
-	Avlnode *pptr[sizeof(void *)*8];
-	unsigned char pdir[sizeof(void *)*8];
+	Avlnode *pptr[MAX_TREE_DEPTH];
+	unsigned char pdir[MAX_TREE_DEPTH];
 	int depth = 0;
 
 	if ( *root == NULL )
@@ -284,6 +288,13 @@ tavl_delete( Avlnode **root, void* data, AVL_CMP fcmp )
 
 	ber_memfree( p );
 
+	/* Update child thread */
+	if ( q ) {
+		for ( ; q->avl_bits[nside] == AVL_CHILD && q->avl_link[nside];
+			q = q->avl_link[nside] ) ;
+		q->avl_link[nside] = r;
+	}
+	
 	if ( !depth ) {
 		*root = q;
 		return data;
@@ -295,12 +306,7 @@ tavl_delete( Avlnode **root, void* data, AVL_CMP fcmp )
 	side = pdir[depth];
 	p->avl_link[side] = q;
 
-	/* Update child thread */
-	if ( q ) {
-		for ( ; q->avl_bits[nside] == AVL_CHILD && q->avl_link[nside];
-			q = q->avl_link[nside] ) ;
-		q->avl_link[nside] = r;
-	} else {
+	if ( !q ) {
 		p->avl_bits[side] = AVL_THREAD;
 		p->avl_link[side] = r;
 	}
@@ -442,6 +448,26 @@ tavl_free( Avlnode *root, AVL_FREE dfree )
  * and the current node data as its second.  it should return 0 if they match,
  * < 0 if arg1 is less than arg2 and > 0 if arg1 is greater than arg2.
  */
+
+/*
+ * tavl_find2 - returns Avlnode instead of data pointer.
+ * tavl_find3 - as above, but returns Avlnode even if no match is found.
+ *				also set *ret = last comparison result, or -1 if root == NULL.
+ */
+Avlnode *
+tavl_find3( Avlnode *root, const void *data, AVL_CMP fcmp, int *ret )
+{
+	int	cmp = -1, dir;
+	Avlnode *prev = root;
+
+	while ( root != 0 && (cmp = (*fcmp)( data, root->avl_data )) != 0 ) {
+		prev = root;
+		dir = cmp > 0;
+		root = avl_child( root, dir );
+	}
+	*ret = cmp;
+	return root ? root : prev;
+}
 
 Avlnode *
 tavl_find2( Avlnode *root, const void *data, AVL_CMP fcmp )

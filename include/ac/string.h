@@ -1,8 +1,8 @@
 /* Generic string.h */
-/* $OpenLDAP: pkg/ldap/include/ac/string.h,v 1.44.2.8 2008/02/11 23:24:11 kurt Exp $ */
+/* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2008 The OpenLDAP Foundation.
+ * Copyright 1998-2012 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -94,12 +94,11 @@ int (strncasecmp)();
 #define memcmp lutil_memcmp
 #endif
 
+void *(lutil_memrchr)(const void *b, int c, size_t n);
 /* GNU extension (glibc >= 2.1.91), only declared when defined(_GNU_SOURCE) */
-#ifndef HAVE_MEMRCHR
-#undef memrchr
-#define memrchr lutil_memrchr
+#if defined(HAVE_MEMRCHR) && defined(_GNU_SOURCE)
+#define lutil_memrchr(b, c, n) memrchr(b, c, n)
 #endif /* ! HAVE_MEMRCHR */
-void * memrchr(const void *b, int c, size_t len);
 
 #define STRLENOF(s)	(sizeof(s)-1)
 

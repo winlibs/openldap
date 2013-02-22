@@ -1,7 +1,7 @@
-/* $OpenLDAP: pkg/ldap/servers/slapd/back-meta/compare.c,v 1.30.2.17 2008/02/11 23:24:22 kurt Exp $ */
+/* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1999-2008 The OpenLDAP Foundation.
+ * Copyright 1999-2012 The OpenLDAP Foundation.
  * Portions Copyright 2001-2003 Pierangelo Masarati.
  * Portions Copyright 1999-2003 Howard Chu.
  * All rights reserved.
@@ -44,7 +44,7 @@ meta_back_compare( Operation *op, SlapReply *rs )
 	struct berval	mapped_attr = op->orc_ava->aa_desc->ad_cname;
 	struct berval	mapped_value = op->orc_ava->aa_value;
 	int		msgid;
-	int		do_retry = 1;
+	ldap_back_send_t	retrying = LDAP_BACK_RETRYING;
 	LDAPControl	**ctrls = NULL;
 
 	mc = meta_back_getconn( op, rs, &candidate, LDAP_BACK_SENDERR );
@@ -113,8 +113,7 @@ meta_back_compare( Operation *op, SlapReply *rs )
 
 retry:;
 	ctrls = op->o_ctrls;
-	rc = ldap_back_proxy_authz_ctrl( &mc->mc_conns[ candidate ].msc_bound_ndn,
-		mt->mt_version, &mt->mt_idassert, op, rs, &ctrls );
+	rc = meta_back_controls_add( op, rs, mc, candidate, &ctrls );
 	if ( rc != LDAP_SUCCESS ) {
 		send_ldap_result( op, rs );
 		goto cleanup;
@@ -125,18 +124,18 @@ retry:;
 			ctrls, NULL, &msgid );
 
 	rs->sr_err = meta_back_op_result( mc, op, rs, candidate, msgid,
-		mt->mt_timeout[ SLAP_OP_COMPARE ], LDAP_BACK_SENDRESULT );
-	if ( rs->sr_err == LDAP_UNAVAILABLE && do_retry ) {
-		do_retry = 0;
+		mt->mt_timeout[ SLAP_OP_COMPARE ], ( LDAP_BACK_SENDRESULT | retrying ) );
+	if ( rs->sr_err == LDAP_UNAVAILABLE && retrying ) {
+		retrying &= ~LDAP_BACK_RETRYING;
 		if ( meta_back_retry( op, rs, &mc, candidate, LDAP_BACK_SENDERR ) ) {
 			/* if the identity changed, there might be need to re-authz */
-			(void)ldap_back_proxy_authz_ctrl_free( op, &ctrls );
+			(void)mi->mi_ldap_extra->controls_free( op, rs, &ctrls );
 			goto retry;
 		}
 	}
 
 cleanup:;
-	(void)ldap_back_proxy_authz_ctrl_free( op, &ctrls );
+	(void)mi->mi_ldap_extra->controls_free( op, rs, &ctrls );
 
 	if ( mdn.bv_val != op->o_req_dn.bv_val ) {
 		free( mdn.bv_val );

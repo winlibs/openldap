@@ -1,8 +1,8 @@
 /* idl.c - ldap id list handling routines */
-/* $OpenLDAP: pkg/ldap/servers/slapd/back-bdb/idl.c,v 1.94.2.17 2008/02/11 23:24:19 kurt Exp $ */
+/* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2000-2008 The OpenLDAP Foundation.
+ * Copyright 2000-2012 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -22,34 +22,28 @@
 #include "back-bdb.h"
 #include "idl.h"
 
-#define IDL_MAX(x,y)	( x > y ? x : y )
-#define IDL_MIN(x,y)	( x < y ? x : y )
+#define IDL_MAX(x,y)	( (x) > (y) ? (x) : (y) )
+#define IDL_MIN(x,y)	( (x) < (y) ? (x) : (y) )
+#define IDL_CMP(x,y)	( (x) < (y) ? -1 : (x) > (y) )
 
-#define IDL_CMP(x,y)	( x < y ? -1 : ( x > y ? 1 : 0 ) )
-
-#define IDL_LRU_DELETE( bdb, e ) do { 					\
-	if ( e->idl_lru_prev != NULL ) {				\
-		e->idl_lru_prev->idl_lru_next = e->idl_lru_next; 	\
-	} else {							\
-		bdb->bi_idl_lru_head = e->idl_lru_next;			\
-	}								\
-	if ( e->idl_lru_next != NULL ) {				\
-		e->idl_lru_next->idl_lru_prev = e->idl_lru_prev;	\
-	} else {							\
-		bdb->bi_idl_lru_tail = e->idl_lru_prev;			\
-	}								\
-} while ( 0 )
-
-#define IDL_LRU_ADD( bdb, e ) do {					\
-	e->idl_lru_next = bdb->bi_idl_lru_head;				\
-	if ( e->idl_lru_next != NULL ) {				\
-		e->idl_lru_next->idl_lru_prev = (e);			\
-	}								\
-	(bdb)->bi_idl_lru_head = (e);					\
-	e->idl_lru_prev = NULL;						\
-	if ( (bdb)->bi_idl_lru_tail == NULL ) {				\
-		(bdb)->bi_idl_lru_tail = (e);				\
-	}								\
+#define IDL_LRU_DELETE( bdb, e ) do { \
+	if ( (e) == (bdb)->bi_idl_lru_head ) { \
+		if ( (e)->idl_lru_next == (bdb)->bi_idl_lru_head ) { \
+			(bdb)->bi_idl_lru_head = NULL; \
+		} else { \
+			(bdb)->bi_idl_lru_head = (e)->idl_lru_next; \
+		} \
+	} \
+	if ( (e) == (bdb)->bi_idl_lru_tail ) { \
+		if ( (e)->idl_lru_prev == (bdb)->bi_idl_lru_tail ) { \
+			assert( (bdb)->bi_idl_lru_head == NULL ); \
+			(bdb)->bi_idl_lru_tail = NULL; \
+		} else { \
+			(bdb)->bi_idl_lru_tail = (e)->idl_lru_prev; \
+		} \
+	} \
+	(e)->idl_lru_next->idl_lru_prev = (e)->idl_lru_prev; \
+	(e)->idl_lru_prev->idl_lru_next = (e)->idl_lru_next; \
 } while ( 0 )
 
 static int
@@ -114,7 +108,7 @@ unsigned bdb_idl_search( ID *ids, ID id )
 	 * if not found, returns first postion greater than id
 	 */
 	unsigned base = 0;
-	unsigned cursor = 0;
+	unsigned cursor = 1;
 	int val = 0;
 	unsigned n = ids[0];
 
@@ -123,27 +117,26 @@ unsigned bdb_idl_search( ID *ids, ID id )
 #endif
 
 	while( 0 < n ) {
-		int pivot = n >> 1;
-		cursor = base + pivot;
-		val = IDL_CMP( id, ids[cursor + 1] );
+		unsigned pivot = n >> 1;
+		cursor = base + pivot + 1;
+		val = IDL_CMP( id, ids[cursor] );
 
 		if( val < 0 ) {
 			n = pivot;
 
 		} else if ( val > 0 ) {
-			base = cursor + 1;
+			base = cursor;
 			n -= pivot + 1;
 
 		} else {
-			return cursor + 1;
+			return cursor;
 		}
 	}
 	
 	if( val > 0 ) {
-		return cursor + 2;
-	} else {
-		return cursor + 1;
+		++cursor;
 	}
+	return cursor;
 
 #else
 	/* (reverse) linear search */
@@ -176,11 +169,11 @@ int bdb_idl_insert( ID *ids, ID id )
 
 	if (BDB_IDL_IS_RANGE( ids )) {
 		/* if already in range, treat as a dup */
-		if (id >= BDB_IDL_FIRST(ids) && id <= BDB_IDL_LAST(ids))
+		if (id >= BDB_IDL_RANGE_FIRST(ids) && id <= BDB_IDL_RANGE_LAST(ids))
 			return -1;
-		if (id < BDB_IDL_FIRST(ids))
+		if (id < BDB_IDL_RANGE_FIRST(ids))
 			ids[1] = id;
-		else if (id > BDB_IDL_LAST(ids))
+		else if (id > BDB_IDL_RANGE_LAST(ids))
 			ids[2] = id;
 		return 0;
 	}
@@ -224,7 +217,7 @@ int bdb_idl_insert( ID *ids, ID id )
 	return 0;
 }
 
-static int bdb_idl_delete( ID *ids, ID id )
+int bdb_idl_delete( ID *ids, ID id )
 {
 	unsigned x;
 
@@ -317,10 +310,7 @@ bdb_idl_cache_get(
 	if ( matched_idl_entry != NULL ) {
 		if ( matched_idl_entry->idl && ids )
 			BDB_IDL_CPY( ids, matched_idl_entry->idl );
-		ldap_pvt_thread_mutex_lock( &bdb->bi_idl_tree_lrulock );
-		IDL_LRU_DELETE( bdb, matched_idl_entry );
-		IDL_LRU_ADD( bdb, matched_idl_entry );
-		ldap_pvt_thread_mutex_unlock( &bdb->bi_idl_tree_lrulock );
+		matched_idl_entry->idl_flags |= CACHE_ENTRY_REFERENCED;
 		if ( matched_idl_entry->idl )
 			rc = LDAP_SUCCESS;
 		else
@@ -340,7 +330,7 @@ bdb_idl_cache_put(
 	int			rc )
 {
 	bdb_idl_cache_entry_t idl_tmp;
-	bdb_idl_cache_entry_t *ee;
+	bdb_idl_cache_entry_t *ee, *eprev;
 
 	if ( rc == DB_NOTFOUND || BDB_IDL_IS_ZERO( ids ))
 		return;
@@ -355,6 +345,7 @@ bdb_idl_cache_put(
 
 	ee->idl_lru_prev = NULL;
 	ee->idl_lru_next = NULL;
+	ee->idl_flags = 0;
 	ber_dupbv( &ee->kstr, &idl_tmp.kstr );
 	ldap_pvt_thread_rdwr_wlock( &bdb->bi_idl_tree_rwlock );
 	if ( avl_insert( &bdb->bi_idl_tree, (caddr_t) ee,
@@ -367,11 +358,34 @@ bdb_idl_cache_put(
 		return;
 	}
 	ldap_pvt_thread_mutex_lock( &bdb->bi_idl_tree_lrulock );
-	IDL_LRU_ADD( bdb, ee );
-	if ( ++bdb->bi_idl_cache_size > bdb->bi_idl_cache_max_size ) {
-		int i = 0;
-		while ( bdb->bi_idl_lru_tail != NULL && i < 10 ) {
-			ee = bdb->bi_idl_lru_tail;
+	/* LRU_ADD */
+	if ( bdb->bi_idl_lru_head ) {
+		assert( bdb->bi_idl_lru_tail != NULL );
+		assert( bdb->bi_idl_lru_head->idl_lru_prev != NULL );
+		assert( bdb->bi_idl_lru_head->idl_lru_next != NULL );
+
+		ee->idl_lru_next = bdb->bi_idl_lru_head;
+		ee->idl_lru_prev = bdb->bi_idl_lru_head->idl_lru_prev;
+		bdb->bi_idl_lru_head->idl_lru_prev->idl_lru_next = ee;
+		bdb->bi_idl_lru_head->idl_lru_prev = ee;
+	} else {
+		ee->idl_lru_next = ee->idl_lru_prev = ee;
+		bdb->bi_idl_lru_tail = ee;
+	}
+	bdb->bi_idl_lru_head = ee;
+
+	if ( bdb->bi_idl_cache_size >= bdb->bi_idl_cache_max_size ) {
+		int i;
+		eprev = bdb->bi_idl_lru_tail;
+		for ( i = 0; (ee = eprev) != NULL && i < 10; i++ ) {
+			eprev = ee->idl_lru_prev;
+			if ( eprev == ee ) {
+				eprev = NULL;
+			}
+			if ( ee->idl_flags & CACHE_ENTRY_REFERENCED ) {
+				ee->idl_flags ^= CACHE_ENTRY_REFERENCED;
+				continue;
+			}
 			if ( avl_delete( &bdb->bi_idl_tree, (caddr_t) ee,
 				    bdb_idl_entry_cmp ) == NULL ) {
 				Debug( LDAP_DEBUG_ANY, "=> bdb_idl_cache_put: "
@@ -385,8 +399,11 @@ bdb_idl_cache_put(
 			ch_free( ee->idl );
 			ch_free( ee );
 		}
+		bdb->bi_idl_lru_tail = eprev;
+		assert( bdb->bi_idl_lru_tail != NULL
+			|| bdb->bi_idl_lru_head == NULL );
 	}
-
+	bdb->bi_idl_cache_size++;
 	ldap_pvt_thread_mutex_unlock( &bdb->bi_idl_tree_lrulock );
 	ldap_pvt_thread_rdwr_wunlock( &bdb->bi_idl_tree_rwlock );
 }
@@ -484,7 +501,7 @@ int
 bdb_idl_fetch_key(
 	BackendDB	*be,
 	DB			*db,
-	DB_TXN		*tid,
+	DB_TXN		*txn,
 	DBT			*key,
 	ID			*ids,
 	DBC                     **saved_cursor,
@@ -557,7 +574,7 @@ bdb_idl_fetch_key(
 
 	/* If we're not reusing an existing cursor, get a new one */
 	if( opflag != DB_NEXT ) {
-		rc = db->cursor( db, tid, &cursor, bdb->bi_db_opflags );
+		rc = db->cursor( db, txn, &cursor, bdb->bi_db_opflags );
 		if( rc != 0 ) {
 			Debug( LDAP_DEBUG_ANY, "=> bdb_idl_fetch_key: "
 				"cursor failed: %s (%d)\n", db_strerror(rc), rc, 0 );
@@ -1072,8 +1089,8 @@ bdb_idl_intersection(
 	 * turn it into a range.
 	 */
 	if ( BDB_IDL_IS_RANGE( b )
-		&& BDB_IDL_FIRST( b ) <= BDB_IDL_FIRST( a )
-		&& BDB_IDL_LAST( b ) >= BDB_IDL_LAST( a ) ) {
+		&& BDB_IDL_RANGE_FIRST( b ) <= BDB_IDL_RANGE_FIRST( a )
+		&& BDB_IDL_RANGE_LAST( b ) >= BDB_IDL_RANGE_LAST( a ) ) {
 		if (idmax - idmin + 1 == a[0])
 		{
 			a[0] = NOID;
@@ -1292,11 +1309,11 @@ int bdb_idl_append_one( ID *ids, ID id )
 {
 	if (BDB_IDL_IS_RANGE( ids )) {
 		/* if already in range, treat as a dup */
-		if (id >= BDB_IDL_FIRST(ids) && id <= BDB_IDL_LAST(ids))
+		if (id >= BDB_IDL_RANGE_FIRST(ids) && id <= BDB_IDL_RANGE_LAST(ids))
 			return -1;
-		if (id < BDB_IDL_FIRST(ids))
+		if (id < BDB_IDL_RANGE_FIRST(ids))
 			ids[1] = id;
-		else if (id > BDB_IDL_LAST(ids))
+		else if (id > BDB_IDL_RANGE_LAST(ids))
 			ids[2] = id;
 		return 0;
 	}
@@ -1340,6 +1357,10 @@ int bdb_idl_append( ID *a, ID *b )
 		return 0;
 	}
 
+	if ( b[0] == 1 ) {
+		return bdb_idl_append_one( a, BDB_IDL_FIRST( b ));
+	}
+
 	ida = BDB_IDL_LAST( a );
 	idb = BDB_IDL_LAST( b );
 	if ( BDB_IDL_IS_RANGE( a ) || BDB_IDL_IS_RANGE(b) ||
@@ -1350,7 +1371,7 @@ int bdb_idl_append( ID *a, ID *b )
 		return 0;
 	}
 
-	if ( b[0] > 1 && ida > idb ) {
+	if ( ida > idb ) {
 		swap = idb;
 		a[a[0]] = idb;
 		b[b[0]] = ida;
@@ -1365,7 +1386,7 @@ int bdb_idl_append( ID *a, ID *b )
 	a[0]++;
 	a[a[0]] = tmp;
 
-	if ( b[0] > 1 ) {
+	{
 		int i = b[0] - 1;
 		AC_MEMCPY(a+a[0]+1, b+2, i * sizeof(ID));
 		a[0] += i;
@@ -1451,7 +1472,7 @@ bdb_idl_sort( ID *ids, ID *tmp )
 /* 8 bit Radix sort + insertion sort
  * 
  * based on code from http://www.cubic.org/docs/radix.htm
- * with improvements by mbackes@symas.com and hyc@symas.com
+ * with improvements by ebackes@symas.com and hyc@symas.com
  *
  * This code is O(n) but has a relatively high constant factor. For lists
  * up to ~50 Quicksort is slightly faster; up to ~100 they are even.

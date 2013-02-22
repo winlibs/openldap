@@ -1,8 +1,8 @@
 /* ldap_int_thread.h - ldap internal thread wrappers header file */
-/* $OpenLDAP: pkg/ldap/include/ldap_int_thread.h,v 1.13.2.5 2008/02/11 23:24:10 kurt Exp $ */
+/* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  * 
- * Copyright 1998-2008 The OpenLDAP Foundation.
+ * Copyright 1998-2012 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -44,6 +44,7 @@ LDAP_BEGIN_DECL
 typedef pthread_t		ldap_int_thread_t;
 typedef pthread_mutex_t		ldap_int_thread_mutex_t;
 typedef pthread_cond_t		ldap_int_thread_cond_t;
+typedef pthread_key_t		ldap_int_thread_key_t;
 
 #define ldap_int_thread_equal(a, b)	pthread_equal((a), (b))
 
@@ -63,9 +64,14 @@ typedef pthread_cond_t		ldap_int_thread_cond_t;
 #define LDAP_THREAD_HAVE_SETCONCURRENCY 1
 #endif
 
-#if 0 && defined( HAVE_PTHREAD_RWLOCK_DESTROY )
+#if defined( HAVE_PTHREAD_RWLOCK_DESTROY )
 #define LDAP_THREAD_HAVE_RDWR 1
 typedef pthread_rwlock_t ldap_int_thread_rdwr_t;
+#endif
+
+#ifndef LDAP_INT_MUTEX_NULL
+#define LDAP_INT_MUTEX_NULL	PTHREAD_MUTEX_INITIALIZER
+#define LDAP_INT_MUTEX_FIRSTCREATE(m)	((void) 0)
 #endif
 
 LDAP_END_DECL
@@ -79,7 +85,7 @@ LDAP_END_DECL
 
 #if defined( HAVE_MACH_CTHREADS_H )
 #	include <mach/cthreads.h>
-#elif defined( HAVE_CTHREAD_H
+#elif defined( HAVE_CTHREADS_H )
 #	include <cthreads.h>
 #endif
 
@@ -88,6 +94,12 @@ LDAP_BEGIN_DECL
 typedef cthread_t		ldap_int_thread_t;
 typedef struct mutex		ldap_int_thread_mutex_t;
 typedef struct condition	ldap_int_thread_cond_t;
+typedef cthread_key_t		ldap_int_thread_key_t;
+
+#ifndef LDAP_INT_MUTEX_NULL
+#define LDAP_INT_MUTEX_NULL	MUTEX_INITIALIZER
+#define LDAP_INT_MUTEX_FIRSTCREATE(m)	((void) 0)
+#endif
 
 LDAP_END_DECL
 
@@ -106,10 +118,16 @@ LDAP_BEGIN_DECL
 typedef pth_t		ldap_int_thread_t;
 typedef pth_mutex_t	ldap_int_thread_mutex_t;
 typedef pth_cond_t	ldap_int_thread_cond_t;
+typedef pth_key_t	ldap_int_thread_key_t;
 
 #if 0
 #define LDAP_THREAD_HAVE_RDWR 1
 typedef pth_rwlock_t ldap_int_thread_rdwr_t;
+#endif
+
+#ifndef LDAP_INT_MUTEX_NULL
+#define LDAP_INT_MUTEX_NULL	PTH_MUTEX_INIT
+#define LDAP_INT_MUTEX_FIRSTCREATE(m)	((void) 0)
 #endif
 
 LDAP_END_DECL
@@ -129,6 +147,7 @@ LDAP_BEGIN_DECL
 typedef thread_t		ldap_int_thread_t;
 typedef mutex_t			ldap_int_thread_mutex_t;
 typedef cond_t			ldap_int_thread_cond_t;
+typedef thread_key_t	ldap_int_thread_key_t;
 
 #define HAVE_REENTRANT_FUNCTIONS 1
 
@@ -139,32 +158,10 @@ typedef cond_t			ldap_int_thread_cond_t;
 #define LDAP_THREAD_HAVE_SETCONCURRENCY 1
 #endif
 
-LDAP_END_DECL
-
-#elif defined( HAVE_LWP )
-/*************************************
- *                                   *
- * thread definitions for SunOS LWP  *
- *                                   *
- *************************************/
-
-#include <lwp/lwp.h>
-#include <lwp/stackdep.h>
-#define LDAP_THREAD_HAVE_SLEEP 1
-
-LDAP_BEGIN_DECL
-
-typedef thread_t		ldap_int_thread_t;
-typedef mon_t			ldap_int_thread_mutex_t;
-struct ldap_int_thread_lwp_cv {
-	int		lcv_created;
-	cv_t		lcv_cv;
-};
-typedef struct ldap_int_thread_lwp_cv ldap_int_thread_cond_t;
-
-#define HAVE_REENTRANT_FUNCTIONS 1
-
-LDAP_END_DECL
+#ifndef LDAP_INT_MUTEX_NULL
+#define LDAP_INT_MUTEX_NULL	DEFAULTMUTEX
+#define LDAP_INT_MUTEX_FIRSTCREATE(m)	((void) 0)
+#endif
 
 #elif defined(HAVE_NT_THREADS)
 /*************************************
@@ -181,6 +178,13 @@ LDAP_BEGIN_DECL
 typedef unsigned long	ldap_int_thread_t;
 typedef HANDLE	ldap_int_thread_mutex_t;
 typedef HANDLE	ldap_int_thread_cond_t;
+typedef DWORD	ldap_int_thread_key_t;
+
+#ifndef LDAP_INT_MUTEX_NULL
+#define LDAP_INT_MUTEX_NULL		((HANDLE)0)
+#define LDAP_INT_MUTEX_FIRSTCREATE(m) \
+		((void) ((m) || ldap_pvt_thread_mutex_init(&(m))))
+#endif
 
 LDAP_END_DECL
 
@@ -201,9 +205,15 @@ LDAP_BEGIN_DECL
 typedef int			ldap_int_thread_t;
 typedef int			ldap_int_thread_mutex_t;
 typedef int			ldap_int_thread_cond_t;
+typedef int			ldap_int_thread_key_t;
 
 #define LDAP_THREAD_HAVE_TPOOL 1
 typedef int			ldap_int_thread_pool_t;
+
+#ifndef LDAP_INT_MUTEX_NULL
+#define LDAP_INT_MUTEX_NULL				0
+#define LDAP_INT_MUTEX_FIRSTCREATE(m)	((void) 0)
+#endif
 
 LDAP_END_DECL
 
@@ -227,6 +237,7 @@ LDAP_F(int) ldap_int_thread_pool_shutdown ( void );
 typedef struct ldap_int_thread_pool_s * ldap_int_thread_pool_t;
 #endif
 
+typedef struct ldap_int_thread_rmutex_s * ldap_int_thread_rmutex_t;
 LDAP_END_DECL
 
 
@@ -247,15 +258,36 @@ LDAP_BEGIN_DECL
 #define LDAP_UINTPTR_T	unsigned long
 #endif
 
-typedef union {
-	unsigned char			*ptr;
-	LDAP_UINTPTR_T			num;
+typedef enum {
+	ldap_debug_magic =	-(int) (((unsigned)-1)/19)
+} ldap_debug_magic_t;
+
+typedef enum {
+	/* Could fill in "locked" etc here later */
+	ldap_debug_state_inited = (int) (((unsigned)-1)/11),
+	ldap_debug_state_destroyed
+} ldap_debug_state_t;
+
+typedef struct {
+	/* Enclosed in magic numbers in the hope of catching overwrites */
+	ldap_debug_magic_t	magic;	/* bit pattern to recognize usages  */
+	LDAP_UINTPTR_T		self;	/* ~(LDAP_UINTPTR_T)&(this struct) */
+	union ldap_debug_mem_u {	/* Dummy memory reference */
+		unsigned char	*ptr;
+		LDAP_UINTPTR_T	num;
+	} mem;
+	ldap_debug_state_t	state;	/* doubles as another magic number */
 } ldap_debug_usage_info_t;
 
 typedef struct {
 	ldap_int_thread_mutex_t	wrapped;
 	ldap_debug_usage_info_t	usage;
+	ldap_int_thread_t	owner;
 } ldap_debug_thread_mutex_t;
+
+#define	LDAP_DEBUG_MUTEX_NULL	{LDAP_INT_MUTEX_NULL, {0,0,{0},0} /*,owner*/}
+#define	LDAP_DEBUG_MUTEX_FIRSTCREATE(m) \
+	((void) ((m).usage.state || ldap_pvt_thread_mutex_init(&(m))))
 
 typedef struct {
 	ldap_int_thread_cond_t	wrapped;
@@ -266,6 +298,17 @@ typedef struct {
 	ldap_int_thread_rdwr_t	wrapped;
 	ldap_debug_usage_info_t	usage;
 } ldap_debug_thread_rdwr_t;
+
+#ifndef NDEBUG
+#define	LDAP_INT_THREAD_ASSERT_MUTEX_OWNER(mutex) \
+	ldap_debug_thread_assert_mutex_owner( \
+		__FILE__, __LINE__, "owns(" #mutex ")", mutex )
+LDAP_F(void) ldap_debug_thread_assert_mutex_owner LDAP_P((
+	LDAP_CONST char *file,
+	int line,
+	LDAP_CONST char *msg,
+	ldap_debug_thread_mutex_t *mutex ));
+#endif /* NDEBUG */
 
 LDAP_END_DECL
 

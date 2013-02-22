@@ -1,5 +1,6 @@
+// $OpenLDAP$
 /*
- * Copyright 2000, OpenLDAP Foundation, All Rights Reserved.
+ * Copyright 2000-2012 The OpenLDAP Foundation, All Rights Reserved.
  * COPYING RESTRICTIONS APPLY, see COPYRIGHT file
  */
 
@@ -8,13 +9,6 @@
 #include "debug.h"
 
 using namespace std;
-
-LDAPCtrl::LDAPCtrl(const LDAPCtrl& c){
-    DEBUG(LDAP_DEBUG_CONSTRUCT,"LDAPCtrl::LDAPCtrl(&)" << endl);
-    m_oid=c.m_oid;
-    m_data=c.m_data;
-    m_isCritical=c.m_isCritical;
-}
 
 LDAPCtrl::LDAPCtrl(const char *oid, bool critical, const char* data,
         int length){
@@ -25,11 +19,12 @@ LDAPCtrl::LDAPCtrl(const char *oid, bool critical, const char* data,
     m_isCritical=critical;
     if (data != 0 && length !=0){
         m_data.assign(data,length);
+        m_noData=false;
     }else{
         m_data=string();
+        m_noData=true;
     }
 }
-
 
 LDAPCtrl::LDAPCtrl(const string& oid, bool critical, const string& data){
     DEBUG(LDAP_DEBUG_CONSTRUCT,"LDAPCtrl::LDAPCtrl()" << endl);
@@ -38,6 +33,7 @@ LDAPCtrl::LDAPCtrl(const string& oid, bool critical, const string& data){
     m_oid=oid;
     m_isCritical=critical;
     m_data=data;
+    m_noData=false;
 }
 
 LDAPCtrl::LDAPCtrl(const LDAPControl* ctrl){
@@ -61,6 +57,10 @@ bool LDAPCtrl::isCritical()const {
     return m_isCritical;
 }
 
+bool LDAPCtrl::hasData() const{
+    return !m_noData;
+}
+ 
 string LDAPCtrl::getData() const {
     DEBUG(LDAP_DEBUG_TRACE,"LDAPCtrl::getData()" << endl);
     return m_data;
@@ -72,9 +72,14 @@ LDAPControl* LDAPCtrl::getControlStruct() const {
     ret->ldctl_oid= new char[m_oid.size() + 1];
     m_oid.copy(ret->ldctl_oid,string::npos);
     ret->ldctl_oid[m_oid.size()]=0;
-    ret->ldctl_value.bv_len=m_data.size();
-    ret->ldctl_value.bv_val= new char[m_data.size()];
-    m_data.copy(ret->ldctl_value.bv_val,string::npos);
+    if ( m_noData ) {
+        ret->ldctl_value.bv_len = 0;
+        ret->ldctl_value.bv_val = NULL;
+    } else {
+        ret->ldctl_value.bv_len=m_data.size();
+        ret->ldctl_value.bv_val= new char[m_data.size()];
+        m_data.copy(ret->ldctl_value.bv_val,string::npos);
+    }
     ret->ldctl_iscritical = ( m_isCritical ? 1:0);
     return ret;
 }

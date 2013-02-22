@@ -1,7 +1,7 @@
-/* $OpenLDAP: pkg/ldap/libraries/liblutil/hash.c,v 1.6.2.4 2008/02/11 23:24:13 kurt Exp $ */
+/* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2000-2008 The OpenLDAP Foundation.
+ * Copyright 2000-2012 The OpenLDAP Foundation.
  * Portions Copyright 2000-2003 Kurt D. Zeilenga.
  * All rights reserved.
  *

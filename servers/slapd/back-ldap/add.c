@@ -1,8 +1,8 @@
 /* add.c - ldap backend add function */
-/* $OpenLDAP: pkg/ldap/servers/slapd/back-ldap/add.c,v 1.53.2.12 2008/02/11 23:24:20 kurt Exp $ */
+/* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1999-2008 The OpenLDAP Foundation.
+ * Copyright 1999-2012 The OpenLDAP Foundation.
  * Portions Copyright 2000-2003 Pierangelo Masarati.
  * Portions Copyright 1999-2003 Howard Chu.
  * All rights reserved.
@@ -70,7 +70,7 @@ ldap_back_add(
 
 	isupdate = be_shadow_update( op );
 	for ( i = 0, a = op->oq_add.rs_e->e_attrs; a; a = a->a_next ) {
-		if ( !isupdate && !get_manageDIT( op ) && a->a_desc->ad_type->sat_no_user_mod  )
+		if ( !isupdate && !get_relax( op ) && a->a_desc->ad_type->sat_no_user_mod  )
 		{
 			continue;
 		}
@@ -93,8 +93,7 @@ ldap_back_add(
 
 retry:
 	ctrls = op->o_ctrls;
-	rs->sr_err = ldap_back_proxy_authz_ctrl( &lc->lc_bound_ndn,
-		li->li_version, &li->li_idassert, op, rs, &ctrls );
+	rs->sr_err = ldap_back_controls_add( op, rs, lc, &ctrls );
 	if ( rs->sr_err != LDAP_SUCCESS ) {
 		send_ldap_result( op, rs );
 		goto cleanup;
@@ -109,13 +108,17 @@ retry:
 		retrying &= ~LDAP_BACK_RETRYING;
 		if ( ldap_back_retry( &lc, op, rs, LDAP_BACK_SENDERR ) ) {
 			/* if the identity changed, there might be need to re-authz */
-			(void)ldap_back_proxy_authz_ctrl_free( op, &ctrls );
+			(void)ldap_back_controls_free( op, rs, &ctrls );
 			goto retry;
 		}
 	}
 
+	ldap_pvt_thread_mutex_lock( &li->li_counter_mutex );
+	ldap_pvt_mp_add( li->li_ops_completed[ SLAP_OP_ADD ], 1 );
+	ldap_pvt_thread_mutex_unlock( &li->li_counter_mutex );
+
 cleanup:
-	(void)ldap_back_proxy_authz_ctrl_free( op, &ctrls );
+	(void)ldap_back_controls_free( op, rs, &ctrls );
 
 	if ( attrs ) {
 		for ( --i; i >= 0; --i ) {

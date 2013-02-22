@@ -600,7 +600,6 @@
     <ClCompile Include="..\..\libraries\libldap\getentry.c" />
     <ClCompile Include="..\..\libraries\libldap\getvalues.c" />
     <ClCompile Include="..\..\libraries\libldap\init.c" />
-    <ClCompile Include="..\..\libraries\libldap\kbind.c" />
     <ClCompile Include="..\..\libraries\libldap\messages.c" />
     <ClCompile Include="..\..\libraries\libldap\modify.c" />
     <ClCompile Include="..\..\libraries\libldap\modrdn.c" />
@@ -619,7 +618,6 @@
     <ClCompile Include="..\..\libraries\libldap\sort.c" />
     <ClCompile Include="..\..\libraries\libldap\sortctrl.c" />
     <ClCompile Include="..\..\libraries\libldap\string.c" />
-    <ClCompile Include="..\..\libraries\libldap\tls.c" />
     <ClCompile Include="..\..\libraries\libldap\unbind.c" />
     <ClCompile Include="..\..\libraries\libldap\url.c" />
     <ClCompile Include="..\..\libraries\libldap\utf-8-conv.c" />
@@ -627,6 +625,8 @@
     <ClCompile Include="..\..\libraries\libldap\util-int.c" />
     <ClCompile Include="..\..\libraries\libldap\vlvctrl.c" />
     <ClCompile Include="..\..\libraries\libldap\whoami.c" />
+    <ClCompile Include="..\..\libraries\libldap\tls_o.c" />
+    <ClCompile Include="..\..\libraries\libldap\tls2.c" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\libraries\libldap\ldap-int.h" />

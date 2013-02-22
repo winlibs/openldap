@@ -1,7 +1,7 @@
-/* $OpenLDAP: pkg/ldap/servers/slapd/back-sql/modify.c,v 1.31.2.12 2008/02/11 23:24:24 kurt Exp $ */
+/* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1999-2008 The OpenLDAP Foundation.
+ * Copyright 1999-2012 The OpenLDAP Foundation.
  * Portions Copyright 1999 Dmitry Kovalev.
  * Portions Copyright 2002 Pierangelo Masarati.
  * All rights reserved.
@@ -67,7 +67,7 @@ backsql_modify( Operation *op, SlapReply *rs )
 			LDAP_SCOPE_BASE, 
 			(time_t)(-1), NULL, dbh, op, rs,
 			slap_anlist_all_attributes,
-			( BACKSQL_ISF_MATCHED | BACKSQL_ISF_GET_ENTRY ) );
+			( BACKSQL_ISF_MATCHED | BACKSQL_ISF_GET_ENTRY | BACKSQL_ISF_GET_OC ) );
 	switch ( rs->sr_err ) {
 	case LDAP_SUCCESS:
 		break;
@@ -102,16 +102,10 @@ backsql_modify( Operation *op, SlapReply *rs )
 		goto done;
 	}
 
-#ifdef BACKSQL_ARBITRARY_KEY
 	Debug( LDAP_DEBUG_TRACE, "   backsql_modify(): "
-		"modifying entry \"%s\" (id=%s)\n", 
+		"modifying entry \"%s\" (id=" BACKSQL_IDFMT ")\n", 
 		bsi.bsi_base_id.eid_dn.bv_val,
-		bsi.bsi_base_id.eid_id.bv_val, 0 );
-#else /* ! BACKSQL_ARBITRARY_KEY */
-	Debug( LDAP_DEBUG_TRACE, "   backsql_modify(): "
-		"modifying entry \"%s\" (id=%ld)\n", 
-		bsi.bsi_base_id.eid_dn.bv_val, bsi.bsi_base_id.eid_id, 0 );
-#endif /* ! BACKSQL_ARBITRARY_KEY */
+		BACKSQL_IDARG(bsi.bsi_base_id.eid_id), 0 );
 
 	if ( get_assert( op ) &&
 			( test_filter( op, &m, get_assertion( op ) )
@@ -124,17 +118,17 @@ backsql_modify( Operation *op, SlapReply *rs )
 
 	slap_mods_opattrs( op, &op->orm_modlist, 1 );
 
-	oc = backsql_id2oc( bi, bsi.bsi_base_id.eid_oc_id );
-	assert( oc != NULL );
+	assert( bsi.bsi_base_id.eid_oc != NULL );
+	oc = bsi.bsi_base_id.eid_oc;
 
-	if ( !acl_check_modlist( op, &m, op->oq_modify.rs_modlist ) ) {
+	if ( !acl_check_modlist( op, &m, op->orm_modlist ) ) {
 		rs->sr_err = LDAP_INSUFFICIENT_ACCESS;
 		e = &m;
 		goto done;
 	}
 
 	rs->sr_err = backsql_modify_internal( op, rs, dbh, oc,
-			&bsi.bsi_base_id, op->oq_modify.rs_modlist );
+			&bsi.bsi_base_id, op->orm_modlist );
 	if ( rs->sr_err != LDAP_SUCCESS ) {
 		e = &m;
 		goto do_transact;
@@ -152,10 +146,10 @@ backsql_modify( Operation *op, SlapReply *rs )
 			goto do_transact;
 		}
 
-		rs->sr_err = entry_schema_check( op, &m, NULL, 0,
+		rs->sr_err = entry_schema_check( op, &m, NULL, 0, 0, NULL,
 			&rs->sr_text, textbuf, sizeof( textbuf ) );
 		if ( rs->sr_err != LDAP_SUCCESS ) {
-			Debug( LDAP_DEBUG_TRACE, "   backsql_add(\"%s\"): "
+			Debug( LDAP_DEBUG_TRACE, "   backsql_modify(\"%s\"): "
 				"entry failed schema check -- aborting\n",
 				m.e_name.bv_val, 0, 0 );
 			e = NULL;
@@ -175,7 +169,6 @@ do_transact:;
 	SQLTransact( SQL_NULL_HENV, dbh, CompletionType );
 
 done:;
-#ifdef SLAP_ACL_HONOR_DISCLOSE
 	if ( e != NULL ) {
 		if ( !access_allowed( op, e, slap_schema.si_ad_entry, NULL,
 					ACL_DISCLOSE, NULL ) )
@@ -189,7 +182,6 @@ done:;
 			}
 		}
 	}
-#endif /* SLAP_ACL_HONOR_DISCLOSE */
 
 	if ( op->o_noop && rs->sr_err == LDAP_SUCCESS ) {
 		rs->sr_err = LDAP_X_NO_OPERATION;
@@ -199,7 +191,7 @@ done:;
 	slap_graduate_commit_csn( op );
 
 	if ( !BER_BVISNULL( &bsi.bsi_base_id.eid_ndn ) ) {
-		(void)backsql_free_entryID( op, &bsi.bsi_base_id, 0 );
+		(void)backsql_free_entryID( &bsi.bsi_base_id, 0, op->o_tmpmemctx );
 	}
 
 	if ( !BER_BVISNULL( &m.e_nname ) ) {

@@ -1,8 +1,8 @@
 /* operational.c - monitor backend operational attributes function */
-/* $OpenLDAP: pkg/ldap/servers/slapd/back-monitor/operational.c,v 1.14.2.5 2008/02/11 23:24:23 kurt Exp $ */
+/* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2001-2008 The OpenLDAP Foundation.
+ * Copyright 2001-2012 The OpenLDAP Foundation.
  * Portions Copyright 2001-2003 Pierangelo Masarati.
  * All rights reserved.
  *
@@ -43,11 +43,16 @@ monitor_back_operational(
 
 	assert( rs->sr_entry != NULL );
 
-	for ( ap = &rs->sr_operational_attrs; *ap; ap = &(*ap)->a_next )
-		/* just count */ ;
+	for ( ap = &rs->sr_operational_attrs; *ap; ap = &(*ap)->a_next ) {
+		if ( (*ap)->a_desc == slap_schema.si_ad_hasSubordinates ) {
+			break;
+		}
+	}
 
-	if ( SLAP_OPATTRS( rs->sr_attr_flags ) ||
-			ad_inlist( slap_schema.si_ad_hasSubordinates, rs->sr_attrs ) )
+	if ( *ap == NULL &&
+		attr_find( rs->sr_entry->e_attrs, slap_schema.si_ad_hasSubordinates ) == NULL &&
+		( SLAP_OPATTRS( rs->sr_attr_flags ) ||
+			ad_inlist( slap_schema.si_ad_hasSubordinates, rs->sr_attrs ) ) )
 	{
 		int			hs;
 		monitor_entry_t	*mp;
@@ -62,6 +67,6 @@ monitor_back_operational(
 		ap = &(*ap)->a_next;
 	}
 	
-	return 0;
+	return LDAP_SUCCESS;
 }
 

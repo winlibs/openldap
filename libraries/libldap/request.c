@@ -1,7 +1,7 @@
-/* $OpenLDAP: pkg/ldap/libraries/libldap/request.c,v 1.103.2.21 2008/05/23 16:45:07 quanah Exp $ */
+/* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2008 The OpenLDAP Foundation.
+ * Copyright 1998-2012 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -53,6 +53,29 @@
 #include "ldap-int.h"
 #include "lber.h"
 
+/* used by ldap_send_server_request and ldap_new_connection */
+#ifdef LDAP_R_COMPILE
+#define LDAP_CONN_LOCK_IF(nolock) \
+	{ if (nolock) LDAP_MUTEX_LOCK( &ld->ld_conn_mutex ); }
+#define LDAP_CONN_UNLOCK_IF(nolock) \
+	{ if (nolock) LDAP_MUTEX_UNLOCK( &ld->ld_conn_mutex ); }
+#define LDAP_REQ_LOCK_IF(nolock) \
+	{ if (nolock) LDAP_MUTEX_LOCK( &ld->ld_req_mutex ); }
+#define LDAP_REQ_UNLOCK_IF(nolock) \
+	{ if (nolock) LDAP_MUTEX_UNLOCK( &ld->ld_req_mutex ); }
+#define LDAP_RES_LOCK_IF(nolock) \
+	{ if (nolock) LDAP_MUTEX_LOCK( &ld->ld_res_mutex ); }
+#define LDAP_RES_UNLOCK_IF(nolock) \
+	{ if (nolock) LDAP_MUTEX_UNLOCK( &ld->ld_res_mutex ); }
+#else
+#define LDAP_CONN_LOCK_IF(nolock)
+#define LDAP_CONN_UNLOCK_IF(nolock)
+#define LDAP_REQ_LOCK_IF(nolock)
+#define LDAP_REQ_UNLOCK_IF(nolock)
+#define LDAP_RES_LOCK_IF(nolock)
+#define LDAP_RES_UNLOCK_IF(nolock)
+#endif
+
 static LDAPConn *find_connection LDAP_P(( LDAP *ld, LDAPURLDesc *srv, int any ));
 static void use_connection LDAP_P(( LDAP *ld, LDAPConn *lc ));
 static void ldap_free_request_int LDAP_P(( LDAP *ld, LDAPRequest *lr ));
@@ -70,7 +93,8 @@ ldap_alloc_ber_with_options( LDAP *ld )
 {
 	BerElement	*ber;
 
-    if (( ber = ber_alloc_t( ld->ld_lberoptions )) == NULL ) {
+	ber = ber_alloc_t( ld->ld_lberoptions );
+	if ( ber == NULL ) {
 		ld->ld_errno = LDAP_NO_MEMORY;
 	}
 
@@ -81,10 +105,12 @@ ldap_alloc_ber_with_options( LDAP *ld )
 void
 ldap_set_ber_options( LDAP *ld, BerElement *ber )
 {
+	/* ld_lberoptions is constant, hence no lock */
 	ber->ber_options = ld->ld_lberoptions;
 }
 
 
+/* sets needed mutexes - no mutexes set to this point */
 ber_int_t
 ldap_send_initial_request(
 	LDAP *ld,
@@ -94,22 +120,21 @@ ldap_send_initial_request(
 	ber_int_t msgid)
 {
 	int rc = 1;
+	ber_socket_t sd = AC_SOCKET_INVALID;
 
 	Debug( LDAP_DEBUG_TRACE, "ldap_send_initial_request\n", 0, 0, 0 );
 
-#ifdef LDAP_R_COMPILE
-	ldap_pvt_thread_mutex_lock( &ld->ld_req_mutex );
-#endif
-	if ( ber_sockbuf_ctrl( ld->ld_sb, LBER_SB_OPT_GET_FD, NULL ) == -1 ) {
+	LDAP_MUTEX_LOCK( &ld->ld_conn_mutex );
+	if ( ber_sockbuf_ctrl( ld->ld_sb, LBER_SB_OPT_GET_FD, &sd ) == -1 ) {
 		/* not connected yet */
 		rc = ldap_open_defconn( ld );
 
 	}
-#ifdef LDAP_R_COMPILE
-	ldap_pvt_thread_mutex_unlock( &ld->ld_req_mutex );
-#endif
+	if ( ld->ld_defconn && ld->ld_defconn->lconn_status == LDAP_CONNST_CONNECTING )
+		rc = ldap_int_check_async_open( ld, sd );
 	if( rc < 0 ) {
 		ber_free( ber, 1 );
+		LDAP_MUTEX_UNLOCK( &ld->ld_conn_mutex );
 		return( -1 );
 	} else if ( rc == 0 ) {
 		Debug( LDAP_DEBUG_TRACE,
@@ -120,27 +145,33 @@ ldap_send_initial_request(
 #ifdef LDAP_CONNECTIONLESS
 	if (LDAP_IS_UDP(ld)) {
 		if (msgtype == LDAP_REQ_BIND) {
+			LDAP_MUTEX_LOCK( &ld->ld_options.ldo_mutex );
 			if (ld->ld_options.ldo_cldapdn)
 				ldap_memfree(ld->ld_options.ldo_cldapdn);
 			ld->ld_options.ldo_cldapdn = ldap_strdup(dn);
+			ber_free( ber, 1 );
+			LDAP_MUTEX_UNLOCK( &ld->ld_options.ldo_mutex );
+			LDAP_MUTEX_UNLOCK( &ld->ld_conn_mutex );
 			return 0;
 		}
 		if (msgtype != LDAP_REQ_ABANDON && msgtype != LDAP_REQ_SEARCH)
+		{
+			ber_free( ber, 1 );
+			LDAP_MUTEX_UNLOCK( &ld->ld_conn_mutex );
 			return LDAP_PARAM_ERROR;
+		}
 	}
 #endif
-#ifdef LDAP_R_COMPILE
-	ldap_pvt_thread_mutex_lock( &ld->ld_req_mutex );
-#endif
+	LDAP_MUTEX_LOCK( &ld->ld_req_mutex );
 	rc = ldap_send_server_request( ld, ber, msgid, NULL,
-		NULL, NULL, NULL );
-#ifdef LDAP_R_COMPILE
-	ldap_pvt_thread_mutex_unlock( &ld->ld_req_mutex );
-#endif
+		NULL, NULL, NULL, 0, 0 );
+	LDAP_MUTEX_UNLOCK( &ld->ld_req_mutex );
+	LDAP_MUTEX_UNLOCK( &ld->ld_conn_mutex );
 	return(rc);
 }
 
 
+/* protected by conn_mutex */
 int
 ldap_int_flush_request(
 	LDAP *ld,
@@ -148,7 +179,8 @@ ldap_int_flush_request(
 {
 	LDAPConn *lc = lr->lr_conn;
 
-	if ( ber_flush( lc->lconn_sb, lr->lr_ber, 0 ) != 0 ) {
+	LDAP_ASSERT_MUTEX_OWNER( &ld->ld_conn_mutex );
+	if ( ber_flush2( lc->lconn_sb, lr->lr_ber, LBER_FLUSH_FREE_NEVER ) != 0 ) {
 		if ( sock_errno() == EAGAIN ) {
 			/* need to continue write later */
 			lr->lr_status = LDAP_REQST_WRITING;
@@ -170,9 +202,17 @@ ldap_int_flush_request(
 
 		/* sent -- waiting for a response */
 		ldap_mark_select_read( ld, lc->lconn_sb );
+		ldap_clear_select_write( ld, lc->lconn_sb );
 	}
 	return 0;
 }
+
+/*
+ * protected by req_mutex
+ * if m_noconn then protect using conn_lock
+ * else already protected with conn_lock
+ * if m_res then also protected by res_mutex
+ */
 
 int
 ldap_send_server_request(
@@ -180,43 +220,83 @@ ldap_send_server_request(
 	BerElement *ber,
 	ber_int_t msgid,
 	LDAPRequest *parentreq,
-	LDAPURLDesc *srvlist,
+	LDAPURLDesc **srvlist,
 	LDAPConn *lc,
-	LDAPreqinfo *bind )
+	LDAPreqinfo *bind,
+	int m_noconn,
+	int m_res )
 {
 	LDAPRequest	*lr;
-	int incparent, rc;
+	int		incparent, rc;
 
+	LDAP_ASSERT_MUTEX_OWNER( &ld->ld_req_mutex );
 	Debug( LDAP_DEBUG_TRACE, "ldap_send_server_request\n", 0, 0, 0 );
 
 	incparent = 0;
 	ld->ld_errno = LDAP_SUCCESS;	/* optimistic */
 
+	LDAP_CONN_LOCK_IF(m_noconn);
 	if ( lc == NULL ) {
 		if ( srvlist == NULL ) {
 			lc = ld->ld_defconn;
 		} else {
-			lc = find_connection( ld, srvlist, 1 );
+			lc = find_connection( ld, *srvlist, 1 );
 			if ( lc == NULL ) {
 				if ( (bind != NULL) && (parentreq != NULL) ) {
 					/* Remember the bind in the parent */
 					incparent = 1;
 					++parentreq->lr_outrefcnt;
 				}
-				lc = ldap_new_connection( ld, srvlist, 0, 1, bind );
+				lc = ldap_new_connection( ld, srvlist, 0,
+					1, bind, 1, m_res );
 			}
 		}
 	}
 
+	/* async connect... */
+	if ( lc != NULL && lc->lconn_status == LDAP_CONNST_CONNECTING ) {
+		ber_socket_t	sd = AC_SOCKET_ERROR;
+		struct timeval	tv = { 0 };
+
+		ber_sockbuf_ctrl( lc->lconn_sb, LBER_SB_OPT_GET_FD, &sd );
+
+		/* poll ... */
+		switch ( ldap_int_poll( ld, sd, &tv ) ) {
+		case 0:
+			/* go on! */
+			lc->lconn_status = LDAP_CONNST_CONNECTED;
+			break;
+
+		case -2:
+			/* async only occurs if a network timeout is set */
+
+			/* honor network timeout */
+			LDAP_MUTEX_LOCK( &ld->ld_options.ldo_mutex );
+			if ( time( NULL ) - lc->lconn_created <= ld->ld_options.ldo_tm_net.tv_sec )
+			{
+				/* caller will have to call again */
+				ld->ld_errno = LDAP_X_CONNECTING;
+			}
+			LDAP_MUTEX_UNLOCK( &ld->ld_options.ldo_mutex );
+			/* fallthru */
+
+		default:
+			/* error */
+			break;
+		}
+	}
+
 	if ( lc == NULL || lc->lconn_status != LDAP_CONNST_CONNECTED ) {
-		ber_free( ber, 1 );
 		if ( ld->ld_errno == LDAP_SUCCESS ) {
 			ld->ld_errno = LDAP_SERVER_DOWN;
 		}
+
+		ber_free( ber, 1 );
 		if ( incparent ) {
 			/* Forget about the bind */
 			--parentreq->lr_outrefcnt; 
 		}
+		LDAP_CONN_UNLOCK_IF(m_noconn);
 		return( -1 );
 	}
 
@@ -226,10 +306,13 @@ ldap_send_server_request(
 	if ( LDAP_IS_UDP( ld )) {
 		BerElement tmpber = *ber;
 		ber_rewind( &tmpber );
+		LDAP_MUTEX_LOCK( &ld->ld_options.ldo_mutex );
 		rc = ber_write( &tmpber, ld->ld_options.ldo_peer,
 			sizeof( struct sockaddr ), 0 );
+		LDAP_MUTEX_UNLOCK( &ld->ld_options.ldo_mutex );
 		if ( rc == -1 ) {
 			ld->ld_errno = LDAP_ENCODING_ERROR;
+			LDAP_CONN_UNLOCK_IF(m_noconn);
 			return rc;
 		}
 	}
@@ -247,9 +330,12 @@ ldap_send_server_request(
 	{
 		rc = -1;
 	}
-	if ( rc ) return rc;
+	if ( rc ) {
+		LDAP_CONN_UNLOCK_IF(m_noconn);
+		return rc;
+	}
 
-	lr = (LDAPRequest *)LDAP_CALLOC( 1, sizeof( LDAPRequest ));
+	lr = (LDAPRequest *)LDAP_CALLOC( 1, sizeof( LDAPRequest ) );
 	if ( lr == NULL ) {
 		ld->ld_errno = LDAP_NO_MEMORY;
 		ldap_free_connection( ld, lc, 0, 0 );
@@ -258,6 +344,7 @@ ldap_send_server_request(
 			/* Forget about the bind */
 			--parentreq->lr_outrefcnt; 
 		}
+		LDAP_CONN_UNLOCK_IF(m_noconn);
 		return( -1 );
 	} 
 	lr->lr_msgid = msgid;
@@ -305,7 +392,8 @@ ldap_send_server_request(
 	}
 
 	lr->lr_prev = NULL;
-	if (( lr->lr_next = ld->ld_requests ) != NULL ) {
+	lr->lr_next = ld->ld_requests;
+	if ( lr->lr_next != NULL ) {
 		lr->lr_next->lr_prev = lr;
 	}
 	ld->ld_requests = lr;
@@ -315,16 +403,48 @@ ldap_send_server_request(
 		msgid = -1;
 	}
 
+	LDAP_CONN_UNLOCK_IF(m_noconn);
 	return( msgid );
 }
 
+/* return 0 if no StartTLS ext, 1 if present, 2 if critical */
+static int
+find_tls_ext( LDAPURLDesc *srv )
+{
+	int i, crit;
+	char *ext;
+
+	if ( !srv->lud_exts )
+		return 0;
+
+	for (i=0; srv->lud_exts[i]; i++) {
+		crit = 0;
+		ext = srv->lud_exts[i];
+		if ( ext[0] == '!') {
+			ext++;
+			crit = 1;
+		}
+		if ( !strcasecmp( ext, "StartTLS" ) ||
+			!strcasecmp( ext, "X-StartTLS" ) ||
+			!strcmp( ext, LDAP_EXOP_START_TLS )) {
+			return crit + 1;
+		}
+	}
+	return 0;
+}
+
+/*
+ * always protected by conn_mutex
+ * optionally protected by req_mutex and res_mutex
+ */
 LDAPConn *
-ldap_new_connection( LDAP *ld, LDAPURLDesc *srvlist, int use_ldsb,
-	int connect, LDAPreqinfo *bind )
+ldap_new_connection( LDAP *ld, LDAPURLDesc **srvlist, int use_ldsb,
+	int connect, LDAPreqinfo *bind, int m_req, int m_res )
 {
 	LDAPConn	*lc;
-	LDAPURLDesc	*srv;
+	int		async = 0;
 
+	LDAP_ASSERT_MUTEX_OWNER( &ld->ld_conn_mutex );
 	Debug( LDAP_DEBUG_TRACE, "ldap_new_connection %d %d %d\n",
 		use_ldsb, connect, (bind != NULL) );
 	/*
@@ -351,9 +471,21 @@ ldap_new_connection( LDAP *ld, LDAPURLDesc *srvlist, int use_ldsb,
 	}
 
 	if ( connect ) {
-		for ( srv = srvlist; srv != NULL; srv = srv->lud_next ) {
-			if ( ldap_int_open_connection( ld, lc, srv, 0 ) != -1 )
-			{
+		LDAPURLDesc	**srvp, *srv = NULL;
+
+		async = LDAP_BOOL_GET( &ld->ld_options, LDAP_BOOL_CONNECT_ASYNC );
+
+		for ( srvp = srvlist; *srvp != NULL; srvp = &(*srvp)->lud_next ) {
+			int		rc;
+
+			rc = ldap_int_open_connection( ld, lc, *srvp, async );
+			if ( rc != -1 ) {
+				srv = *srvp;
+
+				if ( ld->ld_urllist_proc && ( !async || rc != -2 ) ) {
+					ld->ld_urllist_proc( ld, srvlist, srvp, ld->ld_urllist_params );
+				}
+
 				break;
 			}
 		}
@@ -370,21 +502,41 @@ ldap_new_connection( LDAP *ld, LDAPURLDesc *srvlist, int use_ldsb,
 		lc->lconn_server = ldap_url_dup( srv );
 	}
 
-	lc->lconn_status = LDAP_CONNST_CONNECTED;
-#ifdef LDAP_R_COMPILE
-	ldap_pvt_thread_mutex_lock( &ld->ld_conn_mutex );
-#endif
+	lc->lconn_status = async ? LDAP_CONNST_CONNECTING : LDAP_CONNST_CONNECTED;
 	lc->lconn_next = ld->ld_conns;
 	ld->ld_conns = lc;
-#ifdef LDAP_R_COMPILE
-	ldap_pvt_thread_mutex_unlock( &ld->ld_conn_mutex );
-#endif
 
-	/*
-	 * XXX for now, we always do a synchronous bind.  This will have
-	 * to change in the long run...
-	 */
-	if ( bind != NULL) {
+	if ( connect ) {
+#ifdef HAVE_TLS
+		if ( lc->lconn_server->lud_exts ) {
+			int rc, ext = find_tls_ext( lc->lconn_server );
+			if ( ext ) {
+				LDAPConn	*savedefconn;
+
+				savedefconn = ld->ld_defconn;
+				++lc->lconn_refcnt;	/* avoid premature free */
+				ld->ld_defconn = lc;
+
+				LDAP_REQ_UNLOCK_IF(m_req);
+				LDAP_MUTEX_UNLOCK( &ld->ld_conn_mutex );
+				LDAP_RES_UNLOCK_IF(m_res);
+				rc = ldap_start_tls_s( ld, NULL, NULL );
+				LDAP_RES_LOCK_IF(m_res);
+				LDAP_MUTEX_LOCK( &ld->ld_conn_mutex );
+				LDAP_REQ_LOCK_IF(m_req);
+				ld->ld_defconn = savedefconn;
+				--lc->lconn_refcnt;
+
+				if ( rc != LDAP_SUCCESS && ext == 2 ) {
+					ldap_free_connection( ld, lc, 1, 0 );
+					return NULL;
+				}
+			}
+		}
+#endif
+	}
+
+	if ( bind != NULL ) {
 		int		err = 0;
 		LDAPConn	*savedefconn;
 
@@ -397,7 +549,7 @@ ldap_new_connection( LDAP *ld, LDAPURLDesc *srvlist, int use_ldsb,
 		if ( ld->ld_rebind_proc != NULL) {
 			LDAPURLDesc	*srvfunc;
 
-			srvfunc = ldap_url_dup( srvlist );
+			srvfunc = ldap_url_dup( *srvlist );
 			if ( srvfunc == NULL ) {
 				ld->ld_errno = LDAP_NO_MEMORY;
 				err = -1;
@@ -407,17 +559,15 @@ ldap_new_connection( LDAP *ld, LDAPURLDesc *srvlist, int use_ldsb,
 				ld->ld_defconn = lc;
 
 				Debug( LDAP_DEBUG_TRACE, "Call application rebind_proc\n", 0, 0, 0);
-#ifdef LDAP_R_COMPILE
-				ldap_pvt_thread_mutex_unlock( &ld->ld_req_mutex );
-				ldap_pvt_thread_mutex_unlock( &ld->ld_res_mutex );
-#endif
+				LDAP_REQ_UNLOCK_IF(m_req);
+				LDAP_MUTEX_UNLOCK( &ld->ld_conn_mutex );
+				LDAP_RES_UNLOCK_IF(m_res);
 				err = (*ld->ld_rebind_proc)( ld,
 					bind->ri_url, bind->ri_request, bind->ri_msgid,
 					ld->ld_rebind_params );
-#ifdef LDAP_R_COMPILE
-				ldap_pvt_thread_mutex_lock( &ld->ld_res_mutex );
-				ldap_pvt_thread_mutex_lock( &ld->ld_req_mutex );
-#endif
+				LDAP_RES_LOCK_IF(m_res);
+				LDAP_MUTEX_LOCK( &ld->ld_conn_mutex );
+				LDAP_REQ_LOCK_IF(m_req);
 
 				ld->ld_defconn = savedefconn;
 				--lc->lconn_refcnt;
@@ -429,6 +579,7 @@ ldap_new_connection( LDAP *ld, LDAPURLDesc *srvlist, int use_ldsb,
 				}
 				ldap_free_urldesc( srvfunc );
 			}
+
 		} else {
 			int		msgid, rc;
 			struct berval	passwd = BER_BVNULL;
@@ -441,10 +592,9 @@ ldap_new_connection( LDAP *ld, LDAPURLDesc *srvlist, int use_ldsb,
 				"anonymous rebind via ldap_sasl_bind(\"\")\n",
 				0, 0, 0);
 
-#ifdef LDAP_R_COMPILE
-			ldap_pvt_thread_mutex_unlock( &ld->ld_req_mutex );
-			ldap_pvt_thread_mutex_unlock( &ld->ld_res_mutex );
-#endif
+			LDAP_REQ_UNLOCK_IF(m_req);
+			LDAP_MUTEX_UNLOCK( &ld->ld_conn_mutex );
+			LDAP_RES_UNLOCK_IF(m_res);
 			rc = ldap_sasl_bind( ld, "", LDAP_SASL_SIMPLE, &passwd,
 				NULL, NULL, &msgid );
 			if ( rc != LDAP_SUCCESS ) {
@@ -482,16 +632,15 @@ ldap_new_connection( LDAP *ld, LDAPURLDesc *srvlist, int use_ldsb,
 							"ldap_new_connection %p: "
 							"unexpected response %d "
 							"from BIND request id=%d\n",
-							(void *)ld, ldap_msgtype( res ), msgid );
+							(void *) ld, ldap_msgtype( res ), msgid );
 						err = -1;
 						break;
 					}
 				}
 			}
-#ifdef LDAP_R_COMPILE
-			ldap_pvt_thread_mutex_lock( &ld->ld_res_mutex );
-			ldap_pvt_thread_mutex_lock( &ld->ld_req_mutex );
-#endif
+			LDAP_RES_LOCK_IF(m_res);
+			LDAP_MUTEX_LOCK( &ld->ld_conn_mutex );
+			LDAP_REQ_LOCK_IF(m_req);
 			ld->ld_defconn = savedefconn;
 			--lc->lconn_refcnt;
 
@@ -503,11 +652,11 @@ ldap_new_connection( LDAP *ld, LDAPURLDesc *srvlist, int use_ldsb,
 		if ( lc != NULL )
 			lc->lconn_rebind_inprogress = 0;
 	}
-
 	return( lc );
 }
 
 
+/* protected by ld_conn_mutex */
 static LDAPConn *
 find_connection( LDAP *ld, LDAPURLDesc *srv, int any )
 /*
@@ -520,9 +669,7 @@ find_connection( LDAP *ld, LDAPURLDesc *srv, int any )
 	int lcu_port, lsu_port;
 	int found = 0;
 
-#ifdef LDAP_R_COMPILE
-	ldap_pvt_thread_mutex_lock( &ld->ld_conn_mutex );
-#endif
+	LDAP_ASSERT_MUTEX_OWNER( &ld->ld_conn_mutex );
 	for ( lc = ld->ld_conns; lc != NULL; lc = lc->lconn_next ) {
 		lcu = lc->lconn_server;
 		lcu_port = ldap_pvt_url_scheme_port( lcu->lud_scheme,
@@ -534,8 +681,7 @@ find_connection( LDAP *ld, LDAPURLDesc *srv, int any )
 
 			if ( lsu_port == lcu_port
 				&& strcmp( lcu->lud_scheme, lsu->lud_scheme ) == 0
-				&& lcu->lud_host != NULL && *lcu->lud_host != '\0'
-			    && lsu->lud_host != NULL && *lsu->lud_host != '\0'
+				&& lcu->lud_host != NULL && lsu->lud_host != NULL
 				&& strcasecmp( lsu->lud_host, lcu->lud_host ) == 0 )
 			{
 				found = 1;
@@ -547,51 +693,36 @@ find_connection( LDAP *ld, LDAPURLDesc *srv, int any )
 		if ( found )
 			break;
 	}
-#ifdef LDAP_R_COMPILE
-	ldap_pvt_thread_mutex_unlock( &ld->ld_conn_mutex );
-#endif
 	return lc;
 }
 
 
 
+/* protected by ld_conn_mutex */
 static void
 use_connection( LDAP *ld, LDAPConn *lc )
 {
+	LDAP_ASSERT_MUTEX_OWNER( &ld->ld_conn_mutex );
 	++lc->lconn_refcnt;
 	lc->lconn_lastused = time( NULL );
 }
 
 
+/* protected by ld_conn_mutex */
 void
 ldap_free_connection( LDAP *ld, LDAPConn *lc, int force, int unbind )
 {
 	LDAPConn	*tmplc, *prevlc;
 
+	LDAP_ASSERT_MUTEX_OWNER( &ld->ld_conn_mutex );
 	Debug( LDAP_DEBUG_TRACE,
 		"ldap_free_connection %d %d\n",
 		force, unbind, 0 );
 
 	if ( force || --lc->lconn_refcnt <= 0 ) {
-		if ( lc->lconn_status == LDAP_CONNST_CONNECTED ) {
-			ldap_mark_select_clear( ld, lc->lconn_sb );
-			if ( unbind ) {
-				ldap_send_unbind( ld, lc->lconn_sb,
-						NULL, NULL );
-			}
-		}
+		/* remove from connections list first */
 
-		if ( lc->lconn_ber != NULL ) {
-			ber_free( lc->lconn_ber, 1 );
-		}
-
-		ldap_int_sasl_close( ld, lc );
-
-		prevlc = NULL;
-#ifdef LDAP_R_COMPILE
-	ldap_pvt_thread_mutex_lock( &ld->ld_conn_mutex );
-#endif
-		for ( tmplc = ld->ld_conns;
+		for ( prevlc = NULL, tmplc = ld->ld_conns;
 			tmplc != NULL;
 			tmplc = tmplc->lconn_next )
 		{
@@ -608,17 +739,56 @@ ldap_free_connection( LDAP *ld, LDAPConn *lc, int force, int unbind )
 			}
 			prevlc = tmplc;
 		}
-#ifdef LDAP_R_COMPILE
-	ldap_pvt_thread_mutex_unlock( &ld->ld_conn_mutex );
-#endif
-		ldap_free_urllist( lc->lconn_server );
-#ifdef LDAP_API_FEATURE_X_OPENLDAP_V2_KBIND
-		if ( lc->lconn_krbinstance != NULL ) {
-			LDAP_FREE( lc->lconn_krbinstance );
+
+		/* process connection callbacks */
+		{
+			struct ldapoptions *lo;
+			ldaplist *ll;
+			ldap_conncb *cb;
+
+			lo = &ld->ld_options;
+			LDAP_MUTEX_LOCK( &lo->ldo_mutex );
+			if ( lo->ldo_conn_cbs ) {
+				for ( ll=lo->ldo_conn_cbs; ll; ll=ll->ll_next ) {
+					cb = ll->ll_data;
+					cb->lc_del( ld, lc->lconn_sb, cb );
+				}
+			}
+			LDAP_MUTEX_UNLOCK( &lo->ldo_mutex );
+			lo = LDAP_INT_GLOBAL_OPT();
+			LDAP_MUTEX_LOCK( &lo->ldo_mutex );
+			if ( lo->ldo_conn_cbs ) {
+				for ( ll=lo->ldo_conn_cbs; ll; ll=ll->ll_next ) {
+					cb = ll->ll_data;
+					cb->lc_del( ld, lc->lconn_sb, cb );
+				}
+			}
+			LDAP_MUTEX_UNLOCK( &lo->ldo_mutex );
 		}
+
+		if ( lc->lconn_status == LDAP_CONNST_CONNECTED ) {
+			ldap_mark_select_clear( ld, lc->lconn_sb );
+			if ( unbind ) {
+				ldap_send_unbind( ld, lc->lconn_sb,
+						NULL, NULL );
+			}
+		}
+
+		if ( lc->lconn_ber != NULL ) {
+			ber_free( lc->lconn_ber, 1 );
+		}
+
+		ldap_int_sasl_close( ld, lc );
+#ifdef HAVE_GSSAPI
+		ldap_int_gssapi_close( ld, lc );
 #endif
 
-		/* FIXME: is this at all possible? */
+		ldap_free_urllist( lc->lconn_server );
+
+		/* FIXME: is this at all possible?
+		 * ldap_ld_free() in unbind.c calls ldap_free_connection()
+		 * with force == 1 __after__ explicitly calling
+		 * ldap_free_request() on all requests */
 		if ( force ) {
 			LDAPRequest	*lr;
 
@@ -632,11 +802,13 @@ ldap_free_connection( LDAP *ld, LDAPConn *lc, int force, int unbind )
 				lr = lr_next;
 			}
 		}
+
 		if ( lc->lconn_sb != ld->ld_sb ) {
 			ber_sockbuf_free( lc->lconn_sb );
 		} else {
 			ber_int_sb_close( lc->lconn_sb );
 		}
+
 		if ( lc->lconn_rebind_queue != NULL) {
 			int i;
 			for( i = 0; lc->lconn_rebind_queue[i] != NULL; i++ ) {
@@ -644,10 +816,13 @@ ldap_free_connection( LDAP *ld, LDAPConn *lc, int force, int unbind )
 			}
 			LDAP_FREE( lc->lconn_rebind_queue );
 		}
+
 		LDAP_FREE( lc );
+
 		Debug( LDAP_DEBUG_TRACE,
 			"ldap_free_connection: actually freed\n",
 			0, 0, 0 );
+
 	} else {
 		lc->lconn_lastused = time( NULL );
 		Debug( LDAP_DEBUG_TRACE, "ldap_free_connection: refcnt %d\n",
@@ -656,6 +831,7 @@ ldap_free_connection( LDAP *ld, LDAPConn *lc, int force, int unbind )
 }
 
 
+/* Protects self with ld_conn_mutex */
 #ifdef LDAP_DEBUG
 void
 ldap_dump_connection( LDAP *ld, LDAPConn *lconns, int all )
@@ -663,99 +839,116 @@ ldap_dump_connection( LDAP *ld, LDAPConn *lconns, int all )
 	LDAPConn	*lc;
    	char		timebuf[32];
 
-	fprintf( stderr, "** ld %p Connection%s:\n", (void *)ld, all ? "s" : "" );
+	Debug( LDAP_DEBUG_TRACE, "** ld %p Connection%s:\n", (void *)ld, all ? "s" : "", 0 );
+	LDAP_MUTEX_LOCK( &ld->ld_conn_mutex );
 	for ( lc = lconns; lc != NULL; lc = lc->lconn_next ) {
 		if ( lc->lconn_server != NULL ) {
-			fprintf( stderr, "* host: %s  port: %d%s\n",
-			    ( lc->lconn_server->lud_host == NULL ) ? "(null)"
-			    : lc->lconn_server->lud_host,
-			    lc->lconn_server->lud_port, ( lc->lconn_sb ==
-			    ld->ld_sb ) ? "  (default)" : "" );
+			Debug( LDAP_DEBUG_TRACE, "* host: %s  port: %d%s\n",
+				( lc->lconn_server->lud_host == NULL ) ? "(null)"
+				: lc->lconn_server->lud_host,
+				lc->lconn_server->lud_port, ( lc->lconn_sb ==
+				ld->ld_sb ) ? "  (default)" : "" );
 		}
-		fprintf( stderr, "  refcnt: %d  status: %s\n", lc->lconn_refcnt,
-		    ( lc->lconn_status == LDAP_CONNST_NEEDSOCKET ) ?
-		    "NeedSocket" : ( lc->lconn_status ==
-		    LDAP_CONNST_CONNECTING ) ? "Connecting" : "Connected" );
-		fprintf( stderr, "  last used: %s",
-		    ldap_pvt_ctime( &lc->lconn_lastused, timebuf ));
-		if( lc->lconn_rebind_inprogress ) {
-			fprintf( stderr, "  rebind in progress\n");
-			if( lc->lconn_rebind_queue != NULL) {
-				int i = 0;
-				for( ;lc->lconn_rebind_queue[i] != NULL; i++) {
-					int j = 0;
-					for( ;lc->lconn_rebind_queue[i][j] != 0; j++) {
-						fprintf( stderr, "    queue %d entry %d - %s\n",
-							i, j, lc->lconn_rebind_queue[i][j]);
+		Debug( LDAP_DEBUG_TRACE, "  refcnt: %d  status: %s\n", lc->lconn_refcnt,
+			( lc->lconn_status == LDAP_CONNST_NEEDSOCKET )
+				? "NeedSocket" :
+				( lc->lconn_status == LDAP_CONNST_CONNECTING )
+					? "Connecting" : "Connected", 0 );
+		Debug( LDAP_DEBUG_TRACE, "  last used: %s%s\n",
+			ldap_pvt_ctime( &lc->lconn_lastused, timebuf ),
+			lc->lconn_rebind_inprogress ? "  rebind in progress" : "", 0 );
+		if ( lc->lconn_rebind_inprogress ) {
+			if ( lc->lconn_rebind_queue != NULL) {
+				int	i;
+
+				for ( i = 0; lc->lconn_rebind_queue[i] != NULL; i++ ) {
+					int	j;
+					for( j = 0; lc->lconn_rebind_queue[i][j] != 0; j++ ) {
+						Debug( LDAP_DEBUG_TRACE, "    queue %d entry %d - %s\n",
+							i, j, lc->lconn_rebind_queue[i][j] );
 					}
 				}
 			} else {
-				fprintf( stderr, "    queue is empty\n");
+				Debug( LDAP_DEBUG_TRACE, "    queue is empty\n", 0, 0, 0 );
 			}
 		}
-		fprintf(stderr, "\n");
+		Debug( LDAP_DEBUG_TRACE, "\n", 0, 0, 0 );
 		if ( !all ) {
 			break;
 		}
 	}
+	LDAP_MUTEX_UNLOCK( &ld->ld_conn_mutex );
 }
 
 
+/* protected by req_mutex and res_mutex */
 void
 ldap_dump_requests_and_responses( LDAP *ld )
 {
 	LDAPRequest	*lr;
 	LDAPMessage	*lm, *l;
+	int		i;
 
-#ifdef LDAP_R_COMPILE
-	ldap_pvt_thread_mutex_lock( &ld->ld_req_mutex );
-#endif
-	fprintf( stderr, "** ld %p Outstanding Requests:\n", (void *)ld );
-	if (( lr = ld->ld_requests ) == NULL ) {
-		fprintf( stderr, "   Empty\n" );
+	Debug( LDAP_DEBUG_TRACE, "** ld %p Outstanding Requests:\n",
+		(void *)ld, 0, 0 );
+	lr = ld->ld_requests;
+	if ( lr == NULL ) {
+		Debug( LDAP_DEBUG_TRACE, "   Empty\n", 0, 0, 0 );
 	}
-	for ( ; lr != NULL; lr = lr->lr_next ) {
-	    fprintf( stderr, " * msgid %d,  origid %d, status %s\n",
-		lr->lr_msgid, lr->lr_origid,
-		( lr->lr_status == LDAP_REQST_INPROGRESS ) ? "InProgress" :
-		( lr->lr_status == LDAP_REQST_CHASINGREFS ) ? "ChasingRefs" :
-		( lr->lr_status == LDAP_REQST_NOTCONNECTED ) ? "NotConnected" :
-		( lr->lr_status == LDAP_REQST_WRITING) ? "Writing" :
-		( lr->lr_status == LDAP_REQST_COMPLETED ? "RequestCompleted"
-			: "InvalidStatus"));
-	    fprintf( stderr, "   outstanding referrals %d, parent count %d\n",
-		    lr->lr_outrefcnt, lr->lr_parentcnt );
+	for ( i = 0; lr != NULL; lr = lr->lr_next, i++ ) {
+		Debug( LDAP_DEBUG_TRACE, " * msgid %d,  origid %d, status %s\n",
+			lr->lr_msgid, lr->lr_origid,
+			( lr->lr_status == LDAP_REQST_INPROGRESS ) ? "InProgress" :
+			( lr->lr_status == LDAP_REQST_CHASINGREFS ) ? "ChasingRefs" :
+			( lr->lr_status == LDAP_REQST_NOTCONNECTED ) ? "NotConnected" :
+			( lr->lr_status == LDAP_REQST_WRITING ) ? "Writing" :
+			( lr->lr_status == LDAP_REQST_COMPLETED ) ? "RequestCompleted"
+				: "InvalidStatus" );
+		Debug( LDAP_DEBUG_TRACE, "   outstanding referrals %d, parent count %d\n",
+			lr->lr_outrefcnt, lr->lr_parentcnt, 0 );
 	}
-#ifdef LDAP_R_COMPILE
-	ldap_pvt_thread_mutex_unlock( &ld->ld_req_mutex );
-#endif
-	fprintf( stderr, "** ld %p Response Queue:\n", (void *)ld );
-	if (( lm = ld->ld_responses ) == NULL ) {
-		fprintf( stderr, "   Empty\n" );
+	Debug( LDAP_DEBUG_TRACE, "  ld %p request count %d (abandoned %lu)\n",
+		(void *)ld, i, ld->ld_nabandoned );
+	Debug( LDAP_DEBUG_TRACE, "** ld %p Response Queue:\n", (void *)ld, 0, 0 );
+	if ( ( lm = ld->ld_responses ) == NULL ) {
+		Debug( LDAP_DEBUG_TRACE, "   Empty\n", 0, 0, 0 );
 	}
-	for ( ; lm != NULL; lm = lm->lm_next ) {
-		fprintf( stderr, " * msgid %d,  type %lu\n",
-		    lm->lm_msgid, (unsigned long) lm->lm_msgtype );
-		if (( l = lm->lm_chain ) != NULL ) {
-			fprintf( stderr, "   chained responses:\n" );
-			for ( ; l != NULL; l = l->lm_chain ) {
-				fprintf( stderr,
-				    "  * msgid %d,  type %lu\n",
-				    l->lm_msgid,
-				    (unsigned long) l->lm_msgtype );
+	for ( i = 0; lm != NULL; lm = lm->lm_next, i++ ) {
+		Debug( LDAP_DEBUG_TRACE, " * msgid %d,  type %lu\n",
+		    lm->lm_msgid, (unsigned long)lm->lm_msgtype, 0 );
+		if ( lm->lm_chain != NULL ) {
+			Debug( LDAP_DEBUG_TRACE, "   chained responses:\n", 0, 0, 0 );
+			for ( l = lm->lm_chain; l != NULL; l = l->lm_chain ) {
+				Debug( LDAP_DEBUG_TRACE,
+					"  * msgid %d,  type %lu\n",
+					l->lm_msgid,
+					(unsigned long)l->lm_msgtype, 0 );
 			}
 		}
 	}
+	Debug( LDAP_DEBUG_TRACE, "  ld %p response count %d\n", (void *)ld, i, 0 );
 }
 #endif /* LDAP_DEBUG */
 
+/* protected by req_mutex */
 static void
 ldap_free_request_int( LDAP *ld, LDAPRequest *lr )
 {
+	LDAP_ASSERT_MUTEX_OWNER( &ld->ld_req_mutex );
+	/* if lr_refcnt > 0, the request has been looked up 
+	 * by ldap_find_request_by_msgid(); if in the meanwhile
+	 * the request is free()'d by someone else, just decrease
+	 * the reference count and extract it from the request
+	 * list; later on, it will be freed. */
 	if ( lr->lr_prev == NULL ) {
-		/* free'ing the first request? */
-		assert( ld->ld_requests == lr );
-		ld->ld_requests = lr->lr_next;
+		if ( lr->lr_refcnt == 0 ) {
+			/* free'ing the first request? */
+			assert( ld->ld_requests == lr );
+		}
+
+		if ( ld->ld_requests == lr ) {
+			ld->ld_requests = lr->lr_next;
+		}
 
 	} else {
 		lr->lr_prev->lr_next = lr->lr_next;
@@ -765,38 +958,57 @@ ldap_free_request_int( LDAP *ld, LDAPRequest *lr )
 		lr->lr_next->lr_prev = lr->lr_prev;
 	}
 
+	if ( lr->lr_refcnt > 0 ) {
+		lr->lr_refcnt = -lr->lr_refcnt;
+
+		lr->lr_prev = NULL;
+		lr->lr_next = NULL;
+
+		return;
+	}
+
 	if ( lr->lr_ber != NULL ) {
 		ber_free( lr->lr_ber, 1 );
+		lr->lr_ber = NULL;
 	}
 
 	if ( lr->lr_res_error != NULL ) {
 		LDAP_FREE( lr->lr_res_error );
+		lr->lr_res_error = NULL;
 	}
 
 	if ( lr->lr_res_matched != NULL ) {
 		LDAP_FREE( lr->lr_res_matched );
+		lr->lr_res_matched = NULL;
 	}
 
 	LDAP_FREE( lr );
 }
 
+/* protected by req_mutex */
 void
 ldap_free_request( LDAP *ld, LDAPRequest *lr )
 {
-	LDAPRequest     **ttmplr;
-
+	LDAP_ASSERT_MUTEX_OWNER( &ld->ld_req_mutex );
 	Debug( LDAP_DEBUG_TRACE, "ldap_free_request (origid %d, msgid %d)\n",
 		lr->lr_origid, lr->lr_msgid, 0 );
 
 	/* free all referrals (child requests) */
-	while ( lr->lr_child )
+	while ( lr->lr_child ) {
 		ldap_free_request( ld, lr->lr_child );
+	}
 
 	if ( lr->lr_parent != NULL ) {
+		LDAPRequest     **lrp;
+
 		--lr->lr_parent->lr_outrefcnt;
-		for ( ttmplr = &lr->lr_parent->lr_child; *ttmplr && *ttmplr != lr; ttmplr = &(*ttmplr)->lr_refnext ); 
-		if ( *ttmplr == lr )  
-			*ttmplr = lr->lr_refnext;
+		for ( lrp = &lr->lr_parent->lr_child;
+			*lrp && *lrp != lr;
+			lrp = &(*lrp)->lr_refnext );
+
+		if ( *lrp == lr ) {
+			*lrp = lr->lr_refnext;
+		}
 	}
 	ldap_free_request_int( ld, lr );
 }
@@ -845,6 +1057,8 @@ static int ldap_int_nextref(
  *  (OUT) hadrefp = 1 if sucessfully followed referral
  *
  * Return value - number of referrals followed
+ *
+ * Protected by res_mutex, conn_mutex and req_mutex	(try_read1msg)
  */
 int
 ldap_chase_v3referrals( LDAP *ld, LDAPRequest *lr, char **refs, int sref, char **errstrp, int *hadrefp )
@@ -858,11 +1072,15 @@ ldap_chase_v3referrals( LDAP *ld, LDAPRequest *lr, char **refs, int sref, char *
 	LDAPConn	*lc;
 	int			 rc, count, i, j, id;
 	LDAPreqinfo  rinfo;
+	LDAP_NEXTREF_PROC	*nextref_proc = ld->ld_nextref_proc ? ld->ld_nextref_proc : ldap_int_nextref;
+
+	LDAP_ASSERT_MUTEX_OWNER( &ld->ld_res_mutex );
+	LDAP_ASSERT_MUTEX_OWNER( &ld->ld_conn_mutex );
+	LDAP_ASSERT_MUTEX_OWNER( &ld->ld_req_mutex );
+	Debug( LDAP_DEBUG_TRACE, "ldap_chase_v3referrals\n", 0, 0, 0 );
 
 	ld->ld_errno = LDAP_SUCCESS;	/* optimistic */
 	*hadrefp = 0;
-
-	Debug( LDAP_DEBUG_TRACE, "ldap_chase_v3referrals\n", 0, 0, 0 );
 
 	unfollowed = NULL;
 	rc = count = 0;
@@ -878,7 +1096,7 @@ ldap_chase_v3referrals( LDAP *ld, LDAPRequest *lr, char **refs, int sref, char *
 		Debug( LDAP_DEBUG_ANY,
 		    "more than %d referral hops (dropping)\n", ld->ld_refhoplimit, 0, 0 );
 		ld->ld_errno = LDAP_REFERRAL_LIMIT_EXCEEDED;
-	    rc = -1;
+		rc = -1;
 		goto done;
 	}
 
@@ -893,35 +1111,37 @@ ldap_chase_v3referrals( LDAP *ld, LDAPRequest *lr, char **refs, int sref, char *
 	refarray = refs;
 	refs = NULL;
 
-	if ( ld->ld_nextref_proc == NULL ) {
-		ld->ld_nextref_proc = ldap_int_nextref;
-	}
-
 	/* parse out & follow referrals */
+	/* NOTE: if nextref_proc == ldap_int_nextref, params is ignored */
 	i = -1;
-	for ( ld->ld_nextref_proc( ld, &refarray, &i, ld->ld_nextref_params );
+	for ( nextref_proc( ld, &refarray, &i, ld->ld_nextref_params );
 			i != -1;
-			ld->ld_nextref_proc( ld, &refarray, &i, ld->ld_nextref_params ) )
+			nextref_proc( ld, &refarray, &i, ld->ld_nextref_params ) )
 	{
 
 		/* Parse the referral URL */
-		if (( rc = ldap_url_parse_ext( refarray[i], &srv)) != LDAP_SUCCESS) {
-			ld->ld_errno = rc;
+		rc = ldap_url_parse_ext( refarray[i], &srv, LDAP_PVT_URL_PARSE_NOEMPTY_DN );
+		if ( rc != LDAP_URL_SUCCESS ) {
+			/* ldap_url_parse_ext() returns LDAP_URL_* errors
+			 * which do not map on API errors */
+			ld->ld_errno = LDAP_PARAM_ERROR;
 			rc = -1;
 			goto done;
 		}
 
 		if( srv->lud_crit_exts ) {
-			/* we do not support any extensions */
-			ld->ld_errno = LDAP_NOT_SUPPORTED;
-			rc = -1;
-			goto done;
-		}
-
-		/* treat ldap://hostpart and ldap://hostpart/ the same */
-		if ( srv->lud_dn && srv->lud_dn[0] == '\0' ) {
-			LDAP_FREE( srv->lud_dn );
-			srv->lud_dn = NULL;
+			int ok = 0;
+#ifdef HAVE_TLS
+			/* If StartTLS is the only critical ext, OK. */
+			if ( find_tls_ext( srv ) == 2 && srv->lud_crit_exts == 1 )
+				ok = 1;
+#endif
+			if ( !ok ) {
+				/* we do not support any other extensions */
+				ld->ld_errno = LDAP_NOT_SUPPORTED;
+				rc = -1;
+				goto done;
+			}
 		}
 
 		/* check connection for re-bind in progress */
@@ -929,16 +1149,15 @@ ldap_chase_v3referrals( LDAP *ld, LDAPRequest *lr, char **refs, int sref, char *
 			/* See if we've already requested this DN with this conn */
 			LDAPRequest *lp;
 			int looped = 0;
-			int len = srv->lud_dn ? strlen( srv->lud_dn ) : 0;
+			ber_len_t len = srv->lud_dn ? strlen( srv->lud_dn ) : 0;
 			for ( lp = origreq; lp; ) {
-				if ( lp->lr_conn == lc ) {
-					if ( len == lp->lr_dn.bv_len
-						&& len
-						&& strncmp( srv->lud_dn, lp->lr_dn.bv_val, len ) == 0 )
-					{
-						looped = 1;
-						break;
-					}
+				if ( lp->lr_conn == lc
+					&& len == lp->lr_dn.bv_len
+					&& len
+					&& strncmp( srv->lud_dn, lp->lr_dn.bv_val, len ) == 0 )
+				{
+					looped = 1;
+					break;
 				}
 				if ( lp == origreq ) {
 					lp = lp->lr_child;
@@ -1034,14 +1253,8 @@ ldap_chase_v3referrals( LDAP *ld, LDAPRequest *lr, char **refs, int sref, char *
 		/* Send the new request to the server - may require a bind */
 		rinfo.ri_msgid = origreq->lr_origid;
 		rinfo.ri_url = refarray[i];
-#ifdef LDAP_R_COMPILE
-		ldap_pvt_thread_mutex_lock( &ld->ld_req_mutex );
-#endif
 		rc = ldap_send_server_request( ld, ber, id,
-			origreq, srv, NULL, &rinfo );
-#ifdef LDAP_R_COMPILE
-		ldap_pvt_thread_mutex_unlock( &ld->ld_req_mutex );
-#endif
+			origreq, &srv, NULL, &rinfo, 0, 1 );
 		if ( rc < 0 ) {
 			/* Failure, try next referral in the list */
 			Debug( LDAP_DEBUG_ANY, "Unable to chase referral \"%s\" (%d: %s)\n", 
@@ -1062,6 +1275,7 @@ ldap_chase_v3referrals( LDAP *ld, LDAPRequest *lr, char **refs, int sref, char *
 				if ( lc == NULL ) {
 					ld->ld_errno = LDAP_OPERATIONS_ERROR;
 					rc = -1;
+					LDAP_MUTEX_UNLOCK( &ld->ld_conn_mutex );
 					goto done;
 				}
 			}
@@ -1107,6 +1321,7 @@ done:
 
 /*
  * XXX merging of errors in this routine needs to be improved
+ * Protected by res_mutex, conn_mutex and req_mutex	(try_read1msg)
  */
 int
 ldap_chase_referrals( LDAP *ld,
@@ -1124,6 +1339,9 @@ ldap_chase_referrals( LDAP *ld,
 	LDAPreqinfo  rinfo;
 	LDAPConn	*lc;
 
+	LDAP_ASSERT_MUTEX_OWNER( &ld->ld_res_mutex );
+	LDAP_ASSERT_MUTEX_OWNER( &ld->ld_conn_mutex );
+	LDAP_ASSERT_MUTEX_OWNER( &ld->ld_req_mutex );
 	Debug( LDAP_DEBUG_TRACE, "ldap_chase_referrals\n", 0, 0, 0 );
 
 	ld->ld_errno = LDAP_SUCCESS;	/* optimistic */
@@ -1170,19 +1388,14 @@ ldap_chase_referrals( LDAP *ld,
 			*p++ = '\0';
 		}
 
-		rc = ldap_url_parse_ext( ref, &srv );
-
+		rc = ldap_url_parse_ext( ref, &srv, LDAP_PVT_URL_PARSE_NOEMPTY_DN );
 		if ( rc != LDAP_URL_SUCCESS ) {
 			Debug( LDAP_DEBUG_TRACE,
-			    "ignoring unknown referral <%s>\n", ref, 0, 0 );
+				"ignoring %s referral <%s>\n",
+				ref, rc == LDAP_URL_ERR_BADSCHEME ? "unknown" : "incorrect", 0 );
 			rc = ldap_append_referral( ld, &unfollowed, ref );
 			*hadrefp = 1;
 			continue;
-		}
-
-		if ( srv->lud_dn != NULL && srv->lud_dn == '\0' ) {
-			LDAP_FREE( srv->lud_dn );
-			srv->lud_dn = NULL;
 		}
 
 		Debug( LDAP_DEBUG_TRACE,
@@ -1194,20 +1407,19 @@ ldap_chase_referrals( LDAP *ld,
 		if (( lc = find_connection( ld, srv, 1 )) != NULL ) {
 			LDAPRequest *lp;
 			int looped = 0;
-			int len = srv->lud_dn ? strlen( srv->lud_dn ) : 0;
-			for (lp = lr; lp; lp = lp->lr_parent ) {
-				if ( lp->lr_conn == lc ) {
-					if ( len == lp->lr_dn.bv_len ) {
-						if ( len && strncmp( srv->lud_dn, lp->lr_dn.bv_val,
-							len ))
+			ber_len_t len = srv->lud_dn ? strlen( srv->lud_dn ) : 0;
+			for ( lp = lr; lp; lp = lp->lr_parent ) {
+				if ( lp->lr_conn == lc
+					&& len == lp->lr_dn.bv_len )
+				{
+					if ( len && strncmp( srv->lud_dn, lp->lr_dn.bv_val, len ) )
 							continue;
-						looped = 1;
-						break;
-					}
+					looped = 1;
+					break;
 				}
 			}
 			if ( looped ) {
-				ldap_free_urllist(srv);
+				ldap_free_urllist( srv );
 				ld->ld_errno = LDAP_CLIENT_LOOP;
 				rc = -1;
 				continue;
@@ -1227,15 +1439,8 @@ ldap_chase_referrals( LDAP *ld,
 
 		rinfo.ri_msgid = origreq->lr_origid;
 
-#ifdef LDAP_R_COMPILE
-		ldap_pvt_thread_mutex_lock( &ld->ld_req_mutex );
-#endif
 		rc = ldap_send_server_request( ld, ber, id,
-			lr, srv, NULL, &rinfo );
-#ifdef LDAP_R_COMPILE
-		ldap_pvt_thread_mutex_unlock( &ld->ld_req_mutex );
-#endif
-
+			lr, &srv, NULL, &rinfo, 0, 1 );
 		LDAP_FREE( rinfo.ri_url );
 
 		if( rc >= 0 ) {
@@ -1360,9 +1565,7 @@ re_encode_request( LDAP *ld,
 				scope = LDAP_SCOPE_BASE;
 				break;
 			case LDAP_SCOPE_SUBTREE:
-#ifdef LDAP_SCOPE_SUBORDINATE
 			case LDAP_SCOPE_SUBORDINATE:
-#endif
 				scope = LDAP_SCOPE_SUBTREE;
 				break;
 			}
@@ -1427,27 +1630,49 @@ re_encode_request( LDAP *ld,
 }
 
 
+/* protected by req_mutex */
 LDAPRequest *
 ldap_find_request_by_msgid( LDAP *ld, ber_int_t msgid )
 {
 	LDAPRequest	*lr;
 
-#ifdef LDAP_R_COMPILE
-	ldap_pvt_thread_mutex_lock( &ld->ld_req_mutex );
-#endif
 	for ( lr = ld->ld_requests; lr != NULL; lr = lr->lr_next ) {
-		if( lr->lr_status == LDAP_REQST_COMPLETED ) {
+		if ( lr->lr_status == LDAP_REQST_COMPLETED ) {
 			continue;	/* Skip completed requests */
 		}
 		if ( msgid == lr->lr_msgid ) {
+			lr->lr_refcnt++;
 			break;
 		}
 	}
-#ifdef LDAP_R_COMPILE
-	ldap_pvt_thread_mutex_unlock( &ld->ld_req_mutex );
-#endif
 
 	return( lr );
 }
 
+/* protected by req_mutex */
+void
+ldap_return_request( LDAP *ld, LDAPRequest *lrx, int freeit )
+{
+	LDAPRequest	*lr;
 
+	for ( lr = ld->ld_requests; lr != NULL; lr = lr->lr_next ) {
+		if ( lr == lrx ) {
+			if ( lr->lr_refcnt > 0 ) {
+				lr->lr_refcnt--;
+
+			} else if ( lr->lr_refcnt < 0 ) {
+				lr->lr_refcnt++;
+				if ( lr->lr_refcnt == 0 ) {
+					lr = NULL;
+				}
+			}
+			break;
+		}
+	}
+	if ( lr == NULL ) {
+		ldap_free_request_int( ld, lrx );
+
+	} else if ( freeit ) {
+		ldap_free_request( ld, lrx );
+	}
+}

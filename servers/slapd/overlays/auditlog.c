@@ -1,8 +1,8 @@
 /* auditlog.c - log modifications for audit/history purposes */
-/* $OpenLDAP: pkg/ldap/servers/slapd/overlays/auditlog.c,v 1.1.2.9 2008/02/11 23:24:24 kurt Exp $ */
+/* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2005-2008 The OpenLDAP Foundation.
+ * Copyright 2005-2012 The OpenLDAP Foundation.
  * Portions copyright 2004-2005 Symas Corporation.
  * All rights reserved.
  *
@@ -72,9 +72,9 @@ static int auditlog_response(Operation *op, SlapReply *rs) {
 	FILE *f;
 	Attribute *a;
 	Modifications *m;
-	struct berval *b, *who = NULL;
-	char *what, *suffix;
-	long stamp = slap_get_time();
+	struct berval *b, *who = NULL, peername;
+	char *what, *whatm, *suffix;
+	time_t stamp;
 	int i;
 
 	if ( rs->sr_err != LDAP_SUCCESS ) return SLAP_CB_CONTINUE;
@@ -119,14 +119,17 @@ static int auditlog_response(Operation *op, SlapReply *rs) {
 	if ( !who )
 		who = &op->o_dn;
 
+	peername = op->o_conn->c_peer_name;
 	ldap_pvt_thread_mutex_lock(&ad->ad_mutex);
 	if((f = fopen(ad->ad_logfile, "a")) == NULL) {
 		ldap_pvt_thread_mutex_unlock(&ad->ad_mutex);
 		return SLAP_CB_CONTINUE;
 	}
 
-	fprintf(f, "# %s %ld %s%s%s\n",
-		what, stamp, suffix, who ? " " : "", who ? who->bv_val : "");
+	stamp = slap_get_time();
+	fprintf(f, "# %s %ld %s%s%s %s conn=%ld\n",
+		what, (long)stamp, suffix, who ? " " : "", who ? who->bv_val : "",
+		peername.bv_val ? peername.bv_val: "", op->o_conn->c_connid);
 
 	if ( !BER_BVISEMPTY( &op->o_conn->c_dn ) &&
 		(!who || !dn_match( who, &op->o_conn->c_dn )))
@@ -146,15 +149,15 @@ static int auditlog_response(Operation *op, SlapReply *rs) {
 	  case LDAP_REQ_MODIFY:
 		for(m = op->orm_modlist; m; m = m->sml_next) {
 			switch(m->sml_op & LDAP_MOD_OP) {
-				case LDAP_MOD_ADD:	 what = "add";		break;
-				case LDAP_MOD_REPLACE:	 what = "replace";	break;
-				case LDAP_MOD_DELETE:	 what = "delete";	break;
-				case LDAP_MOD_INCREMENT: what = "increment";	break;
+				case LDAP_MOD_ADD:	 whatm = "add";		break;
+				case LDAP_MOD_REPLACE:	 whatm = "replace";	break;
+				case LDAP_MOD_DELETE:	 whatm = "delete";	break;
+				case LDAP_MOD_INCREMENT: whatm = "increment";	break;
 				default:
 					fprintf(f, "# MOD_TYPE_UNKNOWN:%02x\n", m->sml_op & LDAP_MOD_OP);
 					continue;
 			}
-			fprintf(f, "%s: %s\n", what, m->sml_desc->ad_cname.bv_val);
+			fprintf(f, "%s: %s\n", whatm, m->sml_desc->ad_cname.bv_val);
 			if((b = m->sml_values) != NULL)
 			  for(i = 0; b[i].bv_val; i++)
 				fprint_ldif(f, m->sml_desc->ad_cname.bv_val, b[i].bv_val, b[i].bv_len);
@@ -173,7 +176,7 @@ static int auditlog_response(Operation *op, SlapReply *rs) {
 		break;
 	}
 
-	fprintf(f, "# end %s %ld\n\n", what, stamp);
+	fprintf(f, "# end %s %ld\n\n", what, (long)stamp);
 
 	fclose(f);
 	ldap_pvt_thread_mutex_unlock(&ad->ad_mutex);
@@ -184,7 +187,8 @@ static slap_overinst auditlog;
 
 static int
 auditlog_db_init(
-	BackendDB *be
+	BackendDB *be,
+	ConfigReply *cr
 )
 {
 	slap_overinst *on = (slap_overinst *)be->bd_info;
@@ -197,7 +201,8 @@ auditlog_db_init(
 
 static int
 auditlog_db_close(
-	BackendDB *be
+	BackendDB *be,
+	ConfigReply *cr
 )
 {
 	slap_overinst *on = (slap_overinst *)be->bd_info;
@@ -210,7 +215,8 @@ auditlog_db_close(
 
 static int
 auditlog_db_destroy(
-	BackendDB *be
+	BackendDB *be,
+	ConfigReply *cr
 )
 {
 	slap_overinst *on = (slap_overinst *)be->bd_info;
@@ -219,32 +225,6 @@ auditlog_db_destroy(
 	ldap_pvt_thread_mutex_destroy( &ad->ad_mutex );
 	free( ad );
 	return 0;
-}
-
-static int
-auditlog_config(
-	BackendDB	*be,
-	const char	*fname,
-	int		lineno,
-	int		argc,
-	char	**argv
-)
-{
-	slap_overinst *on = (slap_overinst *) be->bd_info;
-	auditlog_data *ad = on->on_bi.bi_private;
-
-	/* history log file */
-	if ( strcasecmp( argv[0], "auditlog" ) == 0 ) {
-		if ( argc < 2 ) {
-			Debug( LDAP_DEBUG_ANY,
-	    "%s: line %d: missing filename in \"auditlog <filename>\" line\n",
-			    fname, lineno, 0 );
-				return( 1 );
-		}
-		ad->ad_logfile = ch_strdup( argv[1] );
-		return 0;
-	}
-	return SLAP_CONF_UNKNOWN;
 }
 
 int auditlog_initialize() {

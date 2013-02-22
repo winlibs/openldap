@@ -1,8 +1,8 @@
 /* delete.c - ldap backend delete function */
-/* $OpenLDAP: pkg/ldap/servers/slapd/back-ldap/delete.c,v 1.37.2.14 2008/02/11 23:24:20 kurt Exp $ */
+/* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2003-2008 The OpenLDAP Foundation.
+ * Copyright 2003-2012 The OpenLDAP Foundation.
  * Portions Copyright 1999-2003 Howard Chu.
  * Portions Copyright 2000-2003 Pierangelo Masarati.
  * All rights reserved.
@@ -50,8 +50,7 @@ ldap_back_delete(
 
 retry:
 	ctrls = op->o_ctrls;
-	rc = ldap_back_proxy_authz_ctrl( &lc->lc_bound_ndn,
-		li->li_version, &li->li_idassert, op, rs, &ctrls );
+	rc = ldap_back_controls_add( op, rs, lc, &ctrls );
 	if ( rc != LDAP_SUCCESS ) {
 		send_ldap_result( op, rs );
 		rc = rs->sr_err;
@@ -67,13 +66,17 @@ retry:
 		retrying &= ~LDAP_BACK_RETRYING;
 		if ( ldap_back_retry( &lc, op, rs, LDAP_BACK_SENDERR ) ) {
 			/* if the identity changed, there might be need to re-authz */
-			(void)ldap_back_proxy_authz_ctrl_free( op, &ctrls );
+			(void)ldap_back_controls_free( op, rs, &ctrls );
 			goto retry;
 		}
 	}
 
+	ldap_pvt_thread_mutex_lock( &li->li_counter_mutex );
+	ldap_pvt_mp_add( li->li_ops_completed[ SLAP_OP_DELETE ], 1 );
+	ldap_pvt_thread_mutex_unlock( &li->li_counter_mutex );
+
 cleanup:
-	(void)ldap_back_proxy_authz_ctrl_free( op, &ctrls );
+	(void)ldap_back_controls_free( op, rs, &ctrls );
 
 	if ( lc != NULL ) {
 		ldap_back_release_conn( li, lc );

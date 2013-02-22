@@ -1,7 +1,7 @@
-/* $OpenLDAP: pkg/ldap/servers/slapd/back-sql/back-sql.h,v 1.30.2.11 2008/02/11 23:24:24 kurt Exp $ */
+/* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1999-2008 The OpenLDAP Foundation.
+ * Copyright 1999-2012 The OpenLDAP Foundation.
  * Portions Copyright 1999 Dmitry Kovalev.
  * Portions Copyright 2002 Pierangelo Mararati.
  * Portions Copyright 2004 Mark Adamson.
@@ -181,8 +181,9 @@ typedef struct {
 	SWORD		ncols;
 	BerVarray	col_names;
 	UDWORD		*col_prec;
+	SQLSMALLINT	*col_type;
 	char		**cols;
-	SQLINTEGER	*value_len;
+	SQLLEN		*value_len;
 } BACKSQL_ROW_NTS;
 
 /*
@@ -221,6 +222,22 @@ typedef struct {
  * related tables.
  */
 #undef BACKSQL_ARBITRARY_KEY
+
+/*
+ * type used for keys
+ */
+#if defined(HAVE_LONG_LONG) && defined(SQL_C_UBIGINT) && \
+	( defined(HAVE_STRTOULL) || defined(HAVE_STRTOUQ) )
+typedef unsigned long long backsql_key_t;
+#define BACKSQL_C_NUMID	SQL_C_UBIGINT
+#define BACKSQL_IDNUMFMT "%llu"
+#define BACKSQL_STR2ID lutil_atoullx
+#else /* ! HAVE_LONG_LONG || ! SQL_C_UBIGINT */
+typedef unsigned long backsql_key_t;
+#define BACKSQL_C_NUMID	SQL_C_ULONG
+#define BACKSQL_IDNUMFMT "%lu"
+#define BACKSQL_STR2ID lutil_atoulx
+#endif /* ! HAVE_LONG_LONG */
 
 /*
  * define to enable support for syncprov overlay
@@ -263,38 +280,9 @@ typedef struct backsql_api {
 
 	void			*ba_private;
 	struct backsql_api	*ba_next;
+	char **ba_argv;
+	int	ba_argc;
 } backsql_api;
-
-/*
- * Entry ID structure
- */
-typedef struct backsql_entryID {
-	/* #define BACKSQL_ARBITRARY_KEY to allow a non-numeric key.
-	 * It is required by some special applications that use
-	 * strings as keys for the main table.
-	 * In this case, #define BACKSQL_MAX_KEY_LEN consistently
-	 * with the key size definition */
-#ifdef BACKSQL_ARBITRARY_KEY
-	struct berval		eid_id;
-	struct berval		eid_keyval;
-#define BACKSQL_MAX_KEY_LEN	64
-#else /* ! BACKSQL_ARBITRARY_KEY */
-	/* The original numeric key is maintained as default. */
-	unsigned long		eid_id;
-	unsigned long		eid_keyval;
-#endif /* ! BACKSQL_ARBITRARY_KEY */
-
-	unsigned long		eid_oc_id;
-	struct berval		eid_dn;
-	struct berval		eid_ndn;
-	struct backsql_entryID	*eid_next;
-} backsql_entryID;
-
-#ifdef BACKSQL_ARBITRARY_KEY
-#define BACKSQL_ENTRYID_INIT { BER_BVNULL, BER_BVNULL, 0, BER_BVNULL, BER_BVNULL, NULL }
-#else /* ! BACKSQL_ARBITRARY_KEY */
-#define BACKSQL_ENTRYID_INIT { 0, 0, 0, BER_BVNULL, BER_BVNULL, NULL }
-#endif /* BACKSQL_ARBITRARY_KEY */
 
 /*
  * "structural" objectClass mapping structure
@@ -319,7 +307,7 @@ typedef struct backsql_oc_map_rec {
 	/* flags whether delete_proc is a function (whether back-sql 
 	 * should bind first parameter as output for return code) */
 	int			bom_expect_return;
-	unsigned long		bom_id;
+	backsql_key_t		bom_id;
 	Avlnode			*bom_attrs;
 	AttributeDescription	*bom_create_hint;
 } backsql_oc_map_rec;
@@ -330,6 +318,7 @@ typedef struct backsql_oc_map_rec {
 typedef struct backsql_at_map_rec {
 	/* Description of corresponding LDAP attribute type */
 	AttributeDescription	*bam_ad;
+	AttributeDescription	*bam_true_ad;
 	/* ObjectClass if bam_ad is objectClass */
 	ObjectClass		*bam_oc;
 
@@ -395,14 +384,49 @@ typedef struct berbuf {
 
 #define BB_NULL		{ BER_BVNULL, 0 }
 
+/*
+ * Entry ID structure
+ */
+typedef struct backsql_entryID {
+	/* #define BACKSQL_ARBITRARY_KEY to allow a non-numeric key.
+	 * It is required by some special applications that use
+	 * strings as keys for the main table.
+	 * In this case, #define BACKSQL_MAX_KEY_LEN consistently
+	 * with the key size definition */
+#ifdef BACKSQL_ARBITRARY_KEY
+	struct berval		eid_id;
+	struct berval		eid_keyval;
+#define BACKSQL_MAX_KEY_LEN	64
+#else /* ! BACKSQL_ARBITRARY_KEY */
+	/* The original numeric key is maintained as default. */
+	backsql_key_t		eid_id;
+	backsql_key_t		eid_keyval;
+#endif /* ! BACKSQL_ARBITRARY_KEY */
+
+	backsql_key_t		eid_oc_id;
+	backsql_oc_map_rec	*eid_oc;
+	struct berval		eid_dn;
+	struct berval		eid_ndn;
+	struct backsql_entryID	*eid_next;
+} backsql_entryID;
+
+#ifdef BACKSQL_ARBITRARY_KEY
+#define BACKSQL_ENTRYID_INIT { BER_BVNULL, BER_BVNULL, 0, NULL, BER_BVNULL, BER_BVNULL, NULL }
+#else /* ! BACKSQL_ARBITRARY_KEY */
+#define BACKSQL_ENTRYID_INIT { 0, 0, 0, NULL, BER_BVNULL, BER_BVNULL, NULL }
+#endif /* BACKSQL_ARBITRARY_KEY */
+
 /* the function must collect the entry associated to nbase */
 #define BACKSQL_ISF_GET_ID	0x1U
 #define BACKSQL_ISF_GET_ENTRY	( 0x2U | BACKSQL_ISF_GET_ID )
-#define BACKSQL_ISF_MATCHED	0x4U
+#define BACKSQL_ISF_GET_OC	( 0x4U | BACKSQL_ISF_GET_ID )
+#define BACKSQL_ISF_MATCHED	0x8U
 #define BACKSQL_IS_GET_ID(f) \
 	( ( (f) & BACKSQL_ISF_GET_ID ) == BACKSQL_ISF_GET_ID )
 #define BACKSQL_IS_GET_ENTRY(f) \
 	( ( (f) & BACKSQL_ISF_GET_ENTRY ) == BACKSQL_ISF_GET_ENTRY )
+#define BACKSQL_IS_GET_OC(f) \
+	( ( (f) & BACKSQL_ISF_GET_OC ) == BACKSQL_ISF_GET_OC )
 #define BACKSQL_IS_MATCHED(f) \
 	( ( (f) & BACKSQL_ISF_MATCHED ) == BACKSQL_ISF_MATCHED )
 typedef struct backsql_srch_info {
@@ -471,14 +495,16 @@ typedef struct backsql_info {
 	 */
 	struct berval	sql_subtree_cond;
 	struct berval	sql_children_cond;
-	char		*sql_oc_query,
-			*sql_at_query;
-	char		*sql_insentry_stmt,
-			*sql_delentry_stmt,
-			*sql_renentry_stmt,
-			*sql_delobjclasses_stmt;
+	struct berval	sql_dn_match_cond;
+	char		*sql_oc_query;
+	char		*sql_at_query;
+	char		*sql_insentry_stmt;
+	char		*sql_delentry_stmt;
+	char		*sql_renentry_stmt;
+	char		*sql_delobjclasses_stmt;
 	char		*sql_id_query;
 	char		*sql_has_children_query;
+	char		*sql_list_children_query;
 
 	MatchingRule	*sql_caseIgnoreMatch;
 	MatchingRule	*sql_telephoneNumberMatch;
@@ -486,8 +512,9 @@ typedef struct backsql_info {
 	struct berval	sql_upper_func;
 	struct berval	sql_upper_func_open;
 	struct berval	sql_upper_func_close;
-	BerVarray	sql_concat_func;
 	struct berval	sql_strcast_func;
+	BerVarray	sql_concat_func;
+	char		*sql_concat_patt;
 
 	struct berval	sql_aliasing;
 	struct berval	sql_aliasing_quote;
@@ -509,6 +536,7 @@ typedef struct backsql_info {
 #define BSQLF_FETCH_ALL_OPATTRS		0x0400
 #define	BSQLF_FETCH_ALL_ATTRS		(BSQLF_FETCH_ALL_USERATTRS|BSQLF_FETCH_ALL_OPATTRS)
 #define BSQLF_CHECK_SCHEMA		0x0800
+#define BSQLF_AUTOCOMMIT_ON		0x1000
 
 #define BACKSQL_ISF(si, f) \
 	(((si)->sql_flags & f) == f)
@@ -541,8 +569,11 @@ typedef struct backsql_info {
 	BACKSQL_ISF(si, BSQLF_FETCH_ALL_ATTRS)
 #define BACKSQL_CHECK_SCHEMA(si) \
 	BACKSQL_ISF(si, BSQLF_CHECK_SCHEMA)
+#define BACKSQL_AUTOCOMMIT_ON(si) \
+	BACKSQL_ISF(si, BSQLF_AUTOCOMMIT_ON)
 
 	Entry		*sql_baseObject;
+	char		*sql_base_ob_file;
 #ifdef BACKSQL_ARBITRARY_KEY
 #define BACKSQL_BASEOBJECT_IDSTR	"baseObject"
 #define BACKSQL_BASEOBJECT_KEYVAL	BACKSQL_BASEOBJECT_IDSTR
@@ -556,9 +587,10 @@ typedef struct backsql_info {
 #define BACKSQL_BASEOBJECT_OC		0
 	
 	Avlnode		*sql_db_conns;
+	SQLHDBC		sql_dbh;
+	ldap_pvt_thread_mutex_t		sql_dbconn_mutex;
 	Avlnode		*sql_oc_by_oc;
 	Avlnode		*sql_oc_by_id;
-	ldap_pvt_thread_mutex_t		sql_dbconn_mutex;
 	ldap_pvt_thread_mutex_t		sql_schema_mutex;
  	SQLHENV		sql_db_env;
 
@@ -581,6 +613,19 @@ typedef struct backsql_info {
 	  || LDAP_UPDATE_ERROR( (rc) ) )
 #define BACKSQL_SANITIZE_ERROR( rc ) \
 	( BACKSQL_LEGAL_ERROR( (rc) ) ? (rc) : LDAP_OTHER )
+
+#define BACKSQL_IS_BINARY(ct) \
+	( (ct) == SQL_BINARY \
+	  || (ct) == SQL_VARBINARY \
+	  || (ct) == SQL_LONGVARBINARY)
+
+#ifdef BACKSQL_ARBITRARY_KEY
+#define BACKSQL_IDFMT "%s"
+#define BACKSQL_IDARG(arg) ((arg).bv_val)
+#else /* ! BACKSQL_ARBITRARY_KEY */
+#define BACKSQL_IDFMT BACKSQL_IDNUMFMT
+#define BACKSQL_IDARG(arg) (arg)
+#endif /* ! BACKSQL_ARBITRARY_KEY */
 
 #endif /* __BACKSQL_H__ */
 

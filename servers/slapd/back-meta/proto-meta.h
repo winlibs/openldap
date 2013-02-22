@@ -1,7 +1,7 @@
-/* $OpenLDAP: pkg/ldap/servers/slapd/back-meta/proto-meta.h,v 1.2.2.6 2008/02/11 23:24:22 kurt Exp $ */
+/* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1999-2008 The OpenLDAP Foundation.
+ * Copyright 1999-2012 The OpenLDAP Foundation.
  * Portions Copyright 2001-2003 Pierangelo Masarati.
  * Portions Copyright 1999-2003 Howard Chu.
  * All rights reserved.
@@ -46,6 +46,8 @@ extern BI_op_delete		meta_back_delete;
 extern BI_op_abandon		meta_back_abandon;
 
 extern BI_connection_destroy	meta_back_conn_destroy;
+
+int meta_back_init_cf( BackendInfo *bi );
 
 LDAP_END_DECL
 

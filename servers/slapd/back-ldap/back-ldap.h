@@ -1,8 +1,8 @@
 /* back-ldap.h - ldap backend header file */
-/* $OpenLDAP: pkg/ldap/servers/slapd/back-ldap/back-ldap.h,v 1.63.2.24 2008/02/11 23:24:20 kurt Exp $ */
+/* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1999-2008 The OpenLDAP Foundation.
+ * Copyright 1999-2012 The OpenLDAP Foundation.
  * Portions Copyright 2000-2003 Pierangelo Masarati.
  * Portions Copyright 1999-2003 Howard Chu.
  * All rights reserved.
@@ -24,9 +24,20 @@
 #ifndef SLAPD_LDAP_H
 #define SLAPD_LDAP_H
 
+#include "../back-monitor/back-monitor.h"
+
 LDAP_BEGIN_DECL
 
 struct ldapinfo_t;
+
+/* stuff required for monitoring */
+typedef struct ldap_monitor_info_t {
+	monitor_subsys_t	lmi_mss[2];
+
+	struct berval		lmi_ndn;
+	struct berval		lmi_conn_rdn;
+	struct berval		lmi_ops_rdn;
+} ldap_monitor_info_t;
 
 enum {
 	/* even numbers are connection types */
@@ -45,11 +56,11 @@ enum {
 	LDAP_BACK_PCONN_LAST
 };
 
-typedef struct ldapconn_t {
-	Connection		*lc_conn;
+typedef struct ldapconn_base_t {
+	Connection		*lcb_conn;
 #define	LDAP_BACK_CONN2PRIV(lc)		((unsigned long)(lc)->lc_conn)
-#define LDAP_BACK_PCONN_ISPRIV(lc)	((void *)(lc)->lc_conn >= (void *)LDAP_BACK_PCONN_FIRST \
-						&& (void *)(lc)->lc_conn < (void *)LDAP_BACK_PCONN_LAST)
+#define LDAP_BACK_PCONN_ISPRIV(lc)	(((void *)(lc)->lc_conn) >= ((void *)LDAP_BACK_PCONN_FIRST) \
+						&& ((void *)(lc)->lc_conn) < ((void *)LDAP_BACK_PCONN_LAST))
 #define LDAP_BACK_PCONN_ISROOTDN(lc)	(LDAP_BACK_PCONN_ISPRIV((lc)) \
 						&& (LDAP_BACK_CONN2PRIV((lc)) < LDAP_BACK_PCONN_ANON))
 #define LDAP_BACK_PCONN_ISANON(lc)	(LDAP_BACK_PCONN_ISPRIV((lc)) \
@@ -59,8 +70,6 @@ typedef struct ldapconn_t {
 						&& (LDAP_BACK_CONN2PRIV((lc)) >= LDAP_BACK_PCONN_BIND))
 #define LDAP_BACK_PCONN_ISTLS(lc)	(LDAP_BACK_PCONN_ISPRIV((lc)) \
 						&& (LDAP_BACK_CONN2PRIV((lc)) & LDAP_BACK_PCONN_TLS))
-#define	LDAP_BACK_PCONN_ID(lc)		(LDAP_BACK_PCONN_ISPRIV((lc)) ? \
-						( -1 - (long)(lc)->lc_conn ) : (lc)->lc_conn->c_connid )
 #ifdef HAVE_TLS
 #define	LDAP_BACK_PCONN_ROOTDN_SET(lc, op) \
 	((lc)->lc_conn = (void *)((op)->o_conn->c_is_tls ? (void *) LDAP_BACK_PCONN_ROOTDN_TLS : (void *) LDAP_BACK_PCONN_ROOTDN))
@@ -80,10 +89,22 @@ typedef struct ldapconn_t {
 	(BER_BVISEMPTY(&(op)->o_ndn) ? \
 		LDAP_BACK_PCONN_ANON_SET((lc), (op)) : LDAP_BACK_PCONN_ROOTDN_SET((lc), (op)))
 
-	LDAP			*lc_ld;
-	struct berval		lc_cred;
-	struct berval 		lc_bound_ndn;
-	struct berval		lc_local_ndn;
+	struct berval		lcb_local_ndn;
+	unsigned		lcb_refcnt;
+	time_t			lcb_create_time;
+	time_t			lcb_time;
+} ldapconn_base_t;
+
+typedef struct ldapconn_t {
+	ldapconn_base_t		lc_base;
+#define	lc_conn			lc_base.lcb_conn
+#define	lc_local_ndn		lc_base.lcb_local_ndn
+#define	lc_refcnt		lc_base.lcb_refcnt
+#define	lc_create_time		lc_base.lcb_create_time
+#define	lc_time			lc_base.lcb_time
+
+	LDAP_TAILQ_ENTRY(ldapconn_t)	lc_q;
+
 	unsigned		lc_lcflags;
 #define LDAP_BACK_CONN_ISSET_F(fp,f)	(*(fp) & (f))
 #define	LDAP_BACK_CONN_SET_F(fp,f)	(*(fp) |= (f))
@@ -148,12 +169,11 @@ typedef struct ldapconn_t {
 #define	LDAP_BACK_CONN_CACHED_SET(lc)		LDAP_BACK_CONN_SET((lc), LDAP_BACK_FCONN_CACHED)
 #define	LDAP_BACK_CONN_CACHED_CLEAR(lc)		LDAP_BACK_CONN_CLEAR((lc), LDAP_BACK_FCONN_CACHED)
 
-	unsigned		lc_refcnt;
+	LDAP			*lc_ld;
+	unsigned long		lc_connid;
+	struct berval		lc_cred;
+	struct berval 		lc_bound_ndn;
 	unsigned		lc_flags;
-	time_t			lc_create_time;
-	time_t			lc_time;
-
-	LDAP_TAILQ_ENTRY(ldapconn_t)	lc_q;
 } ldapconn_t;
 
 typedef struct ldap_avl_info_t {
@@ -210,10 +230,14 @@ typedef struct slap_idassert_t {
 #define	LDAP_BACK_AUTH_OBSOLETE_PROXY_AUTHZ		(0x08U)
 #define	LDAP_BACK_AUTH_OBSOLETE_ENCODING_WORKAROUND	(0x10U)
 #define	LDAP_BACK_AUTH_AUTHZ_ALL			(0x20U)
+#define	LDAP_BACK_AUTH_PROXYAUTHZ_CRITICAL		(0x40U)
 #define	li_idassert_flags	li_idassert.si_flags
 
 	BerVarray	si_authz;
 #define	li_idassert_authz	li_idassert.si_authz
+
+	BerVarray	si_passthru;
+#define	li_idassert_passthru	li_idassert.si_passthru
 } slap_idassert_t;
 
 /*
@@ -229,9 +253,16 @@ typedef struct ldapinfo_t {
 	 * to be checked for the presence of a certain item */
 	BerVarray		li_bvuri;
 	ldap_pvt_thread_mutex_t	li_uri_mutex;
+	/* hack because when TLS is used we need to lock and let 
+	 * the li_urllist_f function to know it's locked */
+	int			li_uri_mutex_do_not_lock;
 
 	LDAP_REBIND_PROC	*li_rebind_f;
+	LDAP_URLLIST_PROC	*li_urllist_f;
 	void			*li_urllist_p;
+
+	/* we only care about the TLS options here */
+	slap_bindconf		li_tls;
 
 	slap_bindconf		li_acl;
 #define	li_acl_authcID		li_acl.sb_authcId
@@ -290,6 +321,14 @@ typedef struct ldapinfo_t {
 
 #define	LDAP_BACK_F_QUARANTINE		(0x00010000U)
 
+#ifdef SLAP_CONTROL_X_SESSION_TRACKING
+#define	LDAP_BACK_F_ST_REQUEST		(0x00020000U)
+#define	LDAP_BACK_F_ST_RESPONSE		(0x00040000U)
+#endif /* SLAP_CONTROL_X_SESSION_TRACKING */
+
+#define LDAP_BACK_F_NOREFS		(0x00080000U)
+#define LDAP_BACK_F_NOUNDEFFILTER	(0x00100000U)
+
 #define	LDAP_BACK_ISSET_F(ff,f)		( ( (ff) & (f) ) == (f) )
 #define	LDAP_BACK_ISMASK_F(ff,m,f)	( ( (ff) & (m) ) == (f) )
 
@@ -323,7 +362,17 @@ typedef struct ldapinfo_t {
 
 #define	LDAP_BACK_QUARANTINE(li)	LDAP_BACK_ISSET( (li), LDAP_BACK_F_QUARANTINE )
 
+#ifdef SLAP_CONTROL_X_SESSION_TRACKING
+#define	LDAP_BACK_ST_REQUEST(li)	LDAP_BACK_ISSET( (li), LDAP_BACK_F_ST_REQUEST)
+#define	LDAP_BACK_ST_RESPONSE(li)	LDAP_BACK_ISSET( (li), LDAP_BACK_F_ST_RESPONSE)
+#endif /* SLAP_CONTROL_X_SESSION_TRACKING */
+
+#define	LDAP_BACK_NOREFS(li)		LDAP_BACK_ISSET( (li), LDAP_BACK_F_NOREFS)
+#define	LDAP_BACK_NOUNDEFFILTER(li)	LDAP_BACK_ISSET( (li), LDAP_BACK_F_NOUNDEFFILTER)
+
 	int			li_version;
+
+	unsigned long		li_conn_nextid;
 
 	/* cached connections; 
 	 * special conns are in tailq rather than in tree */
@@ -339,6 +388,8 @@ typedef struct ldapinfo_t {
 	 * and LDAP_BACK_CONN_PRIV_MAX ! */
 #define	LDAP_BACK_CONN_PRIV_DEFAULT	(16)
 
+	ldap_monitor_info_t	li_monitor_info;
+
 	sig_atomic_t		li_isquarantined;
 #define	LDAP_BACK_FQ_NO		(0)
 #define	LDAP_BACK_FQ_YES	(1)
@@ -353,7 +404,12 @@ typedef struct ldapinfo_t {
 	time_t			li_conn_ttl;
 	time_t			li_idle_timeout;
 	time_t			li_timeout[ SLAP_OP_LAST ];
+
+	ldap_pvt_thread_mutex_t li_counter_mutex;
+	ldap_pvt_mp_t		li_ops_completed[SLAP_OP_LAST];
 } ldapinfo_t;
+
+#define	LDAP_ERR_OK(err) ((err) == LDAP_SUCCESS || (err) == LDAP_COMPARE_FALSE || (err) == LDAP_COMPARE_TRUE)
 
 typedef enum ldap_back_send_t {
 	LDAP_BACK_DONTSEND		= 0x00,
@@ -391,6 +447,19 @@ typedef enum ldap_back_send_t {
 #ifndef LDAP_BACK_PRINT_CONNTREE
 #define LDAP_BACK_PRINT_CONNTREE 0
 #endif /* !LDAP_BACK_PRINT_CONNTREE */
+
+typedef struct ldap_extra_t {
+	int (*proxy_authz_ctrl)( Operation *op, SlapReply *rs, struct berval *bound_ndn,
+		int version, slap_idassert_t *si, LDAPControl	*ctrl );
+	int (*controls_free)( Operation *op, SlapReply *rs, LDAPControl ***pctrls );
+	int (*idassert_authzfrom_parse)( struct config_args_s *ca, slap_idassert_t *si );
+	int (*idassert_passthru_parse_cf)( const char *fname, int lineno, const char *arg, slap_idassert_t *si );
+	int (*idassert_parse)( struct config_args_s *ca, slap_idassert_t *si );
+	void (*retry_info_destroy)( slap_retry_info_t *ri );
+	int (*retry_info_parse)( char *in, slap_retry_info_t *ri, char *buf, ber_len_t buflen );
+	int (*retry_info_unparse)( slap_retry_info_t *ri, struct berval *bvout );
+	int (*connid2str)( const ldapconn_base_t *lc, char *buf, ber_len_t buflen );
+} ldap_extra_t;
 
 LDAP_END_DECL
 

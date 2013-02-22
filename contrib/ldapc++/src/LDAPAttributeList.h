@@ -1,5 +1,6 @@
+// $OpenLDAP$
 /*
- * Copyright 2000-2002, OpenLDAP Foundation, All Rights Reserved.
+ * Copyright 2000-2012 The OpenLDAP Foundation, All Rights Reserved.
  * COPYING RESTRICTIONS APPLY, see COPYRIGHT file
  */
 
@@ -84,12 +85,23 @@ class LDAPAttributeList{
 	 */
 	const LDAPAttribute* getAttributeByName(const std::string& name) const;
 
-
         /**
          * Adds one element to the end of the list.
          * @param attr The attribute to add to the list.
          */
         void addAttribute(const LDAPAttribute& attr);
+        
+        /**
+         * Deletes all values of an Attribute for the list
+         * @param type The attribute type to be deleted.
+         */
+        void delAttribute(const std::string& type);
+
+        /**
+         * Replace an Attribute in the List
+         * @param attr The attribute to add to the list.
+         */
+        void replaceAttribute(const LDAPAttribute& attr);
 
         /**
          * Translates the list of Attributes to a 0-terminated array of

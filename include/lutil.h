@@ -1,7 +1,7 @@
-/* $OpenLDAP: pkg/ldap/include/lutil.h,v 1.57.2.9 2008/02/11 23:24:10 kurt Exp $ */
+/* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2008 The OpenLDAP Foundation.
+ * Copyright 1998-2012 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -48,7 +48,7 @@ lutil_b64_pton LDAP_P((
 	size_t));
 
 /* detach.c */
-LDAP_LUTIL_F( void )
+LDAP_LUTIL_F( int )
 lutil_detach LDAP_P((
 	int debug,
 	int do_close));
@@ -143,6 +143,13 @@ LDAP_LUTIL_F( int )
 lutil_salt_format LDAP_P((
 	const char *format ));
 
+LDAP_LUTIL_F( int )
+lutil_passwd_string64 LDAP_P((
+	const struct berval *sc,
+	const struct berval *hash,
+	struct berval *b64,
+	const struct berval *salt ));
+
 /* utils.c */
 LDAP_LUTIL_F( char* )
 lutil_progname LDAP_P((
@@ -158,6 +165,7 @@ typedef struct lutil_tm {
 	int tm_mon;	/* month 0-11 */
 	int tm_year;	/* year - 1900 */
 	int tm_usec;	/* microseconds */
+	int tm_usub;	/* submicro */
 } lutil_tm;
 
 typedef struct lutil_timet {
@@ -166,10 +174,12 @@ typedef struct lutil_timet {
 	unsigned int tt_usec;	/* microseconds */
 } lutil_timet;
 
+/* Parse a timestamp string into a structure */
 LDAP_LUTIL_F( int )
 lutil_parsetime LDAP_P((
 	char *atm, struct lutil_tm * ));
 
+/* Convert structured time to time in seconds since 1900 */
 LDAP_LUTIL_F( int )
 lutil_tm2time LDAP_P((
 	struct lutil_tm *, struct lutil_timet * ));
@@ -187,6 +197,11 @@ lutil_strcopy LDAP_P(( char *dst, const char *src ));
 
 LDAP_LUTIL_F( char* )
 lutil_strncopy LDAP_P(( char *dst, const char *src, size_t n ));
+
+LDAP_LUTIL_F( char* )
+lutil_memcopy LDAP_P(( char *dst, const char *src, size_t n ));
+
+#define lutil_strbvcopy(a, bv) lutil_memcopy((a),(bv)->bv_val,(bv)->bv_len)
 
 struct tm;
 
@@ -218,12 +233,6 @@ lutil_uuidstr_from_normalized(
 	size_t		uuidlen,
 	char		*buf,
 	size_t		buflen );
-
-/* csn.c */
-/* use this macro to allocate buffer for lutil_csnstr */
-#define LDAP_LUTIL_CSNSTR_BUFSIZE	64
-LDAP_LUTIL_F( size_t )
-lutil_csnstr( char *buf, size_t len, unsigned int replica, unsigned int mod );
 
 /*
  * Sometimes not all declarations in a header file are needed.
@@ -297,6 +306,24 @@ lutil_atoulx( unsigned long *v, const char *s, int x );
 #define lutil_atol(v, s)	lutil_atolx((v), (s), 10)
 #define lutil_atoul(v, s)	lutil_atoulx((v), (s), 10)
 
+#ifdef HAVE_LONG_LONG
+#if defined(HAVE_STRTOLL) || defined(HAVE_STRTOQ)
+LDAP_LUTIL_F (int)
+lutil_atollx( long long *v, const char *s, int x );
+#define lutil_atoll(v, s)	lutil_atollx((v), (s), 10)
+#endif /* HAVE_STRTOLL || HAVE_STRTOQ */
+
+#if defined(HAVE_STRTOULL) || defined(HAVE_STRTOUQ)
+LDAP_LUTIL_F (int)
+lutil_atoullx( unsigned long long *v, const char *s, int x );
+#define lutil_atoull(v, s)	lutil_atoullx((v), (s), 10)
+#endif /* HAVE_STRTOULL || HAVE_STRTOUQ */
+#endif /* HAVE_LONG_LONG */
+
+LDAP_LUTIL_F (int)
+lutil_str2bin( struct berval *in, struct berval *out, void *ctx );
+
+/* Parse and unparse time intervals */
 LDAP_LUTIL_F (int)
 lutil_parse_time( const char *in, unsigned long *tp );
 

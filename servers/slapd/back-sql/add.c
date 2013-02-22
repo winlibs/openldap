@@ -1,7 +1,7 @@
-/* $OpenLDAP: pkg/ldap/servers/slapd/back-sql/add.c,v 1.20.2.14 2008/02/11 23:24:24 kurt Exp $ */
+/* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1999-2008 The OpenLDAP Foundation.
+ * Copyright 1999-2012 The OpenLDAP Foundation.
  * Portions Copyright 1999 Dmitry Kovalev.
  * Portions Copyright 2002 Pierangelo Masarati.
  * Portions Copyright 2004 Mark Adamson.
@@ -190,17 +190,12 @@ backsql_modify_delete_all_values(
 				rs->sr_err = LDAP_OTHER;
 				goto done;
 			}
-#ifdef BACKSQL_ARBITRARY_KEY
+
 			Debug( LDAP_DEBUG_TRACE,
 				"   backsql_modify_delete_all_values() "
-				"arg(%d)=%s\n",
-				pno + 1 + po, e_id->eid_keyval.bv_val, 0 );
-#else /* ! BACKSQL_ARBITRARY_KEY */
-			Debug( LDAP_DEBUG_TRACE,
-				"   backsql_modify_delete_all_values() "
-				"arg(%d)=%lu\n",
-				pno + 1 + po, e_id->eid_keyval, 0 );
-#endif /* ! BACKSQL_ARBITRARY_KEY */
+				"arg(%d)=" BACKSQL_IDFMT "\n",
+				pno + 1 + po,
+				BACKSQL_IDARG(e_id->eid_keyval), 0 );
 
 			/*
 			 * check for syntax needed here 
@@ -394,6 +389,7 @@ del_all:
 		 */
 		case LDAP_MOD_ADD:
 		/* case SLAP_MOD_SOFTADD: */
+		/* case SLAP_MOD_ADD_IF_NOT_PRESENT: */
 add_only:;
 			if ( at->bam_add_proc == NULL ) {
 				Debug( LDAP_DEBUG_TRACE,
@@ -477,17 +473,12 @@ add_only:;
 					rs->sr_err = LDAP_OTHER;
 					goto done;
 				}
-#ifdef BACKSQL_ARBITRARY_KEY
+
 				Debug( LDAP_DEBUG_TRACE,
 					"   backsql_modify_internal(): "
-					"arg(%d)=\"%s\"\n", 
-					pno + 1 + po, e_id->eid_keyval.bv_val, 0 );
-#else /* ! BACKSQL_ARBITRARY_KEY */
-				Debug( LDAP_DEBUG_TRACE,
-					"   backsql_modify_internal(): "
-					"arg(%d)=\"%lu\"\n", 
-					pno + 1 + po, e_id->eid_keyval, 0 );
-#endif /* ! BACKSQL_ARBITRARY_KEY */
+					"arg(%d)=" BACKSQL_IDFMT "\n", 
+					pno + 1 + po,
+					BACKSQL_IDARG(e_id->eid_keyval), 0 );
 
 				/*
 				 * check for syntax needed here
@@ -551,6 +542,7 @@ add_only:;
 			break;
 			
 	      	case LDAP_MOD_DELETE:
+		/* case SLAP_MOD_SOFTDEL: */
 			if ( at->bam_delete_proc == NULL ) {
 				Debug( LDAP_DEBUG_TRACE,
 					"   backsql_modify_internal(): "
@@ -640,17 +632,12 @@ add_only:;
 					rs->sr_err = LDAP_OTHER;
 					goto done;
 				}
-#ifdef BACKSQL_ARBITRARY_KEY
+
 				Debug( LDAP_DEBUG_TRACE,
 					"   backsql_modify_internal(): "
-					"arg(%d)=\"%s\"\n", 
-					pno + 1 + po, e_id->eid_keyval.bv_val, 0 );
-#else /* ! BACKSQL_ARBITRARY_KEY */
-				Debug( LDAP_DEBUG_TRACE,
-					"   backsql_modify_internal(): "
-					"arg(%d)=\"%lu\"\n", 
-					pno + 1 + po, e_id->eid_keyval, 0 );
-#endif /* ! BACKSQL_ARBITRARY_KEY */
+					"arg(%d)=" BACKSQL_IDFMT "\n", 
+					pno + 1 + po,
+					BACKSQL_IDARG(e_id->eid_keyval), 0 );
 
 				/*
 				 * check for syntax needed here 
@@ -739,7 +726,7 @@ backsql_add_attr(
 	SQLHDBC 		dbh,
 	backsql_oc_map_rec 	*oc,
 	Attribute		*at,
-	unsigned long		new_keyval )
+	backsql_key_t		new_keyval )
 {
 	backsql_info		*bi = (backsql_info*)op->o_bd->be_private;
 	backsql_at_map_rec	*at_rec = NULL;
@@ -794,7 +781,7 @@ backsql_add_attr(
 		int		prc = LDAP_SUCCESS;
 		/* first parameter #, parameter order */
 		SQLUSMALLINT	pno, po;
-		char		logbuf[] = "val[18446744073709551615UL], id=18446744073709551615UL";
+		char		logbuf[ STRLENOF("val[], id=") + 2*LDAP_PVT_INTTYPE_CHARS(unsigned long)];
 		
 		/*
 		 * Do not deal with the objectClass that is used
@@ -835,7 +822,7 @@ backsql_add_attr(
 
 		po = ( BACKSQL_IS_ADD( at_rec->bam_param_order ) ) > 0;
 		currpos = pno + 1 + po;
-		rc = backsql_BindParamInt( sth, currpos,
+		rc = backsql_BindParamNumID( sth, currpos,
 				SQL_PARAM_INPUT, &new_keyval );
 		if ( rc != SQL_SUCCESS ) {
 			Debug( LDAP_DEBUG_TRACE,
@@ -872,12 +859,14 @@ backsql_add_attr(
 		}
 
 #ifdef LDAP_DEBUG
-		snprintf( logbuf, sizeof( logbuf ), "val[%lu], id=%lu",
-				i, new_keyval );
-		Debug( LDAP_DEBUG_TRACE, "   backsql_add_attr(\"%s\"): "
-			"executing \"%s\" %s\n", 
-			op->ora_e->e_name.bv_val,
-			at_rec->bam_add_proc, logbuf );
+		if ( LogTest( LDAP_DEBUG_TRACE ) ) {
+			snprintf( logbuf, sizeof( logbuf ), "val[%lu], id=" BACKSQL_IDNUMFMT,
+					i, new_keyval );
+			Debug( LDAP_DEBUG_TRACE, "   backsql_add_attr(\"%s\"): "
+				"executing \"%s\" %s\n", 
+				op->ora_e->e_name.bv_val,
+				at_rec->bam_add_proc, logbuf );
+		}
 #endif
 		rc = SQLExecute( sth );
 		if ( rc == SQL_SUCCESS && prc == LDAP_SUCCESS ) {
@@ -917,13 +906,14 @@ backsql_add( Operation *op, SlapReply *rs )
 	backsql_info		*bi = (backsql_info*)op->o_bd->be_private;
 	SQLHDBC 		dbh = SQL_NULL_HDBC;
 	SQLHSTMT 		sth = SQL_NULL_HSTMT;
-	unsigned long		new_keyval = 0;
+	backsql_key_t		new_keyval = 0;
 	RETCODE			rc;
 	backsql_oc_map_rec 	*oc = NULL;
 	backsql_srch_info	bsi = { 0 };
 	Entry			p = { 0 }, *e = NULL;
 	Attribute		*at,
 				*at_objectClass = NULL;
+	ObjectClass		*soc = NULL;
 	struct berval		scname = BER_BVNULL;
 	struct berval		pdn;
 	struct berval		realdn = BER_BVNULL;
@@ -938,7 +928,7 @@ backsql_add( Operation *op, SlapReply *rs )
 	 * NOTE: fake successful result to force contextCSN to be bumped up
 	 */
 	if ( op->o_sync ) {
-		char		buf[ LDAP_LUTIL_CSNSTR_BUFSIZE ];
+		char		buf[ LDAP_PVT_CSNSTR_BUFSIZE ];
 		struct berval	csn;
 
 		csn.bv_val = buf;
@@ -957,13 +947,11 @@ backsql_add( Operation *op, SlapReply *rs )
 	Debug( LDAP_DEBUG_TRACE, "==>backsql_add(\"%s\")\n",
 			op->ora_e->e_name.bv_val, 0, 0 );
 
-	slap_add_opattrs( op, &rs->sr_text, textbuf, textlen, 1 );
-
 	/* check schema */
 	if ( BACKSQL_CHECK_SCHEMA( bi ) ) {
 		char		textbuf[ SLAP_TEXT_BUFLEN ] = { '\0' };
 
-		rs->sr_err = entry_schema_check( op, op->ora_e, NULL, 0,
+		rs->sr_err = entry_schema_check( op, op->ora_e, NULL, 0, 1, NULL,
 			&rs->sr_text, textbuf, sizeof( textbuf ) );
 		if ( rs->sr_err != LDAP_SUCCESS ) {
 			Debug( LDAP_DEBUG_TRACE, "   backsql_add(\"%s\"): "
@@ -972,6 +960,19 @@ backsql_add( Operation *op, SlapReply *rs )
 			e = NULL;
 			goto done;
 		}
+	}
+
+	slap_add_opattrs( op, &rs->sr_text, textbuf, textlen, 1 );
+
+	if ( get_assert( op ) &&
+		( test_filter( op, op->ora_e, get_assertion( op )) != LDAP_COMPARE_TRUE ))
+	{
+		Debug( LDAP_DEBUG_TRACE, "   backsql_add(\"%s\"): "
+			"assertion control failed -- aborting\n",
+			op->ora_e->e_name.bv_val, 0, 0 );
+		e = NULL;
+		rs->sr_err = LDAP_ASSERTION_FAILED;
+		goto done;
 	}
 
 	/* search structuralObjectClass */
@@ -1002,8 +1003,8 @@ backsql_add( Operation *op, SlapReply *rs )
 			goto done;
 		}
 
-		rs->sr_err = structural_class( at->a_vals, &scname, NULL,
-				&text, buf, sizeof( buf ) );
+		rs->sr_err = structural_class( at->a_vals, &soc, NULL,
+				&text, buf, sizeof( buf ), op->o_tmpmemctx );
 		if ( rs->sr_err != LDAP_SUCCESS ) {
 			Debug( LDAP_DEBUG_TRACE, "   backsql_add(\"%s\"): "
 				"%s (%d)\n",
@@ -1011,6 +1012,7 @@ backsql_add( Operation *op, SlapReply *rs )
 			e = NULL;
 			goto done;
 		}
+		scname = soc->soc_cname;
 
 	} else {
 		scname = at->a_vals[0];
@@ -1157,7 +1159,7 @@ backsql_add( Operation *op, SlapReply *rs )
 
 	colnum = 1;
 	if ( BACKSQL_IS_ADD( oc->bom_expect_return ) ) {
-		rc = backsql_BindParamInt( sth, 1, SQL_PARAM_OUTPUT, &new_keyval );
+		rc = backsql_BindParamNumID( sth, 1, SQL_PARAM_OUTPUT, &new_keyval );
 		if ( rc != SQL_SUCCESS ) {
 			Debug( LDAP_DEBUG_TRACE, "   backsql_add(\"%s\"): "
 				"error binding keyval parameter "
@@ -1217,7 +1219,7 @@ backsql_add( Operation *op, SlapReply *rs )
 
 	if ( !BACKSQL_IS_ADD( oc->bom_expect_return ) ) {
 		SWORD		ncols;
-		SQLINTEGER	value_len;
+		SQLLEN		value_len;
 
 		if ( BACKSQL_CREATE_NEEDS_SELECT( bi ) ) {
 			SQLFreeStmt( sth, SQL_DROP );
@@ -1308,7 +1310,7 @@ backsql_add( Operation *op, SlapReply *rs )
 	SQLFreeStmt( sth, SQL_DROP );
 
 	Debug( LDAP_DEBUG_TRACE, "   backsql_add(\"%s\"): "
-		"create_proc returned keyval=%ld\n",
+		"create_proc returned keyval=" BACKSQL_IDNUMFMT "\n",
 		op->ora_e->e_name.bv_val, new_keyval, 0 );
 
 	rc = backsql_Prepare( dbh, &sth, bi->sql_insentry_stmt, 0 );
@@ -1335,7 +1337,7 @@ backsql_add( Operation *op, SlapReply *rs )
 		goto done;
 	}
 
-	rc = backsql_BindParamInt( sth, 2, SQL_PARAM_INPUT, &oc->bom_id );
+	rc = backsql_BindParamNumID( sth, 2, SQL_PARAM_INPUT, &oc->bom_id );
 	if ( rc != SQL_SUCCESS ) {
 		Debug( LDAP_DEBUG_TRACE, "   backsql_add(\"%s\"): "
 			"error binding objectClass ID parameter "
@@ -1369,7 +1371,7 @@ backsql_add( Operation *op, SlapReply *rs )
 		goto done;
 	}
 
-	rc = backsql_BindParamInt( sth, 4, SQL_PARAM_INPUT, &new_keyval );
+	rc = backsql_BindParamNumID( sth, 4, SQL_PARAM_INPUT, &new_keyval );
 	if ( rc != SQL_SUCCESS ) {
 		Debug( LDAP_DEBUG_TRACE, "   backsql_add(\"%s\"): "
 			"error binding entry ID parameter "
@@ -1386,17 +1388,17 @@ backsql_add( Operation *op, SlapReply *rs )
 		goto done;
 	}
 
-	Debug( LDAP_DEBUG_TRACE, "   backsql_add(): executing \"%s\" for dn \"%s\"\n",
-			bi->sql_insentry_stmt, op->ora_e->e_name.bv_val, 0 );
-#ifdef BACKSQL_ARBITRARY_KEY
-	Debug( LDAP_DEBUG_TRACE, "                  for oc_map_id=%ld, "
-			"p_id=%s, keyval=%ld\n",
-			oc->bom_id, bsi.bsi_base_id.eid_id.bv_val, new_keyval );
-#else /* ! BACKSQL_ARBITRARY_KEY */
-	Debug( LDAP_DEBUG_TRACE, "                  for oc_map_id=%ld, "
-			"p_id=%ld, keyval=%ld\n",
-			oc->bom_id, bsi.bsi_base_id.eid_id, new_keyval );
-#endif /* ! BACKSQL_ARBITRARY_KEY */
+	if ( LogTest( LDAP_DEBUG_TRACE ) ) {
+		char buf[ SLAP_TEXT_BUFLEN ];
+
+		snprintf( buf, sizeof(buf),
+			"executing \"%s\" for dn=\"%s\"  oc_map_id=" BACKSQL_IDNUMFMT " p_id=" BACKSQL_IDFMT " keyval=" BACKSQL_IDNUMFMT,
+			bi->sql_insentry_stmt, op->ora_e->e_name.bv_val,
+			oc->bom_id, BACKSQL_IDARG(bsi.bsi_base_id.eid_id),
+			new_keyval );
+		Debug( LDAP_DEBUG_TRACE, "   backsql_add(): %s\n", buf, 0, 0 );
+	}
+
 	rc = SQLExecute( sth );
 	if ( rc != SQL_SUCCESS ) {
 		Debug( LDAP_DEBUG_TRACE, "   backsql_add(\"%s\"): "
@@ -1479,7 +1481,6 @@ done:;
 	 * in deleting that row.
 	 */
 
-#ifdef SLAP_ACL_HONOR_DISCLOSE
 	if ( e != NULL ) {
 		int	disclose = 1;
 
@@ -1504,7 +1505,6 @@ done:;
 			}
 		}
 	}
-#endif /* SLAP_ACL_HONOR_DISCLOSE */
 
 	if ( op->o_noop && rs->sr_err == LDAP_SUCCESS ) {
 		rs->sr_err = LDAP_X_NO_OPERATION;
@@ -1520,7 +1520,7 @@ done:;
 	}
 
 	if ( !BER_BVISNULL( &bsi.bsi_base_id.eid_ndn ) ) {
-		(void)backsql_free_entryID( op, &bsi.bsi_base_id, 0 );
+		(void)backsql_free_entryID( &bsi.bsi_base_id, 0, op->o_tmpmemctx );
 	}
 
 	if ( !BER_BVISNULL( &p.e_nname ) ) {

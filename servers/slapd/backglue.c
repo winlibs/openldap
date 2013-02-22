@@ -1,8 +1,8 @@
 /* backglue.c - backend glue */
-/* $OpenLDAP: pkg/ldap/servers/slapd/backglue.c,v 1.91.2.20 2008/02/11 23:24:15 kurt Exp $ */
+/* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2001-2008 The OpenLDAP Foundation.
+ * Copyright 2001-2012 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -35,6 +35,8 @@
 
 #define SLAPD_TOOLS
 #include "slap.h"
+#include "lutil.h"
+#include "config.h"
 
 typedef struct gluenode {
 	BackendDB *gn_be;
@@ -51,6 +53,10 @@ static slap_overinst	glue;
 
 static int glueMode;
 static BackendDB *glueBack;
+static BackendDB glueBackDone;
+#define GLUEBACK_DONE (&glueBackDone)
+
+static slap_overinst * glue_tool_inst( BackendInfo *bi);
 
 static slap_response glue_op_response;
 
@@ -158,17 +164,53 @@ glue_op_response ( Operation *op, SlapReply *rs )
 
 			j = gs->nctrls;
 			if (!j) {
-				newctrls = ch_malloc((i+1)*sizeof(LDAPControl *));
+				newctrls = op->o_tmpalloc((i+1)*sizeof(LDAPControl *),
+					op->o_tmpmemctx);
 			} else {
-				newctrls = ch_realloc(gs->ctrls,
-					(j+i+1)*sizeof(LDAPControl *));
+				/* Forget old pagedResults response if we're sending
+				 * a new one now
+				 */
+				if ( get_pagedresults( op ) > SLAP_CONTROL_IGNORED ) {
+					int newpage = 0;
+					for ( k=0; k<i; k++ ) {
+						if ( !strcmp(rs->sr_ctrls[k]->ldctl_oid,
+							LDAP_CONTROL_PAGEDRESULTS )) {
+							newpage = 1;
+							break;
+						}
+					}
+					if ( newpage ) {
+						for ( k=0; k<j; k++ ) {
+							if ( !strcmp(gs->ctrls[k]->ldctl_oid,
+								LDAP_CONTROL_PAGEDRESULTS ))
+							{
+								op->o_tmpfree(gs->ctrls[k], op->o_tmpmemctx);
+								gs->ctrls[k] = gs->ctrls[--j];
+								gs->ctrls[j] = NULL;
+								break;
+							}
+						}
+					}
+				}
+				newctrls = op->o_tmprealloc(gs->ctrls,
+					(j+i+1)*sizeof(LDAPControl *), op->o_tmpmemctx);
 			}
 			for (k=0; k<i; j++,k++) {
-				newctrls[j] = ch_malloc(sizeof(LDAPControl));
-				*newctrls[j] = *rs->sr_ctrls[k];
-				if ( !BER_BVISNULL( &rs->sr_ctrls[k]->ldctl_value ))
-					ber_dupbv( &newctrls[j]->ldctl_value,
-						&rs->sr_ctrls[k]->ldctl_value );
+				ber_len_t oidlen = strlen( rs->sr_ctrls[k]->ldctl_oid );
+				newctrls[j] = op->o_tmpalloc(sizeof(LDAPControl) + oidlen + 1 + rs->sr_ctrls[k]->ldctl_value.bv_len + 1,
+					op->o_tmpmemctx);
+				newctrls[j]->ldctl_iscritical = rs->sr_ctrls[k]->ldctl_iscritical;
+				newctrls[j]->ldctl_oid = (char *)&newctrls[j][1];
+				lutil_strcopy( newctrls[j]->ldctl_oid, rs->sr_ctrls[k]->ldctl_oid );
+				if ( !BER_BVISNULL( &rs->sr_ctrls[k]->ldctl_value ) ) {
+					newctrls[j]->ldctl_value.bv_val = &newctrls[j]->ldctl_oid[oidlen + 1];
+					newctrls[j]->ldctl_value.bv_len = rs->sr_ctrls[k]->ldctl_value.bv_len;
+					lutil_memcopy( newctrls[j]->ldctl_value.bv_val,
+						rs->sr_ctrls[k]->ldctl_value.bv_val,
+						rs->sr_ctrls[k]->ldctl_value.bv_len + 1 );
+				} else {
+					BER_BVZERO( &newctrls[j]->ldctl_value );
+				}
 			}
 			newctrls[j] = NULL;
 			gs->nctrls = j;
@@ -217,9 +259,32 @@ glue_op_func ( Operation *op, SlapReply *rs )
 }
 
 static int
-glue_response ( Operation *op, SlapReply *rs )
+glue_op_abandon( Operation *op, SlapReply *rs )
 {
 	slap_overinst	*on = (slap_overinst *)op->o_bd->bd_info;
+	glueinfo		*gi = (glueinfo *)on->on_bi.bi_private;
+	BackendDB *b0 = op->o_bd;
+	BackendInfo *bi0 = op->o_bd->bd_info;
+	int i;
+
+	b0->bd_info = on->on_info->oi_orig;
+
+	for (i = gi->gi_nodes-1; i >= 0; i--) {
+		assert( gi->gi_n[i].gn_be->be_nsuffix != NULL );
+		op->o_bd = gi->gi_n[i].gn_be;
+		if ( op->o_bd == b0 )
+			continue;
+		if ( op->o_bd->bd_info->bi_op_abandon )
+			op->o_bd->bd_info->bi_op_abandon( op, rs );
+	}
+	op->o_bd = b0;
+	op->o_bd->bd_info = bi0;
+	return SLAP_CB_CONTINUE;
+}
+
+static int
+glue_response ( Operation *op, SlapReply *rs )
+{
 	BackendDB *be = op->o_bd;
 	be = glue_back_select (op->o_bd, &op->o_req_ndn);
 
@@ -315,6 +380,9 @@ glue_sub_search( Operation *op, SlapReply *rs, BackendDB *b0,
 	return op->o_bd->be_search( op, rs );
 }
 
+static const ID glueID = NOID;
+static const struct berval gluecookie = { sizeof( glueID ), (char *)&glueID };
+
 static int
 glue_op_search ( Operation *op, SlapReply *rs )
 {
@@ -337,6 +405,36 @@ glue_op_search ( Operation *op, SlapReply *rs )
 	starttime = op->o_time;
 	stoptime = slap_get_time () + op->ors_tlimit;
 
+	/* reset dummy cookie used to keep paged results going across databases */
+	if ( get_pagedresults( op ) > SLAP_CONTROL_IGNORED
+		&& bvmatch( &((PagedResultsState *)op->o_pagedresults_state)->ps_cookieval, &gluecookie ) )
+	{
+		PagedResultsState *ps = op->o_pagedresults_state;
+		BerElementBuffer berbuf;
+		BerElement *ber = (BerElement *)&berbuf;
+		struct berval cookie = BER_BVC(""), value;
+		int c;
+
+		for (c = 0; op->o_ctrls[c] != NULL; c++) {
+			if (strcmp(op->o_ctrls[c]->ldctl_oid, LDAP_CONTROL_PAGEDRESULTS) == 0)
+				break;
+		}
+
+		assert( op->o_ctrls[c] != NULL );
+
+		ber_init2( ber, NULL, LBER_USE_DER );
+		ber_printf( ber, "{iO}", ps->ps_size, &cookie );
+		ber_flatten2( ber, &value, 0 );
+		assert( op->o_ctrls[c]->ldctl_value.bv_len >= value.bv_len );
+		op->o_ctrls[c]->ldctl_value.bv_len = value.bv_len;
+		lutil_memcopy( op->o_ctrls[c]->ldctl_value.bv_val,
+			value.bv_val, value.bv_len );
+		ber_free_buf( ber );
+
+		ps->ps_cookie = (PagedResultsCookie)0;
+		BER_BVZERO( &ps->ps_cookieval );
+	}
+
 	op->o_bd = glue_back_select (b0, &op->o_req_ndn);
 	b0->bd_info = on->on_info->oi_orig;
 
@@ -345,9 +443,10 @@ glue_op_search ( Operation *op, SlapReply *rs )
 		if ( op->o_bd == b0 )
 			return SLAP_CB_CONTINUE;
 
-		rs->sr_err = LDAP_UNWILLING_TO_PERFORM;
 		if (op->o_bd && op->o_bd->be_search) {
 			rs->sr_err = op->o_bd->be_search( op, rs );
+		} else {
+			rs->sr_err = LDAP_UNWILLING_TO_PERFORM;
 		}
 		return rs->sr_err;
 
@@ -377,6 +476,16 @@ glue_op_search ( Operation *op, SlapReply *rs )
 				continue;
 			if (!dnIsSuffix(&btmp->be_nsuffix[0], &b1->be_nsuffix[0]))
 				continue;
+			if (get_no_subordinate_glue(op) && btmp != b1)
+				continue;
+			/* If we remembered which backend we were on before,
+			 * skip down to it now
+			 */
+			if ( get_pagedresults( op ) > SLAP_CONTROL_IGNORED &&
+				op->o_conn->c_pagedresults_state.ps_be &&
+				op->o_conn->c_pagedresults_state.ps_be != btmp )
+				continue;
+
 			if (tlimit0 != SLAP_NO_LIMIT) {
 				op->o_time = slap_get_time();
 				op->ors_tlimit = stoptime - op->o_time;
@@ -400,16 +509,19 @@ glue_op_search ( Operation *op, SlapReply *rs )
 			if (scope0 == LDAP_SCOPE_ONELEVEL && 
 				dn_match(pdn, &ndn))
 			{
+				struct berval mdn, mndn;
 				op->ors_scope = LDAP_SCOPE_BASE;
-				op->o_req_dn = op->o_bd->be_suffix[0];
-				op->o_req_ndn = op->o_bd->be_nsuffix[0];
+				mdn = op->o_req_dn = op->o_bd->be_suffix[0];
+				mndn = op->o_req_ndn = op->o_bd->be_nsuffix[0];
 				rs->sr_err = op->o_bd->be_search(op, rs);
 				if ( rs->sr_err == LDAP_NO_SUCH_OBJECT ) {
 					gs.err = LDAP_SUCCESS;
 				}
 				op->ors_scope = LDAP_SCOPE_ONELEVEL;
-				op->o_req_dn = dn;
-				op->o_req_ndn = ndn;
+				if ( op->o_req_dn.bv_val == mdn.bv_val )
+					op->o_req_dn = dn;
+				if ( op->o_req_ndn.bv_val == mndn.bv_val )
+					op->o_req_ndn = ndn;
 
 			} else if (scope0 == LDAP_SCOPE_SUBTREE &&
 				dn_match(&op->o_bd->be_nsuffix[0], &ndn))
@@ -419,14 +531,17 @@ glue_op_search ( Operation *op, SlapReply *rs )
 			} else if (scope0 == LDAP_SCOPE_SUBTREE &&
 				dnIsSuffix(&op->o_bd->be_nsuffix[0], &ndn))
 			{
-				op->o_req_dn = op->o_bd->be_suffix[0];
-				op->o_req_ndn = op->o_bd->be_nsuffix[0];
+				struct berval mdn, mndn;
+				mdn = op->o_req_dn = op->o_bd->be_suffix[0];
+				mndn = op->o_req_ndn = op->o_bd->be_nsuffix[0];
 				rs->sr_err = glue_sub_search( op, rs, b0, on );
 				if ( rs->sr_err == LDAP_NO_SUCH_OBJECT ) {
 					gs.err = LDAP_SUCCESS;
 				}
-				op->o_req_dn = dn;
-				op->o_req_ndn = ndn;
+				if ( op->o_req_dn.bv_val == mdn.bv_val )
+					op->o_req_dn = dn;
+				if ( op->o_req_ndn.bv_val == mndn.bv_val )
+					op->o_req_ndn = ndn;
 
 			} else if (dnIsSuffix(&ndn, &op->o_bd->be_nsuffix[0])) {
 				rs->sr_err = glue_sub_search( op, rs, b0, on );
@@ -446,7 +561,136 @@ glue_op_search ( Operation *op, SlapReply *rs )
 			case LDAP_X_CANNOT_CHAIN:
 #endif /* LDAP_CONTROL_X_CHAINING_BEHAVIOR */
 				goto end_of_loop;
-			
+
+			case LDAP_SUCCESS:
+				if ( get_pagedresults( op ) > SLAP_CONTROL_IGNORED ) {
+					PagedResultsState *ps = op->o_pagedresults_state;
+
+					/* Assume this backend can be forgotten now */
+					op->o_conn->c_pagedresults_state.ps_be = NULL;
+
+					/* If we have a full page, exit the loop. We may
+					 * need to remember this backend so we can continue
+					 * from here on a subsequent request.
+					 */
+					if ( rs->sr_nentries >= ps->ps_size ) {
+						PagedResultsState *cps = &op->o_conn->c_pagedresults_state;
+						
+						/* Don't bother to remember the first backend.
+						 * Only remember the last one if there's more state left.
+						 */
+						if ( op->o_bd != b0 &&
+							( cps->ps_cookie != NOID
+								|| !BER_BVISNULL( &cps->ps_cookieval )
+								|| op->o_bd != gi->gi_n[0].gn_be ) )
+						{
+							op->o_conn->c_pagedresults_state.ps_be = op->o_bd;
+						}
+
+						/* Check whether the cookie is empty,
+						 * and give remaining databases a chance
+						 */
+						if ( op->o_bd != gi->gi_n[0].gn_be || cps->ps_cookie == NOID ) {
+							int		c;
+
+							for ( c = 0; gs.ctrls[c] != NULL; c++ ) {
+								if ( strcmp( gs.ctrls[c]->ldctl_oid, LDAP_CONTROL_PAGEDRESULTS ) == 0 ) {
+									break;
+								}
+							}
+
+							if ( gs.ctrls[c] != NULL ) {
+								BerElementBuffer berbuf;
+								BerElement	*ber = (BerElement *)&berbuf;
+								ber_tag_t	tag;
+								ber_int_t	size;
+								struct berval	cookie, value;
+							
+								ber_init2( ber, &gs.ctrls[c]->ldctl_value, LBER_USE_DER );
+
+								tag = ber_scanf( ber, "{im}", &size, &cookie );
+								assert( tag != LBER_ERROR );
+
+								if ( BER_BVISEMPTY( &cookie ) && op->o_bd != gi->gi_n[0].gn_be ) {
+									/* delete old, create new cookie with NOID */
+									PagedResultsCookie respcookie = (PagedResultsCookie)NOID;
+									ber_len_t oidlen = strlen( gs.ctrls[c]->ldctl_oid );
+									LDAPControl *newctrl;
+
+									/* it's next database's turn */
+									if ( btmp == b0 ) {
+										op->o_conn->c_pagedresults_state.ps_be = gi->gi_n[gi->gi_nodes - 1].gn_be;
+
+									} else {
+										op->o_conn->c_pagedresults_state.ps_be = gi->gi_n[(i > 0 ? i - 1: 0)].gn_be;
+									}
+
+									cookie.bv_val = (char *)&respcookie;
+									cookie.bv_len = sizeof( PagedResultsCookie );
+
+									ber_init2( ber, NULL, LBER_USE_DER );
+									ber_printf( ber, "{iO}", 0, &cookie );
+									ber_flatten2( ber, &value, 0 );
+
+									newctrl = op->o_tmprealloc( gs.ctrls[c],
+										sizeof(LDAPControl) + oidlen + 1 + value.bv_len + 1,
+										op->o_tmpmemctx);
+									newctrl->ldctl_iscritical = gs.ctrls[c]->ldctl_iscritical;
+									newctrl->ldctl_oid = (char *)&newctrl[1];
+									lutil_strcopy( newctrl->ldctl_oid, gs.ctrls[c]->ldctl_oid );
+									newctrl->ldctl_value.bv_len = value.bv_len;
+									lutil_memcopy( newctrl->ldctl_value.bv_val,
+										value.bv_val, value.bv_len );
+
+									gs.ctrls[c] = newctrl;
+
+									ber_free_buf( ber );
+
+								} else if ( !BER_BVISEMPTY( &cookie ) && op->o_bd != b0 ) {
+									/* if cookie not empty, it's again this database's turn */
+									op->o_conn->c_pagedresults_state.ps_be = op->o_bd;
+								}
+							}
+						}
+
+						goto end_of_loop;
+					}
+
+					/* This backend has run out of entries, but more responses
+					 * can fit in the page. Fake a reset of the state so the
+					 * next backend will start up properly. Only back-[bh]db
+					 * and back-sql look at this state info.
+					 */
+					ps->ps_cookie = (PagedResultsCookie)0;
+					BER_BVZERO( &ps->ps_cookieval );
+
+					{
+						/* change the size of the page in the request
+						 * that will be propagated, and reset the cookie */
+						BerElementBuffer berbuf;
+						BerElement *ber = (BerElement *)&berbuf;
+						int size = ps->ps_size - rs->sr_nentries;
+						struct berval cookie = BER_BVC(""), value;
+						int c;
+
+						for (c = 0; op->o_ctrls[c] != NULL; c++) {
+							if (strcmp(op->o_ctrls[c]->ldctl_oid, LDAP_CONTROL_PAGEDRESULTS) == 0)
+								break;
+						}
+
+						assert( op->o_ctrls[c] != NULL );
+
+						ber_init2( ber, NULL, LBER_USE_DER );
+						ber_printf( ber, "{iO}", size, &cookie );
+						ber_flatten2( ber, &value, 0 );
+						assert( op->o_ctrls[c]->ldctl_value.bv_len >= value.bv_len );
+						op->o_ctrls[c]->ldctl_value.bv_len = value.bv_len;
+						lutil_memcopy( op->o_ctrls[c]->ldctl_value.bv_val,
+							value.bv_val, value.bv_len );
+						ber_free_buf( ber );
+					}
+				}
+				
 			default:
 				break;
 			}
@@ -455,22 +699,21 @@ end_of_loop:;
 		op->ors_scope = scope0;
 		op->ors_tlimit = tlimit0;
 		op->o_time = starttime;
-		op->o_req_dn = dn;
-		op->o_req_ndn = ndn;
 
 		break;
 	}
+
+	op->o_callback = cb.sc_next;
 	if ( op->o_abandon ) {
 		rs->sr_err = SLAPD_ABANDON;
 	} else {
-		op->o_callback = cb.sc_next;
 		rs->sr_err = gs.err;
 		rs->sr_matched = gs.matched;
 		rs->sr_ref = gs.refs;
-		rs->sr_ctrls = gs.ctrls;
-
-		send_ldap_result( op, rs );
 	}
+	rs->sr_ctrls = gs.ctrls;
+
+	send_ldap_result( op, rs );
 
 	op->o_bd = b0;
 	op->o_bd->bd_info = bi0;
@@ -480,11 +723,9 @@ end_of_loop:;
 		ber_bvarray_free(gs.refs);
 	if (gs.ctrls) {
 		for (i = gs.nctrls; --i >= 0; ) {
-			if (!BER_BVISNULL( &gs.ctrls[i]->ldctl_value ))
-				free(gs.ctrls[i]->ldctl_value.bv_val);
-			free(gs.ctrls[i]);
+			op->o_tmpfree(gs.ctrls[i], op->o_tmpmemctx);
 		}
-		free(gs.ctrls);
+		op->o_tmpfree(gs.ctrls, op->o_tmpmemctx);
 	}
 	return rs->sr_err;
 }
@@ -508,6 +749,49 @@ glue_tool_entry_open (
 	toolDB = *b0;
 	toolDB.bd_info = oi->oi_orig;
 
+	/* Sanity checks */
+	{
+		slap_overinst *on = glue_tool_inst( b0->bd_info );
+		glueinfo	*gi = on->on_bi.bi_private;
+
+		int i;
+		for (i = 0; i < gi->gi_nodes; i++) {
+			BackendDB *bd;
+			struct berval pdn;
+	
+			dnParent( &gi->gi_n[i].gn_be->be_nsuffix[0], &pdn );
+			bd = select_backend( &pdn, 0 );
+			if ( bd ) {
+				ID id;
+				BackendDB db;
+	
+				if ( overlay_is_over( bd ) ) {
+					slap_overinfo *oi = (slap_overinfo *)bd->bd_info;
+					db = *bd;
+					db.bd_info = oi->oi_orig;
+					bd = &db;
+				}
+	
+				if ( !bd->bd_info->bi_tool_dn2id_get
+					|| !bd->bd_info->bi_tool_entry_open
+					|| !bd->bd_info->bi_tool_entry_close )
+				{
+					continue;
+				}
+	
+				bd->bd_info->bi_tool_entry_open( bd, 0 );
+				id = bd->bd_info->bi_tool_dn2id_get( bd, &gi->gi_n[i].gn_be->be_nsuffix[0] );
+				bd->bd_info->bi_tool_entry_close( bd );
+				if ( id != NOID ) {
+					Debug( LDAP_DEBUG_ANY,
+						"glue_tool_entry_open: subordinate database suffix entry DN=\"%s\" also present in superior database rooted at DN=\"%s\"\n",
+						gi->gi_n[i].gn_be->be_suffix[0].bv_val, bd->be_suffix[0].bv_val, 0 );
+					return LDAP_OTHER;
+				}
+			}
+		}
+	}
+	
 	return 0;
 }
 
@@ -518,7 +802,7 @@ glue_tool_entry_close (
 {
 	int rc = 0;
 
-	if (glueBack) {
+	if (glueBack && glueBack != GLUEBACK_DONE) {
 		if (!glueBack->be_entry_close)
 			return 0;
 		rc = glueBack->be_entry_close (glueBack);
@@ -551,6 +835,7 @@ glue_open (
 	glueinfo		*gi = on->on_bi.bi_private;
 	static int glueOpened = 0;
 	int i, j, same, bsame = 0, rc = 0;
+	ConfigReply cr = {0};
 
 	if (glueOpened) return 0;
 
@@ -581,7 +866,7 @@ glue_open (
 					gi->gi_n[i].gn_be->bd_info );
 			/* Let backend.c take care of the rest of startup */
 			if ( !rc )
-				rc = backend_startup_one( gi->gi_n[i].gn_be );
+				rc = backend_startup_one( gi->gi_n[i].gn_be, &cr );
 			if ( rc ) break;
 		}
 		if ( !rc && !bsame && on->on_info->oi_orig->bi_open )
@@ -619,9 +904,8 @@ glue_entry_get_rw (
 	int	rw,
 	Entry	**e )
 {
-	BackendDB *b0 = op->o_bd;
 	int rc;
-
+	BackendDB *b0 = op->o_bd;
 	op->o_bd = glue_back_select( b0, dn );
 
 	if ( op->o_bd->be_fetch ) {
@@ -659,6 +943,10 @@ glue_entry_release_rw (
 	return rc;
 }
 
+static struct berval *glue_base;
+static int glue_scope;
+static Filter *glue_filter;
+
 static ID
 glue_tool_entry_first (
 	BackendDB *b0
@@ -667,6 +955,7 @@ glue_tool_entry_first (
 	slap_overinst	*on = glue_tool_inst( b0->bd_info );
 	glueinfo		*gi = on->on_bi.bi_private;
 	int i;
+	ID rc;
 
 	/* If we're starting from scratch, start at the most general */
 	if (!glueBack) {
@@ -686,7 +975,86 @@ glue_tool_entry_first (
 		glueBack->be_entry_open (glueBack, glueMode) != 0)
 		return NOID;
 
-	return glueBack->be_entry_first (glueBack);
+	rc = glueBack->be_entry_first (glueBack);
+	while ( rc == NOID ) {
+		if ( glueBack && glueBack->be_entry_close )
+			glueBack->be_entry_close (glueBack);
+		for (i=0; i<gi->gi_nodes; i++) {
+			if (gi->gi_n[i].gn_be == glueBack)
+				break;
+		}
+		if (i == 0) {
+			glueBack = GLUEBACK_DONE;
+			break;
+		} else {
+			glueBack = gi->gi_n[i-1].gn_be;
+			rc = glue_tool_entry_first (b0);
+			if ( glueBack == GLUEBACK_DONE ) {
+				break;
+			}
+		}
+	}
+	return rc;
+}
+
+static ID
+glue_tool_entry_first_x (
+	BackendDB *b0,
+	struct berval *base,
+	int scope,
+	Filter *f
+)
+{
+	slap_overinst	*on = glue_tool_inst( b0->bd_info );
+	glueinfo		*gi = on->on_bi.bi_private;
+	int i;
+	ID rc;
+
+	glue_base = base;
+	glue_scope = scope;
+	glue_filter = f;
+
+	/* If we're starting from scratch, start at the most general */
+	if (!glueBack) {
+		if ( toolDB.be_entry_open && toolDB.be_entry_first_x ) {
+			glueBack = &toolDB;
+		} else {
+			for (i = gi->gi_nodes-1; i >= 0; i--) {
+				if (gi->gi_n[i].gn_be->be_entry_open &&
+					gi->gi_n[i].gn_be->be_entry_first_x)
+				{
+					glueBack = gi->gi_n[i].gn_be;
+					break;
+				}
+			}
+		}
+	}
+	if (!glueBack || !glueBack->be_entry_open || !glueBack->be_entry_first_x ||
+		glueBack->be_entry_open (glueBack, glueMode) != 0)
+		return NOID;
+
+	rc = glueBack->be_entry_first_x (glueBack,
+		glue_base, glue_scope, glue_filter);
+	while ( rc == NOID ) {
+		if ( glueBack && glueBack->be_entry_close )
+			glueBack->be_entry_close (glueBack);
+		for (i=0; i<gi->gi_nodes; i++) {
+			if (gi->gi_n[i].gn_be == glueBack)
+				break;
+		}
+		if (i == 0) {
+			glueBack = GLUEBACK_DONE;
+			break;
+		} else {
+			glueBack = gi->gi_n[i-1].gn_be;
+			rc = glue_tool_entry_first_x (b0,
+				glue_base, glue_scope, glue_filter);
+			if ( glueBack == GLUEBACK_DONE ) {
+				break;
+			}
+		}
+	}
+	return rc;
 }
 
 static ID
@@ -713,14 +1081,68 @@ glue_tool_entry_next (
 				break;
 		}
 		if (i == 0) {
-			glueBack = NULL;
+			glueBack = GLUEBACK_DONE;
 			break;
 		} else {
 			glueBack = gi->gi_n[i-1].gn_be;
-			rc = glue_tool_entry_first (b0);
+			if ( glue_base || glue_filter ) {
+				/* using entry_first_x() */
+				rc = glue_tool_entry_first_x (b0,
+					glue_base, glue_scope, glue_filter);
+
+			} else {
+				/* using entry_first() */
+				rc = glue_tool_entry_first (b0);
+			}
+			if ( glueBack == GLUEBACK_DONE ) {
+				break;
+			}
 		}
 	}
 	return rc;
+}
+
+static ID
+glue_tool_dn2id_get (
+	BackendDB *b0,
+	struct berval *dn
+)
+{
+	BackendDB *be, b2;
+	int rc = -1;
+
+	b2 = *b0;
+	b2.bd_info = (BackendInfo *)glue_tool_inst( b0->bd_info );
+	be = glue_back_select (&b2, dn);
+	if ( be == &b2 ) be = &toolDB;
+
+	if (!be->be_dn2id_get)
+		return NOID;
+
+	if (!glueBack) {
+		if ( be->be_entry_open ) {
+			rc = be->be_entry_open (be, glueMode);
+		}
+		if (rc != 0) {
+			return NOID;
+		}
+	} else if (be != glueBack) {
+		/* If this entry belongs in a different branch than the
+		 * previous one, close the current database and open the
+		 * new one.
+		 */
+		if ( glueBack->be_entry_close ) {
+			glueBack->be_entry_close (glueBack);
+		}
+		if ( be->be_entry_open ) {
+			rc = be->be_entry_open (be, glueMode);
+		}
+		if (rc != 0) {
+			return NOID;
+		}
+	}
+	glueBack = be;
+	return be->be_dn2id_get (be, dn);
 }
 
 static Entry *
@@ -779,16 +1201,30 @@ glue_tool_entry_put (
 	return be->be_entry_put (be, e, text);
 }
 
+static ID
+glue_tool_entry_modify (
+	BackendDB *b0,
+	Entry *e,
+	struct berval *text
+)
+{
+	if (!glueBack || !glueBack->be_entry_modify)
+		return NOID;
+
+	return glueBack->be_entry_modify (glueBack, e, text);
+}
+
 static int
 glue_tool_entry_reindex (
 	BackendDB *b0,
-	ID id
+	ID id,
+	AttributeDescription **adv
 )
 {
 	if (!glueBack || !glueBack->be_entry_reindex)
 		return -1;
 
-	return glueBack->be_entry_reindex (glueBack, id);
+	return glueBack->be_entry_reindex (glueBack, id, adv);
 }
 
 static int
@@ -812,9 +1248,19 @@ glue_tool_sync (
 	return 0;
 }
 
+typedef struct glue_Addrec {
+	struct glue_Addrec *ga_next;
+	BackendDB *ga_be;
+} glue_Addrec;
+
+/* List of added subordinates */
+static glue_Addrec *ga_list;
+static int ga_adding;
+
 static int
 glue_db_init(
-	BackendDB *be
+	BackendDB *be,
+	ConfigReply *cr
 )
 {
 	slap_overinst	*on = (slap_overinst *)be->bd_info;
@@ -846,30 +1292,38 @@ glue_db_init(
 		oi->oi_bi.bi_tool_entry_close = glue_tool_entry_close;
 	if ( bi->bi_tool_entry_first )
 		oi->oi_bi.bi_tool_entry_first = glue_tool_entry_first;
+	/* FIXME: check whether all support bi_tool_entry_first_x() ? */
+	if ( bi->bi_tool_entry_first_x )
+		oi->oi_bi.bi_tool_entry_first_x = glue_tool_entry_first_x;
 	if ( bi->bi_tool_entry_next )
 		oi->oi_bi.bi_tool_entry_next = glue_tool_entry_next;
 	if ( bi->bi_tool_entry_get )
 		oi->oi_bi.bi_tool_entry_get = glue_tool_entry_get;
+	if ( bi->bi_tool_dn2id_get )
+		oi->oi_bi.bi_tool_dn2id_get = glue_tool_dn2id_get;
 	if ( bi->bi_tool_entry_put )
 		oi->oi_bi.bi_tool_entry_put = glue_tool_entry_put;
 	if ( bi->bi_tool_entry_reindex )
 		oi->oi_bi.bi_tool_entry_reindex = glue_tool_entry_reindex;
+	if ( bi->bi_tool_entry_modify )
+		oi->oi_bi.bi_tool_entry_modify = glue_tool_entry_modify;
 	if ( bi->bi_tool_sync )
 		oi->oi_bi.bi_tool_sync = glue_tool_sync;
 
-	/*FIXME : need to add support */
-	oi->oi_bi.bi_tool_dn2id_get = 0;
-	oi->oi_bi.bi_tool_id2entry_get = 0;
-	oi->oi_bi.bi_tool_entry_modify = 0;
-
 	SLAP_DBFLAGS( be ) |= SLAP_DBFLAG_GLUE_INSTANCE;
+
+	if ( ga_list ) {
+		be->bd_info = (BackendInfo *)oi;
+		glue_sub_attach( 1 );
+	}
 
 	return 0;
 }
 
 static int
 glue_db_destroy (
-	BackendDB *be
+	BackendDB *be,
+	ConfigReply *cr
 )
 {
 	slap_overinst	*on = (slap_overinst *)be->bd_info;
@@ -881,7 +1335,8 @@ glue_db_destroy (
 
 static int
 glue_db_close( 
-	BackendDB *be
+	BackendDB *be,
+	ConfigReply *cr
 )
 {
 	slap_overinst	*on = (slap_overinst *)be->bd_info;
@@ -936,20 +1391,18 @@ glue_sub_del( BackendDB *b0 )
 	return rc;
 }
 
-typedef struct glue_Addrec {
-	struct glue_Addrec *ga_next;
-	BackendDB *ga_be;
-} glue_Addrec;
-
-/* List of added subordinates */
-static glue_Addrec *ga_list;
 
 /* Attach all the subordinate backends to their superior */
 int
-glue_sub_attach()
+glue_sub_attach( int online )
 {
 	glue_Addrec *ga, *gnext = NULL;
 	int rc = 0;
+
+	if ( ga_adding )
+		return 0;
+
+	ga_adding = 1;
 
 	/* For all the subordinate backends */
 	for ( ga=ga_list; ga != NULL; ga = gnext ) {
@@ -971,7 +1424,7 @@ glue_sub_attach()
 
 			/* If it's not already configured, set up the overlay */
 			if ( !SLAP_GLUE_INSTANCE( be )) {
-				rc = overlay_config( be, glue.on_bi.bi_type );
+				rc = overlay_config( be, glue.on_bi.bi_type, -1, NULL, NULL);
 				if ( rc )
 					break;
 			}
@@ -990,11 +1443,20 @@ glue_sub_attach()
 				&gi->gi_n[gi->gi_nodes].gn_pdn );
 			gi->gi_nodes++;
 			on->on_bi.bi_private = gi;
+			ga->ga_be->be_flags |= SLAP_DBFLAG_GLUE_LINKED;
 			break;
 		}
 		if ( !be ) {
 			Debug( LDAP_DEBUG_ANY, "glue: no superior found for sub %s!\n",
 				ga->ga_be->be_suffix[0].bv_val, 0, 0 );
+			/* allow this for now, assume a superior will
+			 * be added later
+			 */
+			if ( online ) {
+				rc = 0;
+				gnext = ga_list;
+				break;
+			}
 			rc = LDAP_NO_SUCH_OBJECT;
 		}
 		ch_free( ga );
@@ -1002,6 +1464,8 @@ glue_sub_attach()
 	}
 
 	ga_list = gnext;
+
+	ga_adding = 0;
 
 	return rc;
 }
@@ -1028,8 +1492,31 @@ glue_sub_add( BackendDB *be, int advert, int online )
 	ga_list = ga;
 
 	if ( online )
-		rc = glue_sub_attach();
+		rc = glue_sub_attach( online );
 
+	return rc;
+}
+
+static int
+glue_access_allowed(
+	Operation		*op,
+	Entry			*e,
+	AttributeDescription	*desc,
+	struct berval		*val,
+	slap_access_t		access,
+	AccessControlState	*state,
+	slap_mask_t		*maskp )
+{
+	BackendDB *b0, *be = glue_back_select( op->o_bd, &e->e_nname );
+	int rc;
+
+	if ( be == NULL || be == op->o_bd || be->bd_info->bi_access_allowed == NULL )
+		return SLAP_CB_CONTINUE;
+
+	b0 = op->o_bd;
+	op->o_bd = be;
+	rc = be->bd_info->bi_access_allowed ( op, e, desc, val, access, state, maskp );
+	op->o_bd = b0;
 	return rc;
 }
 
@@ -1047,12 +1534,14 @@ glue_sub_init()
 	glue.on_bi.bi_op_modrdn = glue_op_func;
 	glue.on_bi.bi_op_add = glue_op_func;
 	glue.on_bi.bi_op_delete = glue_op_func;
+	glue.on_bi.bi_op_abandon = glue_op_abandon;
 	glue.on_bi.bi_extended = glue_op_func;
 
 	glue.on_bi.bi_chk_referrals = glue_chk_referrals;
 	glue.on_bi.bi_chk_controls = glue_chk_controls;
 	glue.on_bi.bi_entry_get_rw = glue_entry_get_rw;
 	glue.on_bi.bi_entry_release_rw = glue_entry_release_rw;
+	glue.on_bi.bi_access_allowed = glue_access_allowed;
 
 	glue.on_response = glue_response;
 

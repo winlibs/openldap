@@ -1,5 +1,6 @@
+// $OpenLDAP$
 /*
- * Copyright 2000, OpenLDAP Foundation, All Rights Reserved.
+ * Copyright 2000-2012 The OpenLDAP Foundation, All Rights Reserved.
  * COPYING RESTRICTIONS APPLY, see COPYRIGHT file
  */
 
@@ -7,7 +8,6 @@
 #include "LDAPException.h"
 #include "LDAPSearchResult.h"
 #include "LDAPResult.h"
-#include "LDAPReferralException.h"
 
 #include "LDAPSearchResults.h"
 

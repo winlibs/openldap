@@ -1,6 +1,7 @@
+/* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2004-2008 The OpenLDAP Foundation.
+ * Copyright 2004-2012 The OpenLDAP Foundation.
  * Portions Copyright 2004 Pierangelo Masarati.
  * All rights reserved.
  *
@@ -82,14 +83,16 @@ slapauth( int argc, char **argv )
 	Connection		conn = {0};
 	OperationBuffer	opbuf;
 	Operation		*op;
+	void			*thrctx;
 
 	slap_tool_init( progname, SLAPAUTH, argc, argv );
 
 	argv = &argv[ optind ];
 	argc -= optind;
 
-	op = (Operation *) &opbuf;
-	connection_fake_init( &conn, op, &conn );
+	thrctx = ldap_pvt_thread_pool_context();
+	connection_fake_init( &conn, &opbuf, thrctx );
+	op = &opbuf.ob_op;
 
 	conn.c_sasl_bind_mech = mech;
 
@@ -166,7 +169,8 @@ destroy:;
 	if ( !BER_BVISNULL( &authzID ) ) {
 		op->o_tmpfree( authzID.bv_val, op->o_tmpmemctx );
 	}
-	slap_tool_destroy();
+	if ( slap_tool_destroy())
+		rc = EXIT_FAILURE;
 
 	return rc;
 }

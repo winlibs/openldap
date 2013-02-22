@@ -1,7 +1,7 @@
-/* $OpenLDAP: pkg/ldap/include/lber.h,v 1.94.2.6 2008/02/11 23:24:10 kurt Exp $ */
+/* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2008 The OpenLDAP Foundation.
+ * Copyright 1998-2012 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -31,9 +31,13 @@
 
 LDAP_BEGIN_DECL
 
-/* Overview of LBER tag construction
+/*
+ * ber_tag_t represents the identifier octets at the beginning of BER
+ * elements.  OpenLDAP treats them as mere big-endian unsigned integers.
  *
- *	Bits
+ * Actually the BER identifier octets look like this:
+ *
+ *	Bits of 1st octet:
  *	______
  *	8 7 | CLASS
  *	0 0 = UNIVERSAL
@@ -46,16 +50,20 @@ LDAP_BEGIN_DECL
  *		  1 = CONSTRUCTED
  *			___________
  *			| 5 ... 1 | TAG-NUMBER
+ *
+ *  For ASN.1 tag numbers >= 0x1F, TAG-NUMBER above is 0x1F and the next
+ *  BER octets contain the actual ASN.1 tag number:  Big-endian, base
+ *  128, 8.bit = 1 in all but the last octet, minimum number of octets.
  */
 
-/* BER classes and mask */
+/* BER classes and mask (in 1st identifier octet) */
 #define LBER_CLASS_UNIVERSAL	((ber_tag_t) 0x00U)
 #define LBER_CLASS_APPLICATION	((ber_tag_t) 0x40U)
 #define LBER_CLASS_CONTEXT		((ber_tag_t) 0x80U)
 #define LBER_CLASS_PRIVATE		((ber_tag_t) 0xc0U)
 #define LBER_CLASS_MASK			((ber_tag_t) 0xc0U)
 
-/* BER encoding type and mask */
+/* BER encoding type and mask (in 1st identifier octet) */
 #define LBER_PRIMITIVE			((ber_tag_t) 0x00U)
 #define LBER_CONSTRUCTED		((ber_tag_t) 0x20U)
 #define LBER_ENCODING_MASK		((ber_tag_t) 0x20U)
@@ -64,13 +72,10 @@ LDAP_BEGIN_DECL
 #define LBER_MORE_TAG_MASK		((ber_tag_t) 0x80U)
 
 /*
- * Note that LBER_ERROR and LBER_DEFAULT are values that can never appear
- * as valid BER tags, and so it is safe to use them to report errors.  In
- * fact, any tag for which the following is true is invalid:
+ * LBER_ERROR and LBER_DEFAULT are values that can never appear
+ * as valid BER tags, so it is safe to use them to report errors.
+ * Valid tags have (tag & (ber_tag_t) 0xFF) != 0xFF.
  */
-#define LBER_INVALID(t)     (((t) & (ber_tag_t) 0x080UL) \
-	&& (((t) & (ber_tag_t) ~ 0x0FF))
-
 #define LBER_ERROR			((ber_tag_t) -1)
 #define LBER_DEFAULT		((ber_tag_t) -1)
 
@@ -138,8 +143,12 @@ typedef struct lber_memory_fns {
 #define LBER_SB_OPT_NEEDS_WRITE		12
 #define LBER_SB_OPT_GET_MAX_INCOMING	13
 #define LBER_SB_OPT_SET_MAX_INCOMING	14
+
+/* Only meaningful ifdef LDAP_PF_LOCAL_SENDMSG */
+#define LBER_SB_OPT_UNGET_BUF	15
+
 /* Largest option used by the library */
-#define LBER_SB_OPT_OPT_MAX		14
+#define LBER_SB_OPT_OPT_MAX		15
 
 /* LBER IO operations stacking levels */
 #define LBER_SBIOD_LEVEL_PROVIDER	10
@@ -161,7 +170,6 @@ LBER_V( char ) ber_pvt_opt_on;
 
 typedef struct berelement BerElement;
 typedef struct sockbuf Sockbuf;
-typedef struct seqorset Seqorset;
 
 typedef struct sockbuf_io Sockbuf_IO;
 
@@ -225,10 +233,6 @@ LBER_F( void )
 ber_dump LDAP_P((
 	BerElement *ber, int inout ));
 
-LBER_F( void )
-ber_sos_dump LDAP_P((
-	Seqorset *sos ));
-
 /*
  * in decode.c:
  */
@@ -252,6 +256,16 @@ ber_peek_tag LDAP_P((
 	ber_len_t *len ));
 
 LBER_F( ber_tag_t )
+ber_skip_element LDAP_P((
+	BerElement *ber,
+	struct berval *bv ));
+
+LBER_F( ber_tag_t )
+ber_peek_element LDAP_P((
+	LDAP_CONST BerElement *ber,
+	struct berval *bv ));
+
+LBER_F( ber_tag_t )
 ber_get_int LDAP_P((
 	BerElement *ber,
 	ber_int_t *num ));
@@ -267,11 +281,18 @@ ber_get_stringb LDAP_P((
 	char *buf,
 	ber_len_t *len ));
 
+#define	LBER_BV_ALLOC	0x01	/* allocate/copy result, otherwise in-place */
+#define	LBER_BV_NOTERM	0x02	/* omit NUL-terminator if parsing in-place */
+#define	LBER_BV_STRING	0x04	/* fail if berval contains embedded \0 */
+/* LBER_BV_STRING currently accepts a terminating \0 in the berval, because
+ * Active Directory sends that in at least the diagonsticMessage field.
+ */
+
 LBER_F( ber_tag_t )
 ber_get_stringbv LDAP_P((
 	BerElement *ber,
 	struct berval *bv,
-	int alloc ));
+	int options ));
 
 LBER_F( ber_tag_t )
 ber_get_stringa LDAP_P((
@@ -316,9 +337,19 @@ ber_scanf LDAP_P((
 	LDAP_CONST char *fmt,
 	... ));
 
+LBER_F( int )
+ber_decode_oid LDAP_P((
+	struct berval *in,
+	struct berval *out ));
+
 /*
  * in encode.c
  */
+LBER_F( int )
+ber_encode_oid LDAP_P((
+	struct berval *in,
+	struct berval *out ));
+
 typedef int (*BEREncodeCallback) LDAP_P((
 	BerElement *ber,
 	void *data ));
@@ -402,6 +433,11 @@ ber_printf LDAP_P((
  */
 
 LBER_F( ber_slen_t )
+ber_skip_data LDAP_P((
+	BerElement *ber,
+	ber_len_t len ));
+
+LBER_F( ber_slen_t )
 ber_read LDAP_P((
 	BerElement *ber,
 	char *buf,
@@ -412,7 +448,7 @@ ber_write LDAP_P((
 	BerElement *ber,
 	LDAP_CONST char *buf,
 	ber_len_t len,
-	int nosos ));
+	int zero ));	/* nonzero is unsupported from OpenLDAP 2.4.18 */
 
 LBER_F( void )
 ber_free LDAP_P((
@@ -423,10 +459,20 @@ LBER_F( void )
 ber_free_buf LDAP_P(( BerElement *ber ));
 
 LBER_F( int )
-ber_flush LDAP_P((
+ber_flush2 LDAP_P((
 	Sockbuf *sb,
 	BerElement *ber,
 	int freeit ));
+#define LBER_FLUSH_FREE_NEVER		(0x0)	/* traditional behavior */
+#define LBER_FLUSH_FREE_ON_SUCCESS	(0x1)	/* traditional behavior */
+#define LBER_FLUSH_FREE_ON_ERROR	(0x2)
+#define LBER_FLUSH_FREE_ALWAYS		(LBER_FLUSH_FREE_ON_SUCCESS|LBER_FLUSH_FREE_ON_ERROR)
+
+LBER_F( int )
+ber_flush LDAP_P((
+	Sockbuf *sb,
+	BerElement *ber,
+	int freeit )); /* DEPRECATED */
 
 LBER_F( BerElement * )
 ber_alloc LDAP_P(( void )); /* DEPRECATED */
@@ -597,6 +643,14 @@ LBER_F( char * )
 ber_strdup LDAP_P((
 	LDAP_CONST char * ));
 
+LBER_F( ber_len_t )
+ber_strnlen LDAP_P((
+	LDAP_CONST char *s, ber_len_t len ));
+
+LBER_F( char * )
+ber_strndup LDAP_P((
+	LDAP_CONST char *s, ber_len_t l ));
+
 LBER_F( struct berval * )
 ber_bvreplace LDAP_P((
 	struct berval *dst, LDAP_CONST struct berval *src ));
@@ -621,10 +675,6 @@ LBER_F( int * ) ber_errno_addr LDAP_P((void));
 #define LBER_ERROR_NONE		0
 #define LBER_ERROR_PARAM	0x1
 #define LBER_ERROR_MEMORY	0x2
-
-#ifdef LDAP_DEVEL
-#define LDAP_NULL_IS_NULL
-#endif
 
 LDAP_END_DECL
 

@@ -1,11 +1,11 @@
 .TH LDAP_RESULT 3 "RELEASEDATE" "OpenLDAP LDVERSION"
-.\" $OpenLDAP: pkg/ldap/doc/man/man3/ldap_result.3,v 1.16.2.6 2008/02/11 23:24:09 kurt Exp $
-.\" Copyright 1998-2008 The OpenLDAP Foundation All Rights Reserved.
+.\" $OpenLDAP$
+.\" Copyright 1998-2012 The OpenLDAP Foundation All Rights Reserved.
 .\" Copying restrictions apply.  See COPYRIGHT/LICENSE.
 .SH NAME
 ldap_result \- Wait for the result of an LDAP operation
 .SH LIBRARY
-OpenLDAP LDAP (libldap, -lldap)
+OpenLDAP LDAP (libldap, \-lldap)
 .SH SYNOPSIS
 .nf
 .ft B
@@ -27,9 +27,9 @@ The
 routine is used to wait for and return the result of
 an operation previously initiated by one of the LDAP asynchronous
 operation routines (e.g.,
-.BR ldap_search (3),
-.BR ldap_modify (3),
-etc.).  Those routines all return -1 in case of error, and an
+.BR ldap_search_ext (3),
+.BR ldap_modify_ext (3),
+etc.).  Those routines all return \-1 in case of error, and an
 invocation identifier upon successful initiation of the operation. The
 invocation identifier is picked by the library and is guaranteed to be
 unique across the LDAP session.  It can be used to request the result
@@ -43,9 +43,16 @@ routine will block or not, depending upon the setting
 of the \fItimeout\fP parameter.
 If timeout is not a NULL pointer,  it  specifies  a  maximum
 interval  to wait for the selection to complete.  If timeout
-is a NULL  pointer,  the  select  blocks  indefinitely.   To
+is a NULL  pointer, the LDAP_OPT_TIMEOUT value set by
+.BR ldap_set_option (3)
+is used. With the default setting,
+the  select  blocks  indefinitely.   To
 effect  a  poll,  the  timeout argument should be a non-NULL
-pointer, pointing to a zero-valued timeval structure.  See
+pointer, pointing to a zero-valued timeval structure.
+To obtain the behavior of the default setting, bypassing any value set by 
+.BR ldap_set_option (3),
+set to -1 the \fItv_sec\fP field of the \fItimeout\fP parameter.
+See
 .BR select (2)
 for further details.
 .LP
@@ -70,9 +77,10 @@ If it's set to 1, the search
 response will only be returned in its entirety, i.e., after all entries,
 all references, all extended partial responses, and the final search
 result have been received.
-.LP
+.SH RETURN VALUE
 Upon success, the type of the result received is returned and the
-\fIresult\fP parameter will contain the result of the operation.  This
+\fIresult\fP parameter will contain the result of the operation;
+otherwise, the \fIresult\fP parameter is undefined.  This
 result should be passed to the LDAP parsing routines,
 .BR ldap_first_message (3)
 and friends, for interpretation.
@@ -99,7 +107,7 @@ routine is used to free the memory allocated for
 result(s) by
 .B ldap_result()
 or
-.BR ldap_search_s (3)
+.BR ldap_search_ext_s (3)
 and friends.
 It takes a pointer to the result or result chain to be freed and returns
 the type of the last message in the chain.
@@ -114,19 +122,15 @@ The
 routine returns the message id of a message.
 .SH ERRORS
 .B ldap_result()
-returns -1 if something bad happens, and zero if the
+returns \-1 if something bad happens, and zero if the
 timeout specified was exceeded.
 .B ldap_msgtype()
 and
 .B ldap_msgid()
-return -1 on error.
+return \-1 on error.
 .SH SEE ALSO
 .BR ldap (3),
-.BR ldap_search (3),
 .BR ldap_first_message (3),
 .BR select (2)
 .SH ACKNOWLEDGEMENTS
-.B OpenLDAP
-is developed and maintained by The OpenLDAP Project (http://www.openldap.org/).
-.B OpenLDAP
-is derived from University of Michigan LDAP 3.3 Release.  
+.so ../Project

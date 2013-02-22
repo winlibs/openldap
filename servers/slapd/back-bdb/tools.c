@@ -1,8 +1,8 @@
 /* tools.c - tools for slap tools */
-/* $OpenLDAP: pkg/ldap/servers/slapd/back-bdb/tools.c,v 1.72.2.21 2008/02/11 23:24:19 kurt Exp $ */
+/* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2000-2008 The OpenLDAP Foundation.
+ * Copyright 2000-2012 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -18,6 +18,7 @@
 
 #include <stdio.h>
 #include <ac/string.h>
+#include <ac/errno.h>
 
 #define AVL_INTERNAL
 #include "back-bdb.h"
@@ -25,6 +26,9 @@
 
 static DBC *cursor = NULL;
 static DBT key, data;
+static EntryHeader eh;
+static ID nid, previd = NOID;
+static char ehbuf[16];
 
 typedef struct dn_id {
 	ID id;
@@ -37,6 +41,11 @@ static unsigned nhmax = HOLE_SIZE;
 static unsigned nholes;
 
 static int index_nattrs;
+
+static struct berval	*tool_base;
+static int		tool_scope;
+static Filter		*tool_filter;
+static Entry		*tool_next_entry;
 
 #ifdef BDB_TOOL_IDL_CACHING
 #define bdb_tool_idl_cmp		BDB_SYMBOL(tool_idl_cmp)
@@ -68,9 +77,31 @@ static int *bdb_tool_index_threads, bdb_tool_index_tcount;
 static void *bdb_tool_index_rec;
 static struct bdb_info *bdb_tool_info;
 static ldap_pvt_thread_mutex_t bdb_tool_index_mutex;
-static ldap_pvt_thread_cond_t bdb_tool_index_cond;
+static ldap_pvt_thread_cond_t bdb_tool_index_cond_main;
+static ldap_pvt_thread_cond_t bdb_tool_index_cond_work;
+
+#if DB_VERSION_FULL >= 0x04060000
+#define	USE_TRICKLE	1
+#else
+/* Seems to slow things down too much in BDB 4.5 */
+#undef USE_TRICKLE
+#endif
+
+#ifdef USE_TRICKLE
+static ldap_pvt_thread_mutex_t bdb_tool_trickle_mutex;
+static ldap_pvt_thread_cond_t bdb_tool_trickle_cond;
+static ldap_pvt_thread_cond_t bdb_tool_trickle_cond_end;
+
+static void * bdb_tool_trickle_task( void *ctx, void *ptr );
+static int bdb_tool_trickle_active;
+#endif
 
 static void * bdb_tool_index_task( void *ctx, void *ptr );
+
+static int
+bdb_tool_entry_get_int( BackendDB *be, ID id, Entry **ep );
+
+static int bdb_tool_threads;
 
 int bdb_tool_entry_open(
 	BackendDB *be, int mode )
@@ -80,12 +111,14 @@ int bdb_tool_entry_open(
 	/* initialize key and data thangs */
 	DBTzero( &key );
 	DBTzero( &data );
-	key.flags = DB_DBT_REALLOC;
-	data.flags = DB_DBT_REALLOC;
+	key.flags = DB_DBT_USERMEM;
+	key.data = &nid;
+	key.size = key.ulen = sizeof( nid );
+	data.flags = DB_DBT_USERMEM;
 
 	if (cursor == NULL) {
 		int rc = bdb->bi_id2entry->bdi_db->cursor(
-			bdb->bi_id2entry->bdi_db, NULL, &cursor,
+			bdb->bi_id2entry->bdi_db, bdb->bi_cache.c_txn, &cursor,
 			bdb->bi_db_opflags );
 		if( rc != 0 ) {
 			return -1;
@@ -93,23 +126,35 @@ int bdb_tool_entry_open(
 	}
 
 	/* Set up for threaded slapindex */
-	if (( slapMode & (SLAP_TOOL_QUICK|SLAP_TOOL_READONLY)) == SLAP_TOOL_QUICK
-		&& bdb->bi_nattrs ) {
+	if (( slapMode & (SLAP_TOOL_QUICK|SLAP_TOOL_READONLY)) == SLAP_TOOL_QUICK ) {
 		if ( !bdb_tool_info ) {
-			int i;
+#ifdef USE_TRICKLE
+			ldap_pvt_thread_mutex_init( &bdb_tool_trickle_mutex );
+			ldap_pvt_thread_cond_init( &bdb_tool_trickle_cond );
+			ldap_pvt_thread_cond_init( &bdb_tool_trickle_cond_end );
+			ldap_pvt_thread_pool_submit( &connection_pool, bdb_tool_trickle_task, bdb->bi_dbenv );
+#endif
+
 			ldap_pvt_thread_mutex_init( &bdb_tool_index_mutex );
-			ldap_pvt_thread_cond_init( &bdb_tool_index_cond );
-			bdb_tool_index_threads = ch_malloc( slap_tool_thread_max * sizeof( int ));
-			bdb_tool_index_rec = ch_malloc( bdb->bi_nattrs * sizeof( IndexRec ));
-			bdb_tool_index_tcount = slap_tool_thread_max - 1;
-			for (i=1; i<slap_tool_thread_max; i++) {
-				int *ptr = ch_malloc( sizeof( int ));
-				*ptr = i;
-				ldap_pvt_thread_pool_submit( &connection_pool,
-					bdb_tool_index_task, ptr );
+			ldap_pvt_thread_cond_init( &bdb_tool_index_cond_main );
+			ldap_pvt_thread_cond_init( &bdb_tool_index_cond_work );
+			if ( bdb->bi_nattrs ) {
+				int i;
+				bdb_tool_threads = slap_tool_thread_max - 1;
+				if ( bdb_tool_threads > 1 ) {
+					bdb_tool_index_threads = ch_malloc( bdb_tool_threads * sizeof( int ));
+					bdb_tool_index_rec = ch_malloc( bdb->bi_nattrs * sizeof( IndexRec ));
+					bdb_tool_index_tcount = bdb_tool_threads - 1;
+					for (i=1; i<bdb_tool_threads; i++) {
+						int *ptr = ch_malloc( sizeof( int ));
+						*ptr = i;
+						ldap_pvt_thread_pool_submit( &connection_pool,
+							bdb_tool_index_task, ptr );
+					}
+				}
 			}
+			bdb_tool_info = bdb;
 		}
-		bdb_tool_info = bdb;
 	}
 
 	return 0;
@@ -120,19 +165,50 @@ int bdb_tool_entry_close(
 {
 	if ( bdb_tool_info ) {
 		slapd_shutdown = 1;
-		ldap_pvt_thread_mutex_lock( &bdb_tool_index_mutex );
-		bdb_tool_index_tcount = slap_tool_thread_max - 1;
-		ldap_pvt_thread_cond_broadcast( &bdb_tool_index_cond );
-		ldap_pvt_thread_mutex_unlock( &bdb_tool_index_mutex );
+#ifdef USE_TRICKLE
+		ldap_pvt_thread_mutex_lock( &bdb_tool_trickle_mutex );
+
+		/* trickle thread may not have started yet */
+		while ( !bdb_tool_trickle_active )
+			ldap_pvt_thread_cond_wait( &bdb_tool_trickle_cond_end,
+					&bdb_tool_trickle_mutex );
+
+		ldap_pvt_thread_cond_signal( &bdb_tool_trickle_cond );
+		while ( bdb_tool_trickle_active )
+			ldap_pvt_thread_cond_wait( &bdb_tool_trickle_cond_end,
+					&bdb_tool_trickle_mutex );
+		ldap_pvt_thread_mutex_unlock( &bdb_tool_trickle_mutex );
+#endif
+		if ( bdb_tool_threads > 1 ) {
+			ldap_pvt_thread_mutex_lock( &bdb_tool_index_mutex );
+
+			/* There might still be some threads starting */
+			while ( bdb_tool_index_tcount > 0 ) {
+				ldap_pvt_thread_cond_wait( &bdb_tool_index_cond_main,
+						&bdb_tool_index_mutex );
+			}
+
+			bdb_tool_index_tcount = bdb_tool_threads - 1;
+			ldap_pvt_thread_cond_broadcast( &bdb_tool_index_cond_work );
+
+			/* Make sure all threads are stopped */
+			while ( bdb_tool_index_tcount > 0 ) {
+				ldap_pvt_thread_cond_wait( &bdb_tool_index_cond_main,
+					&bdb_tool_index_mutex );
+			}
+			ldap_pvt_thread_mutex_unlock( &bdb_tool_index_mutex );
+
+			ch_free( bdb_tool_index_threads );
+			ch_free( bdb_tool_index_rec );
+			bdb_tool_index_tcount = bdb_tool_threads - 1;
+		}
+		bdb_tool_info = NULL;
+		slapd_shutdown = 0;
 	}
 
-	if( key.data ) {
-		ch_free( key.data );
-		key.data = NULL;
-	}
-	if( data.data ) {
-		ch_free( data.data );
-		data.data = NULL;
+	if( eh.bv.bv_val ) {
+		ch_free( eh.bv.bv_val );
+		eh.bv.bv_val = NULL;
 	}
 
 	if( cursor ) {
@@ -157,20 +233,41 @@ int bdb_tool_entry_close(
 	return 0;
 }
 
+ID
+bdb_tool_entry_first_x(
+	BackendDB *be,
+	struct berval *base,
+	int scope,
+	Filter *f )
+{
+	tool_base = base;
+	tool_scope = scope;
+	tool_filter = f;
+	
+	return bdb_tool_entry_next( be );
+}
+
 ID bdb_tool_entry_next(
 	BackendDB *be )
 {
 	int rc;
 	ID id;
-	struct bdb_info *bdb = (struct bdb_info *) be->be_private;
+	struct bdb_info *bdb;
 
 	assert( be != NULL );
 	assert( slapMode & SLAP_TOOL_MODE );
+
+	bdb = (struct bdb_info *) be->be_private;
 	assert( bdb != NULL );
-	
+
+next:;
+	/* Get the header */
+	data.ulen = data.dlen = sizeof( ehbuf );
+	data.data = ehbuf;
+	data.flags |= DB_DBT_PARTIAL;
 	rc = cursor->c_get( cursor, &key, &data, DB_NEXT );
 
-	if( rc != 0 ) {
+	if( rc ) {
 		/* If we're doing linear indexing and there are more attrs to
 		 * index, and we're at the end of the database, start over.
 		 */
@@ -188,11 +285,49 @@ ID bdb_tool_entry_next(
 		}
 	}
 
-	if( data.data == NULL ) {
-		return NOID;
+	BDB_DISK2ID( key.data, &id );
+	previd = id;
+
+	if ( tool_filter || tool_base ) {
+		static Operation op = {0};
+		static Opheader ohdr = {0};
+
+		op.o_hdr = &ohdr;
+		op.o_bd = be;
+		op.o_tmpmemctx = NULL;
+		op.o_tmpmfuncs = &ch_mfuncs;
+
+		if ( tool_next_entry ) {
+			bdb_entry_release( &op, tool_next_entry, 0 );
+			tool_next_entry = NULL;
+		}
+
+		rc = bdb_tool_entry_get_int( be, id, &tool_next_entry );
+		if ( rc == LDAP_NO_SUCH_OBJECT ) {
+			goto next;
+		}
+
+		assert( tool_next_entry != NULL );
+
+#ifdef BDB_HIER
+		/* TODO: needed until BDB_HIER is handled accordingly
+		 * in bdb_tool_entry_get_int() */
+		if ( tool_base && !dnIsSuffixScope( &tool_next_entry->e_nname, tool_base, tool_scope ) )
+		{
+			bdb_entry_release( &op, tool_next_entry, 0 );
+			tool_next_entry = NULL;
+			goto next;
+		}
+#endif
+
+		if ( tool_filter && test_filter( NULL, tool_next_entry, tool_filter ) != LDAP_COMPARE_TRUE )
+		{
+			bdb_entry_release( &op, tool_next_entry, 0 );
+			tool_next_entry = NULL;
+			goto next;
+		}
 	}
 
-	BDB_DISK2ID( key.data, &id );
 	return id;
 }
 
@@ -222,75 +357,131 @@ ID bdb_tool_dn2id_get(
 	return ei->bei_id;
 }
 
-int bdb_tool_id2entry_get(
-	Backend *be,
-	ID id,
-	Entry **e
-)
+static int
+bdb_tool_entry_get_int( BackendDB *be, ID id, Entry **ep )
 {
-	int rc;
-	ID nid;
-
-	BDB_ID2DISK( id, &nid );
-	key.ulen = key.size = sizeof(ID);
-	key.flags = DB_DBT_USERMEM;
-	key.data = &nid;
-
-	rc = cursor->c_get( cursor, &key, &data, DB_SET );
-	if ( rc == 0 ) {
-		*e = bdb_tool_entry_get( be, id );
-		if ( *e == NULL )
-			rc = LDAP_OTHER;
-	}
-	key.data = NULL;
-
-	return rc;
-}
-
-Entry* bdb_tool_entry_get( BackendDB *be, ID id )
-{
-	int rc;
 	Entry *e = NULL;
-	struct berval bv;
+	char *dptr;
+	int rc, eoff;
 
 	assert( be != NULL );
 	assert( slapMode & SLAP_TOOL_MODE );
-	assert( data.data != NULL );
 
-	DBT2bv( &data, &bv );
+	if ( ( tool_filter || tool_base ) && id == previd && tool_next_entry != NULL ) {
+		*ep = tool_next_entry;
+		tool_next_entry = NULL;
+		return LDAP_SUCCESS;
+	}
+
+	if ( id != previd ) {
+		data.ulen = data.dlen = sizeof( ehbuf );
+		data.data = ehbuf;
+		data.flags |= DB_DBT_PARTIAL;
+
+		BDB_ID2DISK( id, &nid );
+		rc = cursor->c_get( cursor, &key, &data, DB_SET );
+		if ( rc ) {
+			rc = LDAP_OTHER;
+			goto done;
+		}
+	}
+
+	/* Get the header */
+	dptr = eh.bv.bv_val;
+	eh.bv.bv_val = ehbuf;
+	eh.bv.bv_len = data.size;
+	rc = entry_header( &eh );
+	eoff = eh.data - eh.bv.bv_val;
+	eh.bv.bv_val = dptr;
+	if ( rc ) {
+		rc = LDAP_OTHER;
+		goto done;
+	}
+
+	/* Get the size */
+	data.flags &= ~DB_DBT_PARTIAL;
+	data.ulen = 0;
+	rc = cursor->c_get( cursor, &key, &data, DB_CURRENT );
+	if ( rc != DB_BUFFER_SMALL ) {
+		rc = LDAP_OTHER;
+		goto done;
+	}
+
+	/* Allocate a block and retrieve the data */
+	eh.bv.bv_len = eh.nvals * sizeof( struct berval ) + data.size;
+	eh.bv.bv_val = ch_realloc( eh.bv.bv_val, eh.bv.bv_len );
+	eh.data = eh.bv.bv_val + eh.nvals * sizeof( struct berval );
+	data.data = eh.data;
+	data.ulen = data.size;
+
+	/* Skip past already parsed nattr/nvals */
+	eh.data += eoff;
+
+	rc = cursor->c_get( cursor, &key, &data, DB_CURRENT );
+	if ( rc ) {
+		rc = LDAP_OTHER;
+		goto done;
+	}
+
+#ifndef BDB_HIER
+	/* TODO: handle BDB_HIER accordingly */
+	if ( tool_base != NULL ) {
+		struct berval ndn;
+		entry_decode_dn( &eh, NULL, &ndn );
+
+		if ( !dnIsSuffixScope( &ndn, tool_base, tool_scope ) ) {
+			return LDAP_NO_SUCH_OBJECT;
+		}
+	}
+#endif
 
 #ifdef SLAP_ZONE_ALLOC
 	/* FIXME: will add ctx later */
-	rc = entry_decode( &bv, &e, NULL );
+	rc = entry_decode( &eh, &e, NULL );
 #else
-	rc = entry_decode( &bv, &e );
+	rc = entry_decode( &eh, &e );
 #endif
 
 	if( rc == LDAP_SUCCESS ) {
 		e->e_id = id;
-	}
 #ifdef BDB_HIER
-	if ( slapMode & SLAP_TOOL_READONLY ) {
-		EntryInfo *ei = NULL;
-		Operation op = {0};
-		Opheader ohdr = {0};
+		if ( slapMode & SLAP_TOOL_READONLY ) {
+			struct bdb_info *bdb = (struct bdb_info *) be->be_private;
+			EntryInfo *ei = NULL;
+			Operation op = {0};
+			Opheader ohdr = {0};
 
-		op.o_hdr = &ohdr;
-		op.o_bd = be;
-		op.o_tmpmemctx = NULL;
-		op.o_tmpmfuncs = &ch_mfuncs;
+			op.o_hdr = &ohdr;
+			op.o_bd = be;
+			op.o_tmpmemctx = NULL;
+			op.o_tmpmfuncs = &ch_mfuncs;
 
-		rc = bdb_cache_find_parent( &op, cursor->locker, id, &ei );
-		if ( rc == LDAP_SUCCESS ) {
-			bdb_cache_entryinfo_unlock( ei );
-			e->e_private = ei;
-			ei->bei_e = e;
-			bdb_fix_dn( e, 0 );
-			ei->bei_e = NULL;
-			e->e_private = NULL;
+			rc = bdb_cache_find_parent( &op, bdb->bi_cache.c_txn, id, &ei );
+			if ( rc == LDAP_SUCCESS ) {
+				bdb_cache_entryinfo_unlock( ei );
+				e->e_private = ei;
+				ei->bei_e = e;
+				bdb_fix_dn( e, 0 );
+				ei->bei_e = NULL;
+				e->e_private = NULL;
+			}
 		}
-	}
 #endif
+	}
+done:
+	if ( e != NULL ) {
+		*ep = e;
+	}
+
+	return rc;
+}
+
+Entry*
+bdb_tool_entry_get( BackendDB *be, ID id )
+{
+	Entry *e = NULL;
+
+	(void)bdb_tool_entry_get_int( be, id, &e );
 	return e;
 }
 
@@ -312,7 +503,7 @@ static int bdb_tool_next_id(
 		return 0;
 	}
 
-	rc = bdb_cache_find_ndn( op, tid ? TXN_ID( tid ) : 0, &ndn, &ei );
+	rc = bdb_cache_find_ndn( op, tid, &ndn, &ei );
 	if ( ei ) bdb_cache_entryinfo_unlock( ei );
 	if ( rc == DB_NOTFOUND ) {
 		if ( !be_issuffix( op->o_bd, &ndn ) ) {
@@ -336,7 +527,7 @@ static int bdb_tool_next_id(
 				ei = &eidummy;
 			}
 		}
-		rc = bdb_next_id( op->o_bd, tid, &e->e_id );
+		rc = bdb_next_id( op->o_bd, &e->e_id );
 		if ( rc ) {
 			snprintf( text->bv_val, text->bv_len,
 				"next_id failed: %s (%d)",
@@ -366,13 +557,12 @@ static int bdb_tool_next_id(
 			holes[nholes++].id = e->e_id;
 		}
 	} else if ( !hole ) {
-		unsigned i;
+		unsigned i, j;
 
 		e->e_id = ei->bei_id;
 
 		for ( i=0; i<nholes; i++) {
 			if ( holes[i].id == e->e_id ) {
-				int j;
 				free(holes[i].dn.bv_val);
 				for (j=i;j<nholes;j++) holes[j] = holes[j+1];
 				holes[j].id = 0;
@@ -394,10 +584,10 @@ bdb_tool_index_add(
 {
 	struct bdb_info *bdb = (struct bdb_info *) op->o_bd->be_private;
 
-	if (!bdb->bi_nattrs)
+	if ( !bdb->bi_nattrs )
 		return 0;
 
-	if ( slapMode & SLAP_TOOL_QUICK ) {
+	if ( bdb_tool_threads > 1 ) {
 		IndexRec *ir;
 		int i, rc;
 		Attribute *a;
@@ -415,29 +605,33 @@ bdb_tool_index_add(
 		bdb_tool_ix_op = op;
 		ldap_pvt_thread_mutex_lock( &bdb_tool_index_mutex );
 		/* Wait for all threads to be ready */
-		while ( bdb_tool_index_tcount ) {
-			ldap_pvt_thread_mutex_unlock( &bdb_tool_index_mutex );
-			ldap_pvt_thread_yield();
-			ldap_pvt_thread_mutex_lock( &bdb_tool_index_mutex );
+		while ( bdb_tool_index_tcount > 0 ) {
+			ldap_pvt_thread_cond_wait( &bdb_tool_index_cond_main, 
+				&bdb_tool_index_mutex );
 		}
-		for ( i=1; i<slap_tool_thread_max; i++ )
+		for ( i=1; i<bdb_tool_threads; i++ )
 			bdb_tool_index_threads[i] = LDAP_BUSY;
-		bdb_tool_index_tcount = slap_tool_thread_max - 1;
-		ldap_pvt_thread_cond_broadcast( &bdb_tool_index_cond );
+		bdb_tool_index_tcount = bdb_tool_threads - 1;
+		ldap_pvt_thread_cond_broadcast( &bdb_tool_index_cond_work );
 		ldap_pvt_thread_mutex_unlock( &bdb_tool_index_mutex );
 		rc = bdb_index_recrun( op, bdb, ir, e->e_id, 0 );
 		if ( rc )
 			return rc;
-		for ( i=1; i<slap_tool_thread_max; i++ ) {
+		ldap_pvt_thread_mutex_lock( &bdb_tool_index_mutex );
+		for ( i=1; i<bdb_tool_threads; i++ ) {
 			if ( bdb_tool_index_threads[i] == LDAP_BUSY ) {
-				ldap_pvt_thread_yield();
+				ldap_pvt_thread_cond_wait( &bdb_tool_index_cond_main, 
+					&bdb_tool_index_mutex );
 				i--;
 				continue;
 			}
-			if ( bdb_tool_index_threads[i] )
-				return bdb_tool_index_threads[i];
+			if ( bdb_tool_index_threads[i] ) {
+				rc = bdb_tool_index_threads[i];
+				break;
+			}
 		}
-		return 0;
+		ldap_pvt_thread_mutex_unlock( &bdb_tool_index_mutex );
+		return rc;
 	} else {
 		return bdb_index_entry_add( op, txn, e );
 	}
@@ -449,7 +643,7 @@ ID bdb_tool_entry_put(
 	struct berval *text )
 {
 	int rc;
-	struct bdb_info *bdb = (struct bdb_info *) be->be_private;
+	struct bdb_info *bdb;
 	DB_TXN *tid = NULL;
 	Operation op = {0};
 	Opheader ohdr = {0};
@@ -463,6 +657,8 @@ ID bdb_tool_entry_put(
 
 	Debug( LDAP_DEBUG_TRACE, "=> " LDAP_XSTRING(bdb_tool_entry_put)
 		"( %ld, \"%s\" )\n", (long) e->e_id, e->e_dn, 0 );
+
+	bdb = (struct bdb_info *) be->be_private;
 
 	if (! (slapMode & SLAP_TOOL_QUICK)) {
 	rc = TXN_BEGIN( bdb->bi_dbenv, NULL, &tid, 
@@ -489,11 +685,18 @@ ID bdb_tool_entry_put(
 		goto done;
 	}
 
+#ifdef USE_TRICKLE
+	if (( slapMode & SLAP_TOOL_QUICK ) && (( e->e_id & 0xfff ) == 0xfff )) {
+		ldap_pvt_thread_cond_signal( &bdb_tool_trickle_cond );
+	}
+#endif
+
 	if ( !bdb->bi_linear_index )
 		rc = bdb_tool_index_add( &op, tid, e );
 	if( rc != 0 ) {
 		snprintf( text->bv_val, text->bv_len,
 				"index_entry_add failed: %s (%d)",
+				rc == LDAP_OTHER ? "Internal error" :
 				db_strerror(rc), rc );
 		Debug( LDAP_DEBUG_ANY,
 			"=> " LDAP_XSTRING(bdb_tool_entry_put) ": %s\n",
@@ -533,6 +736,7 @@ done:
 		TXN_ABORT( tid );
 		snprintf( text->bv_val, text->bv_len,
 			"txn_aborted! %s (%d)",
+			rc == LDAP_OTHER ? "Internal error" :
 			db_strerror(rc), rc );
 		Debug( LDAP_DEBUG_ANY,
 			"=> " LDAP_XSTRING(bdb_tool_entry_put) ": %s\n",
@@ -546,7 +750,8 @@ done:
 
 int bdb_tool_entry_reindex(
 	BackendDB *be,
-	ID id )
+	ID id,
+	AttributeDescription **adv )
 {
 	struct bdb_info *bi = (struct bdb_info *) be->be_private;
 	int rc;
@@ -558,12 +763,55 @@ int bdb_tool_entry_reindex(
 	Debug( LDAP_DEBUG_ARGS,
 		"=> " LDAP_XSTRING(bdb_tool_entry_reindex) "( %ld )\n",
 		(long) id, 0, 0 );
+	assert( tool_base == NULL );
+	assert( tool_filter == NULL );
 
 	/* No indexes configured, nothing to do. Could return an
 	 * error here to shortcut things.
 	 */
 	if (!bi->bi_attrs) {
 		return 0;
+	}
+
+	/* Check for explicit list of attrs to index */
+	if ( adv ) {
+		int i, j, n;
+
+		if ( bi->bi_attrs[0]->ai_desc != adv[0] ) {
+			/* count */
+			for ( n = 0; adv[n]; n++ ) ;
+
+			/* insertion sort */
+			for ( i = 0; i < n; i++ ) {
+				AttributeDescription *ad = adv[i];
+				for ( j = i-1; j>=0; j--) {
+					if ( SLAP_PTRCMP( adv[j], ad ) <= 0 ) break;
+					adv[j+1] = adv[j];
+				}
+				adv[j+1] = ad;
+			}
+		}
+
+		for ( i = 0; adv[i]; i++ ) {
+			if ( bi->bi_attrs[i]->ai_desc != adv[i] ) {
+				for ( j = i+1; j < bi->bi_nattrs; j++ ) {
+					if ( bi->bi_attrs[j]->ai_desc == adv[i] ) {
+						AttrInfo *ai = bi->bi_attrs[i];
+						bi->bi_attrs[i] = bi->bi_attrs[j];
+						bi->bi_attrs[j] = ai;
+						break;
+					}
+				}
+				if ( j == bi->bi_nattrs ) {
+					Debug( LDAP_DEBUG_ANY,
+						LDAP_XSTRING(bdb_tool_entry_reindex)
+						": no index configured for %s\n",
+						adv[i]->ad_cname.bv_val, 0, 0 );
+					return -1;
+				}
+			}
+		}
+		bi->bi_nattrs = i;
 	}
 
 	/* Get the first attribute to index */
@@ -645,7 +893,7 @@ ID bdb_tool_entry_modify(
 	struct berval *text )
 {
 	int rc;
-	struct bdb_info *bdb = (struct bdb_info *) be->be_private;
+	struct bdb_info *bdb;
 	DB_TXN *tid = NULL;
 	Operation op = {0};
 	Opheader ohdr = {0};
@@ -662,6 +910,8 @@ ID bdb_tool_entry_modify(
 	Debug( LDAP_DEBUG_TRACE,
 		"=> " LDAP_XSTRING(bdb_tool_entry_modify) "( %ld, \"%s\" )\n",
 		(long) e->e_id, e->e_dn, 0 );
+
+	bdb = (struct bdb_info *) be->be_private;
 
 	if (! (slapMode & SLAP_TOOL_QUICK)) {
 		if( cursor ) {
@@ -1016,6 +1266,31 @@ int bdb_tool_idl_add(
 }
 #endif
 
+#ifdef USE_TRICKLE
+static void *
+bdb_tool_trickle_task( void *ctx, void *ptr )
+{
+	DB_ENV *env = ptr;
+	int wrote;
+
+	ldap_pvt_thread_mutex_lock( &bdb_tool_trickle_mutex );
+	bdb_tool_trickle_active = 1;
+	ldap_pvt_thread_cond_signal( &bdb_tool_trickle_cond_end );
+	while ( 1 ) {
+		ldap_pvt_thread_cond_wait( &bdb_tool_trickle_cond,
+			&bdb_tool_trickle_mutex );
+		if ( slapd_shutdown )
+			break;
+		env->memp_trickle( env, 30, &wrote );
+	}
+	bdb_tool_trickle_active = 0;
+	ldap_pvt_thread_cond_signal( &bdb_tool_trickle_cond_end );
+	ldap_pvt_thread_mutex_unlock( &bdb_tool_trickle_mutex );
+
+	return NULL;
+}
+#endif
+
 static void *
 bdb_tool_index_task( void *ctx, void *ptr )
 {
@@ -1025,11 +1300,18 @@ bdb_tool_index_task( void *ctx, void *ptr )
 	while ( 1 ) {
 		ldap_pvt_thread_mutex_lock( &bdb_tool_index_mutex );
 		bdb_tool_index_tcount--;
-		ldap_pvt_thread_cond_wait( &bdb_tool_index_cond,
+		if ( !bdb_tool_index_tcount )
+			ldap_pvt_thread_cond_signal( &bdb_tool_index_cond_main );
+		ldap_pvt_thread_cond_wait( &bdb_tool_index_cond_work,
 			&bdb_tool_index_mutex );
-		ldap_pvt_thread_mutex_unlock( &bdb_tool_index_mutex );
-		if ( slapd_shutdown )
+		if ( slapd_shutdown ) {
+			bdb_tool_index_tcount--;
+			if ( !bdb_tool_index_tcount )
+				ldap_pvt_thread_cond_signal( &bdb_tool_index_cond_main );
+			ldap_pvt_thread_mutex_unlock( &bdb_tool_index_mutex );
 			break;
+		}
+		ldap_pvt_thread_mutex_unlock( &bdb_tool_index_mutex );
 
 		bdb_tool_index_threads[base] = bdb_index_recrun( bdb_tool_ix_op,
 			bdb_tool_info, bdb_tool_index_rec, bdb_tool_ix_id, base );

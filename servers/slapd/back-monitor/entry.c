@@ -1,8 +1,8 @@
 /* entry.c - monitor backend entry handling routines */
-/* $OpenLDAP: pkg/ldap/servers/slapd/back-monitor/entry.c,v 1.14.2.8 2008/02/11 23:24:22 kurt Exp $ */
+/* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2001-2008 The OpenLDAP Foundation.
+ * Copyright 2001-2012 The OpenLDAP Foundation.
  * Portions Copyright 2001-2003 Pierangelo Masarati.
  * All rights reserved.
  *
@@ -151,7 +151,7 @@ monitor_entry_test_flags(
 }
 
 monitor_entry_t *
-monitor_entrypriv_create( void )
+monitor_back_entrypriv_create( void )
 {
 	monitor_entry_t	*mp;
 
@@ -166,4 +166,58 @@ monitor_entrypriv_create( void )
 	ldap_pvt_thread_mutex_init( &mp->mp_mutex );
 
 	return mp;
+}
+
+Entry *
+monitor_entry_stub(
+	struct berval *pdn,
+	struct berval *pndn,
+	struct berval *rdn,
+	ObjectClass *oc,
+	struct berval *create,
+	struct berval *modify
+)
+{
+	monitor_info_t *mi;
+	AttributeDescription *nad = NULL;
+	Entry *e;
+	struct berval nat;
+	char *ptr;
+	const char *text;
+	int rc;
+
+	mi = ( monitor_info_t * )be_monitor->be_private;
+
+	nat = *rdn;
+	ptr = strchr( nat.bv_val, '=' );
+	nat.bv_len = ptr - nat.bv_val;
+	rc = slap_bv2ad( &nat, &nad, &text );
+	if ( rc )
+		return NULL;
+
+	e = entry_alloc();
+	if ( e ) {
+		struct berval nrdn;
+
+		rdnNormalize( 0, NULL, NULL, rdn, &nrdn, NULL );
+		build_new_dn( &e->e_name, pdn, rdn, NULL );
+		build_new_dn( &e->e_nname, pndn, &nrdn, NULL );
+		ber_memfree( nrdn.bv_val );
+		nat.bv_val = ptr + 1;
+		nat.bv_len = rdn->bv_len - ( nat.bv_val - rdn->bv_val );
+		attr_merge_normalize_one( e, slap_schema.si_ad_objectClass,
+			&oc->soc_cname, NULL );
+		attr_merge_normalize_one( e, slap_schema.si_ad_structuralObjectClass,
+			&oc->soc_cname, NULL );
+		attr_merge_normalize_one( e, nad, &nat, NULL );
+		attr_merge_one( e, slap_schema.si_ad_creatorsName, &mi->mi_creatorsName,
+			&mi->mi_ncreatorsName );
+		attr_merge_one( e, slap_schema.si_ad_modifiersName, &mi->mi_creatorsName,
+			&mi->mi_ncreatorsName );
+		attr_merge_normalize_one( e, slap_schema.si_ad_createTimestamp,
+			create ? create : &mi->mi_startTime, NULL );
+		attr_merge_normalize_one( e, slap_schema.si_ad_modifyTimestamp,
+			modify ? modify : &mi->mi_startTime, NULL );
+	}
+	return e;
 }

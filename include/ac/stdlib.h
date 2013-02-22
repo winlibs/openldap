@@ -1,8 +1,8 @@
 /* Generic stdlib.h */
-/* $OpenLDAP: pkg/ldap/include/ac/stdlib.h,v 1.17.2.5 2008/02/11 23:24:11 kurt Exp $ */
+/* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2008 The OpenLDAP Foundation.
+ * Copyright 1998-2012 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -17,7 +17,7 @@
 #ifndef _AC_STDLIB_H
 #define _AC_STDLIB_H
 
-#ifdef HAVE_CSRIMALLOC
+#if defined( HAVE_CSRIMALLOC )
 #include <stdio.h>
 #define MALLOC_TRACE
 #include <libmalloc.h>

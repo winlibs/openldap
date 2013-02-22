@@ -1,8 +1,8 @@
 /* search.c - DNS SRV backend search function */
-/* $OpenLDAP: pkg/ldap/servers/slapd/back-dnssrv/search.c,v 1.35.2.7 2008/02/11 23:24:20 kurt Exp $ */
+/* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2000-2008 The OpenLDAP Foundation.
+ * Copyright 2000-2012 The OpenLDAP Foundation.
  * Portions Copyright 2000-2003 Kurt D. Zeilenga.
  * All rights reserved.
  *
@@ -48,7 +48,6 @@ dnssrv_back_search(
 	rs->sr_ref = NULL;
 
 	if ( BER_BVISEMPTY( &op->o_req_ndn ) ) {
-#ifdef LDAP_DEVEL
 		/* FIXME: need some means to determine whether the database
 		 * is a glue instance; if we got here with empty DN, then
 		 * we passed this same test in dnssrv_back_referrals() */
@@ -60,7 +59,6 @@ dnssrv_back_search(
 			rs->sr_err = LDAP_SUCCESS;
 		}
 		goto done;
-#endif /* LDAP_DEVEL */
 	}
 
 	manageDSAit = get_manageDSAit( op );
@@ -171,9 +169,9 @@ dnssrv_back_search(
 		AttributeDescription *ad_objectClass
 			= slap_schema.si_ad_objectClass;
 		AttributeDescription *ad_ref = slap_schema.si_ad_ref;
-		e.e_name.bv_val = strdup( op->o_req_dn.bv_val );
+		e.e_name.bv_val = ch_strdup( op->o_req_dn.bv_val );
 		e.e_name.bv_len = op->o_req_dn.bv_len;
-		e.e_nname.bv_val = strdup( op->o_req_ndn.bv_val );
+		e.e_nname.bv_val = ch_strdup( op->o_req_ndn.bv_val );
 		e.e_nname.bv_len = op->o_req_ndn.bv_len;
 
 		e.e_attrs = NULL;
@@ -221,6 +219,7 @@ dnssrv_back_search(
 			send_search_entry( op, rs );
 			rs->sr_entry = NULL;
 			rs->sr_attrs = NULL;
+			rs->sr_flags = 0;
 		}
 
 		entry_clean( &e );
@@ -239,4 +238,3 @@ done:
 	if( urls != NULL ) ber_bvarray_free( urls );
 	return 0;
 }
-

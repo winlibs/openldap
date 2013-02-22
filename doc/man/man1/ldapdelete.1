@@ -1,11 +1,15 @@
 .TH LDAPDELETE 1 "RELEASEDATE" "OpenLDAP LDVERSION"
-.\" $OpenLDAP: pkg/ldap/doc/man/man1/ldapdelete.1,v 1.38.2.6 2008/02/11 23:24:09 kurt Exp $
-.\" Copyright 1998-2008 The OpenLDAP Foundation All Rights Reserved.
+.\" $OpenLDAP$
+.\" Copyright 1998-2012 The OpenLDAP Foundation All Rights Reserved.
 .\" Copying restrictions apply.  See COPYRIGHT/LICENSE.
 .SH NAME
 ldapdelete \- LDAP delete entry tool
 .SH SYNOPSIS
 .B ldapdelete
+[\c
+.BR \-V [ V ]]
+[\c
+.BI \-d \ debuglevel\fR]
 [\c
 .BR \-n ]
 [\c
@@ -13,11 +17,15 @@ ldapdelete \- LDAP delete entry tool
 [\c
 .BR \-c ]
 [\c
-.BR \-M[M] ]
-[\c
-.BI \-d \ debuglevel\fR]
-[\c
 .BI \-f \ file\fR]
+[\c
+.BR \-r ]
+[\c
+.BI \-z \ sizelimit\fR]
+[\c
+.BR \-M [ M ]]
+[\c
+.BR \-x ]
 [\c
 .BI \-D \ binddn\fR]
 [\c
@@ -31,50 +39,63 @@ ldapdelete \- LDAP delete entry tool
 [\c
 .BI \-h \ ldaphost\fR]
 [\c
-.BI \-P \ 2\fR\||\|\fI3\fR]
-[\c
 .BI \-p \ ldapport\fR]
 [\c
-.BR \-O \ security-properties ]
+.BR \-P \ { 2 \||\| 3 }]
 [\c
-.BI \-U \ authcid\fR]
+.BR \-e \ [ ! ] \fIext\fP [ =\fIextparam\fP ]]
 [\c
-.BI \-R \ realm\fR]
+.BR \-E \ [ ! ] \fIext\fP [ =\fIextparam\fP ]]
 [\c
-.BR \-r ]
+.BI \-o \ opt \fR[= optparam \fR]]
 [\c
-.BR \-x ]
+.BI \-O \ security-properties\fR]
 [\c
 .BR \-I ]
 [\c
 .BR \-Q ]
 [\c
+.BR \-N ]
+[\c
+.BI \-U \ authcid\fR]
+[\c
+.BI \-R \ realm\fR]
+[\c
 .BI \-X \ authzid\fR]
 [\c
 .BI \-Y \ mech\fR]
 [\c
-.BR \-Z[Z] ]
+.BR \-Z [ Z ]]
 [\c
-.IR dn ]...
+.IR DN \ [ ... ]]
 .SH DESCRIPTION
 .I ldapdelete
 is a shell-accessible interface to the
-.BR ldap_delete (3)
+.BR ldap_delete_ext (3)
 library call.
 .LP
 .B ldapdelete
 opens a connection to an LDAP server, binds, and deletes one or more
 entries.  If one or more \fIDN\fP arguments are provided, entries with
 those Distinguished Names are deleted.  Each \fIDN\fP should be provided
-using the LDAPv3 string representation as defined in RFC 2253.
-If no \fIdn\fP arguments
+using the LDAPv3 string representation as defined in RFC 4514.
+If no \fIDN\fP arguments
 are provided, a list of DNs is read from standard input (or from
-\fIfile\fP if the -f flag is used).
+\fIfile\fP if the \fB\-f\fP flag is used).
 .SH OPTIONS
+.TP
+.BR \-V [ V ]
+Print version info.
+If \fB\-VV\fP is given, only the version information is printed.
+.TP
+.BI \-d \ debuglevel
+Set the LDAP debugging level to \fIdebuglevel\fP.
+.B ldapdelete
+must be compiled with LDAP_DEBUG defined for this option to have any effect.
 .TP
 .B \-n
 Show what would be done, but don't actually delete entries.  Useful for
-debugging in conjunction with -v.
+debugging in conjunction with \fB\-v\fP.
 .TP
 .B \-v
 Use verbose mode, with many diagnostics written to standard output.
@@ -85,25 +106,32 @@ Continuous operation mode.  Errors  are  reported,  but
 will  continue  with  deletions.   The default is to exit after
 reporting an error.
 .TP
-.B \-M[M]
-Enable manage DSA IT control.
-.B \-MM
-makes control critical.
-.TP
-.BI \-d \ debuglevel
-Set the LDAP debugging level to \fIdebuglevel\fP.
-.B ldapdelete
-must be compiled with LDAP_DEBUG defined for this option to have any effect.
-.TP
 .BI \-f \ file
 Read a series of DNs from \fIfile\fP, one per line, performing an
 LDAP delete for each.
+.TP
+.B \-r
+Do a recursive delete.  If the DN specified isn't a leaf, its
+children, and all their children are deleted down the tree.  No
+verification is done, so if you add this switch, ldapdelete will
+happily delete large portions of your tree.  Use with care.
+.TP
+.BI \-z \ sizelimit
+Use \fIsizelimit\fP when searching for children DN to delete,
+to circumvent any server-side size limit.  Only useful in conjunction
+with \fB\-r\fP.
+.TP
+.BR \-M [ M ]
+Enable manage DSA IT control.
+.B \-MM
+makes control critical.
 .TP
 .B \-x 
 Use simple authentication instead of SASL.
 .TP
 .BI \-D \ binddn
 Use the Distinguished Name \fIbinddn\fP to bind to the LDAP directory.
+For SASL binds, the server is expected to ignore this value.
 .TP
 .B \-W
 Prompt for simple authentication.
@@ -123,20 +151,54 @@ is expected.
 .TP
 .BI \-h \ ldaphost
 Specify an alternate host on which the ldap server is running.
-Deprecated in favor of -H.
+Deprecated in favor of \fB\-H\fP.
 .TP
 .BI \-p \ ldapport
 Specify an alternate TCP port where the ldap server is listening.
-Deprecated in favor of -H.
+Deprecated in favor of \fB\-H\fP.
 .TP
-.BI \-P \ 2\fR\||\|\fI3
+.BR \-P \ { 2 \||\| 3 }
 Specify the LDAP protocol version to use.
 .TP
-.B \-r
-Do a recursive delete.  If the DN specified isn't a leaf, its
-children, and all their children are deleted down the tree.  No
-verification is done, so if you add this switch, ldapdelete will
-happily delete large portions of your tree.  Use with care.
+.BR \-e \ [ ! ] \fIext\fP [ =\fIextparam\fP ]
+.TP
+.BR \-E \ [ ! ] \fIext\fP [ =\fIextparam\fP ]
+
+Specify general extensions with \fB\-e\fP and delete extensions with \fB\-E\fP.
+\'\fB!\fP\' indicates criticality.
+
+General extensions:
+.nf
+  [!]assert=<filter>    (an RFC 4515 Filter)
+  !authzid=<authzid>    ("dn:<dn>" or "u:<user>")
+  [!]bauthzid           (RFC 3829 authzid control)
+  [!]chaining[=<resolve>[/<cont>]]
+  [!]manageDSAit
+  [!]noop
+  ppolicy
+  [!]postread[=<attrs>] (a comma-separated attribute list)
+  [!]preread[=<attrs>]  (a comma-separated attribute list)
+  [!]relax
+  sessiontracking
+  abandon,cancel,ignore (SIGINT sends abandon/cancel,
+  or ignores response; if critical, doesn't wait for SIGINT.
+  not really controls)
+.fi
+
+Delete extensions:
+.nf
+  (none)
+.fi
+.TP
+.BI \-o \ opt \fR[= optparam \fR]
+
+Specify general options.
+
+General options:
+.nf
+  nettimeout=<timeout>  (in seconds, or "none" or "max")
+  ldif-wrap=<width>     (in columns, or "no" for no wrapping)
+.fi
 .TP
 .BI \-O \ security-properties
 Specify SASL security properties.
@@ -147,6 +209,9 @@ only as needed.
 .TP
 .B \-Q
 Enable SASL Quiet mode.  Never prompt.
+.TP
+.B \-N
+Do not use reverse DNS to canonicalize SASL host name.
 .TP
 .BI \-U \ authcid
 Specify the authentication ID for SASL bind. The form of the identity depends on the
@@ -160,20 +225,17 @@ depends on the actual SASL mechanism used.
 Specify the requested authorization ID for SASL bind.
 .I authzid
 must be one of the following formats:
-.B dn:\c
-.I <distinguished name>
+.BI dn: "<distinguished name>"
 or
-.B u:\c
-.I <username>
+.BI u: <username>
 .TP
 .BI \-Y \ mech
 Specify the SASL mechanism to be used for authentication. If it's not
 specified, the program will choose the best mechanism the server knows.
 .TP
-.B \-Z[Z]
+.BR \-Z [ Z ]
 Issue StartTLS (Transport Layer Security) extended operation. If you use
-.B \-ZZ\c
-, the command will require the operation to be successful.
+\fB\-ZZ\fP, the command will require the operation to be successful.
 .SH EXAMPLE
 The following command:
 .LP
@@ -194,11 +256,8 @@ status and a diagnostic message being written to standard error.
 .BR ldapmodrdn (1),
 .BR ldapsearch (1),
 .BR ldap (3),
-.BR ldap_delete (3)
+.BR ldap_delete_ext (3)
 .SH AUTHOR
 The OpenLDAP Project <http://www.openldap.org/>
 .SH ACKNOWLEDGEMENTS
-.B OpenLDAP
-is developed and maintained by The OpenLDAP Project (http://www.openldap.org/).
-.B OpenLDAP
-is derived from University of Michigan LDAP 3.3 Release.  
+.so ../Project

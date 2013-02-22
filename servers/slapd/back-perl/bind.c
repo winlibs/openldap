@@ -1,7 +1,7 @@
-/* $OpenLDAP: pkg/ldap/servers/slapd/back-perl/bind.c,v 1.22.2.5 2008/02/11 23:24:23 kurt Exp $ */
+/* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1999-2008 The OpenLDAP Foundation.
+ * Copyright 1999-2012 The OpenLDAP Foundation.
  * Portions Copyright 1999 John C. Quillan.
  * Portions Copyright 2002 myinternet Limited.
  * All rights reserved.
@@ -32,10 +32,17 @@ perl_back_bind(
 
 	PerlBackend *perl_back = (PerlBackend *) op->o_bd->be_private;
 
-#if defined(HAVE_WIN32_ASPERL) || defined(USE_ITHREADS)
-	PERL_SET_CONTEXT( PERL_INTERPRETER );
-#endif
+	/* allow rootdn as a means to auth without the need to actually
+ 	 * contact the proxied DSA */
+	switch ( be_rootdn_bind( op, rs ) ) {
+	case SLAP_CB_CONTINUE:
+		break;
 
+	default:
+		return rs->sr_err;
+	}
+
+	PERL_SET_CONTEXT( PERL_INTERPRETER );
 	ldap_pvt_thread_mutex_lock( &perl_interpreter_mutex );	
 
 	{
@@ -43,15 +50,11 @@ perl_back_bind(
 
 		PUSHMARK(SP);
 		XPUSHs( perl_back->pb_obj_ref );
-		XPUSHs(sv_2mortal(newSVpv( op->o_req_dn.bv_val , 0)));
+		XPUSHs(sv_2mortal(newSVpv( op->o_req_dn.bv_val , op->o_req_dn.bv_len)));
 		XPUSHs(sv_2mortal(newSVpv( op->orb_cred.bv_val , op->orb_cred.bv_len)));
 		PUTBACK;
 
-#ifdef PERL_IS_5_6
 		count = call_method("bind", G_SCALAR);
-#else
-		count = perl_call_method("bind", G_SCALAR);
-#endif
 
 		SPAGAIN;
 

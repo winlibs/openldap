@@ -1,8 +1,8 @@
 /* backend.c - deals with backend subsystem */
-/* $OpenLDAP: pkg/ldap/servers/slapd/back-monitor/backend.c,v 1.33.2.6 2008/02/11 23:24:22 kurt Exp $ */
+/* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2001-2008 The OpenLDAP Foundation.
+ * Copyright 2001-2012 The OpenLDAP Foundation.
  * Portions Copyright 2001-2003 Pierangelo Masarati.
  * All rights reserved.
  *
@@ -79,32 +79,12 @@ monitor_subsys_backend_init(
 
 		i++;
 
-		snprintf( buf, sizeof( buf ),
-				"dn: cn=Backend %d,%s\n"
-				"objectClass: %s\n"
-				"structuralObjectClass: %s\n"
-				"cn: Backend %d\n"
-				"%s: %s\n"
-				"%s: %s\n"
-				"creatorsName: %s\n"
-				"modifiersName: %s\n"
-				"createTimestamp: %s\n"
-				"modifyTimestamp: %s\n",
-				i,
-				ms->mss_dn.bv_val,
-				mi->mi_oc_monitoredObject->soc_cname.bv_val,
-				mi->mi_oc_monitoredObject->soc_cname.bv_val,
-				i,
-				mi->mi_ad_monitoredInfo->ad_cname.bv_val,
-					bi->bi_type,
-				mi->mi_ad_monitorRuntimeConfig->ad_cname.bv_val,
-					bi->bi_cf_ocs == NULL ? "FALSE" : "TRUE",
-				mi->mi_creatorsName.bv_val,
-				mi->mi_creatorsName.bv_val,
-				mi->mi_startTime.bv_val,
-				mi->mi_startTime.bv_val );
-		
-		e = str2entry( buf );
+		bv.bv_len = snprintf( buf, sizeof( buf ), "cn=Backend %d", i );
+		bv.bv_val = buf;
+
+		e = monitor_entry_stub( &ms->mss_dn, &ms->mss_ndn, &bv,
+			mi->mi_oc_monitoredObject, NULL, NULL );
+
 		if ( e == NULL ) {
 			Debug( LDAP_DEBUG_ANY,
 				"monitor_subsys_backend_init: "
@@ -114,8 +94,14 @@ monitor_subsys_backend_init(
 		}
 		
 		ber_str2bv( bi->bi_type, 0, 0, &bv );
+		attr_merge_normalize_one( e, mi->mi_ad_monitoredInfo,
+				&bv, NULL );
 		attr_merge_normalize_one( e_backend, mi->mi_ad_monitoredInfo,
 				&bv, NULL );
+
+		attr_merge_normalize_one( e, mi->mi_ad_monitorRuntimeConfig,
+			bi->bi_cf_ocs == NULL ? (struct berval *)&slap_false_bv :
+				(struct berval *)&slap_true_bv, NULL );
 
 		if ( bi->bi_controls ) {
 			int j;

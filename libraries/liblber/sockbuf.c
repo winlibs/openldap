@@ -1,8 +1,8 @@
 /* sockbuf.c - i/o routines with support for adding i/o layers. */
-/* $OpenLDAP: pkg/ldap/libraries/liblber/sockbuf.c,v 1.60.2.9 2008/02/11 23:24:11 kurt Exp $ */
+/* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2008 The OpenLDAP Foundation.
+ * Copyright 1998-2012 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -148,6 +148,20 @@ ber_sockbuf_ctrl( Sockbuf *sb, int opt, void *arg )
 		case LBER_SB_OPT_SET_MAX_INCOMING:
 			sb->sb_max_incoming = *((ber_len_t *)arg);
 			ret = 1;
+			break;
+
+		case LBER_SB_OPT_UNGET_BUF:
+#ifdef LDAP_PF_LOCAL_SENDMSG
+			sb->sb_ungetlen = ((struct berval *)arg)->bv_len;
+			if ( sb->sb_ungetlen <= sizeof( sb->sb_ungetbuf )) {
+				AC_MEMCPY( sb->sb_ungetbuf, ((struct berval *)arg)->bv_val,
+					sb->sb_ungetlen );
+				ret = 1;
+			} else {
+				sb->sb_ungetlen = 0;
+				ret = -1;
+			}
+#endif
 			break;
 
 		default:
@@ -325,7 +339,7 @@ ber_pvt_sb_do_write( Sockbuf_IO_Desc *sbiod, Sockbuf_Buf *buf_out )
 int
 ber_pvt_socket_set_nonblock( ber_socket_t sd, int nb )
 {
-#if HAVE_FCNTL
+#ifdef HAVE_FCNTL
 	int flags = fcntl( sd, F_GETFL);
 	if( nb ) {
 		flags |= O_NONBLOCK;
@@ -527,7 +541,8 @@ sb_stream_close( Sockbuf_IO_Desc *sbiod )
 {
 	assert( sbiod != NULL );
 	assert( SOCKBUF_VALID( sbiod->sbiod_sb ) );
-	tcp_close( sbiod->sbiod_sb->sb_fd );
+	if ( sbiod->sbiod_sb->sb_fd != AC_SOCKET_INVALID )
+		tcp_close( sbiod->sbiod_sb->sb_fd );
    return 0;
 }
 
@@ -704,6 +719,24 @@ sb_fd_read( Sockbuf_IO_Desc *sbiod, void *buf, ber_len_t len )
 	assert( sbiod != NULL);
 	assert( SOCKBUF_VALID( sbiod->sbiod_sb ) );
 
+#ifdef LDAP_PF_LOCAL_SENDMSG
+	if ( sbiod->sbiod_sb->sb_ungetlen ) {
+		ber_len_t blen = sbiod->sbiod_sb->sb_ungetlen;
+		if ( blen > len )
+			blen = len;
+		AC_MEMCPY( buf, sbiod->sbiod_sb->sb_ungetbuf, blen );
+		buf = (char *) buf + blen;
+		len -= blen;
+		sbiod->sbiod_sb->sb_ungetlen -= blen;
+		if ( sbiod->sbiod_sb->sb_ungetlen ) {
+			AC_MEMCPY( sbiod->sbiod_sb->sb_ungetbuf,
+				sbiod->sbiod_sb->sb_ungetbuf+blen,
+				sbiod->sbiod_sb->sb_ungetlen );
+		}
+		if ( len == 0 )
+			return blen;
+	}
+#endif
 	return read( sbiod->sbiod_sb->sb_fd, buf, len );
 }
 
@@ -722,7 +755,8 @@ sb_fd_close( Sockbuf_IO_Desc *sbiod )
 	assert( sbiod != NULL );
 	assert( SOCKBUF_VALID( sbiod->sbiod_sb ) );
 
-	close( sbiod->sbiod_sb->sb_fd );
+	if ( sbiod->sbiod_sb->sb_fd != AC_SOCKET_INVALID )
+		close( sbiod->sbiod_sb->sb_fd );
 	return 0;
 }
 
@@ -924,8 +958,9 @@ sb_dgram_close( Sockbuf_IO_Desc *sbiod )
 {
 	assert( sbiod != NULL );
 	assert( SOCKBUF_VALID( sbiod->sbiod_sb ) );
-
-	tcp_close( sbiod->sbiod_sb->sb_fd );
+  
+	if ( sbiod->sbiod_sb->sb_fd != AC_SOCKET_INVALID )
+		tcp_close( sbiod->sbiod_sb->sb_fd );
 	return 0;
 }
 

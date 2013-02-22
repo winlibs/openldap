@@ -1,5 +1,6 @@
+// $OpenLDAP$
 /*
- * Copyright 2000, OpenLDAP Foundation, All Rights Reserved.
+ * Copyright 2000-2012 The OpenLDAP Foundation, All Rights Reserved.
  * COPYING RESTRICTIONS APPLY, see COPYRIGHT file
  */
 
@@ -103,6 +104,7 @@ class LDAPResult : public LDAPMsg{
          *              Message.
          */
         LDAPResult(const LDAPRequest *req, LDAPMessage *msg);
+        LDAPResult(int type, int resultCode, const std::string &msg); 
         
         /**
          * The destructor.

@@ -1,7 +1,7 @@
-/* $OpenLDAP: pkg/ldap/servers/slapd/back-meta/back-meta.h,v 1.23.2.23 2008/02/11 23:24:21 kurt Exp $ */
+/* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1999-2008 The OpenLDAP Foundation.
+ * Copyright 1999-2012 The OpenLDAP Foundation.
  * Portions Copyright 2001-2003 Pierangelo Masarati.
  * Portions Copyright 1999-2003 Howard Chu.
  * All rights reserved.
@@ -27,10 +27,15 @@
 #ifndef SLAPD_META_H
 #define SLAPD_META_H
 
+#ifdef LDAP_DEVEL
+#define SLAPD_META_CLIENT_PR 1
+#endif /* LDAP_DEVEL */
+
 #include "proto-meta.h"
 
 /* String rewrite library */
 #include "rewrite.h"
+
 LDAP_BEGIN_DECL
 
 /*
@@ -39,9 +44,6 @@ LDAP_BEGIN_DECL
 #ifndef META_BACK_PRINT_CONNTREE
 #define META_BACK_PRINT_CONNTREE 0
 #endif /* !META_BACK_PRINT_CONNTREE */
-
-struct slap_conn;
-struct slap_op;
 
 /* from back-ldap.h before rwm removal */
 struct ldapmap {
@@ -67,12 +69,14 @@ struct ldaprwmap {
 	 * will be disabled */
 	BerVarray rwm_suffix_massage;
 #endif /* !ENABLE_REWRITE */
+	BerVarray rwm_bva_rewrite;
 
 	/*
 	 * Attribute/objectClass mapping
 	 */
 	struct ldapmap rwm_oc;
 	struct ldapmap rwm_at;
+	BerVarray rwm_bva_map;
 };
 
 /* Whatever context ldap_back_dn_massage needs... */
@@ -116,25 +120,19 @@ ldap_back_map_filter(
 
 int
 ldap_back_map_attrs(
+	Operation *op,
 	struct ldapmap *at_map,
 	AttributeName *a,
 	int remap,
 	char ***mapped_attrs );
-
-extern int ldap_back_map_config(
-	struct ldapmap	*oc_map,
-	struct ldapmap	*at_map,
-	const char	*fname,
-	int		lineno,
-	int		argc,
-	char		**argv );
 
 extern int
 ldap_back_filter_map_rewrite(
 	dncookie	*dc,
 	Filter		*f,
 	struct berval	*fstr,
-	int		remap );
+	int		remap,
+	void		*memctx );
 
 /* suffix massaging by means of librewrite */
 #ifdef ENABLE_REWRITE
@@ -148,7 +146,8 @@ suffix_massage_config( struct rewrite_info *info,
 extern int
 ldap_back_referral_result_rewrite(
 	dncookie	*dc,
-	BerVarray	a_vals );
+	BerVarray	a_vals,
+	void		*memctx );
 extern int
 ldap_dnattr_rewrite(
 	dncookie	*dc,
@@ -223,14 +222,16 @@ typedef struct metasingleconn_t {
 } metasingleconn_t;
 
 typedef struct metaconn_t {
-	struct slap_conn	*mc_conn;
-#define	lc_conn			mc_conn
-	unsigned		mc_refcnt;
-
-	time_t			mc_create_time;
-	time_t			mc_time;
+	ldapconn_base_t		lc_base;
+#define	mc_base			lc_base
+#define	mc_conn			mc_base.lcb_conn
+#define	mc_local_ndn		mc_base.lcb_local_ndn
+#define	mc_refcnt		mc_base.lcb_refcnt
+#define	mc_create_time		mc_base.lcb_create_time
+#define	mc_time			mc_base.lcb_time
 	
-	struct berval          	mc_local_ndn;
+	LDAP_TAILQ_ENTRY(metaconn_t)	mc_q;
+
 	/* NOTE: msc_mscflags is used to recycle the #define
 	 * in metasingleconn_t */
 	unsigned		msc_mscflags;
@@ -245,14 +246,73 @@ typedef struct metaconn_t {
 
 	struct metainfo_t	*mc_info;
 
-	LDAP_TAILQ_ENTRY(metaconn_t)	mc_q;
-
 	/* supersedes the connection stuff */
 	metasingleconn_t	mc_conns[ 1 ];
 	/* NOTE: mc_conns must be last, because
 	 * the required number of conns is malloc'ed
 	 * in one block with the metaconn_t structure */
 } metaconn_t;
+
+typedef enum meta_st_t {
+#if 0 /* todo */
+	META_ST_EXACT = LDAP_SCOPE_BASE,
+#endif
+	META_ST_SUBTREE = LDAP_SCOPE_SUBTREE,
+	META_ST_SUBORDINATE = LDAP_SCOPE_SUBORDINATE,
+	META_ST_REGEX /* last + 1 */
+} meta_st_t;
+
+typedef struct metasubtree_t {
+	meta_st_t ms_type;
+	union {
+		struct berval msu_dn;
+		struct {
+			struct berval msr_regex_pattern;
+			regex_t msr_regex;
+		} msu_regex;
+	} ms_un;
+#define ms_dn ms_un.msu_dn
+#define ms_regex ms_un.msu_regex.msr_regex
+#define ms_regex_pattern ms_un.msu_regex.msr_regex_pattern
+
+	struct metasubtree_t *ms_next;
+} metasubtree_t;
+
+typedef struct metacommon_t {
+	int				mc_version;
+	int				mc_nretries;
+#define META_RETRY_UNDEFINED	(-2)
+#define META_RETRY_FOREVER	(-1)
+#define META_RETRY_NEVER	(0)
+#define META_RETRY_DEFAULT	(10)
+
+	unsigned		mc_flags;
+#define	META_BACK_CMN_ISSET(mc,f)		( ( (mc)->mc_flags & (f) ) == (f) )
+#define	META_BACK_CMN_QUARANTINE(mc)		META_BACK_CMN_ISSET( (mc), LDAP_BACK_F_QUARANTINE )
+#define	META_BACK_CMN_CHASE_REFERRALS(mc)	META_BACK_CMN_ISSET( (mc), LDAP_BACK_F_CHASE_REFERRALS )
+#define	META_BACK_CMN_NOREFS(mc)		META_BACK_CMN_ISSET( (mc), LDAP_BACK_F_NOREFS )
+#define	META_BACK_CMN_NOUNDEFFILTER(mc)		META_BACK_CMN_ISSET( (mc), LDAP_BACK_F_NOUNDEFFILTER )
+#define	META_BACK_CMN_SAVECRED(mc)		META_BACK_CMN_ISSET( (mc), LDAP_BACK_F_SAVECRED )
+#define	META_BACK_CMN_ST_REQUEST(mc)		META_BACK_CMN_ISSET( (mc), LDAP_BACK_F_ST_REQUEST )
+
+#ifdef SLAPD_META_CLIENT_PR
+	/*
+	 * client-side paged results:
+	 * -1: accept unsolicited paged results responses
+	 *  0: off
+	 * >0: always request paged results with size == mt_ps
+	 */
+#define META_CLIENT_PR_DISABLE			(0)
+#define META_CLIENT_PR_ACCEPT_UNSOLICITED	(-1)
+	ber_int_t		mc_ps;
+#endif /* SLAPD_META_CLIENT_PR */
+
+	slap_retry_info_t	mc_quarantine;
+	time_t			mc_network_timeout;
+	struct timeval	mc_bind_timeout;
+#define META_BIND_TIMEOUT	LDAP_BACK_RESULT_UTIMEOUT
+	time_t			mc_timeout[ SLAP_OP_LAST ];
+} metacommon_t;
 
 typedef struct metatarget_t {
 	char			*mt_uri;
@@ -261,9 +321,13 @@ typedef struct metatarget_t {
 	/* TODO: we might want to enable different strategies
 	 * for different targets */
 	LDAP_REBIND_PROC	*mt_rebind_f;
+	LDAP_URLLIST_PROC	*mt_urllist_f;
 	void			*mt_urllist_p;
 
-	BerVarray		mt_subtree_exclude;
+	metasubtree_t		*mt_subtree;
+	/* F: subtree-include; T: subtree-exclude */
+	int			mt_subtree_exclude;
+
 	int			mt_scope;
 
 	struct berval		mt_psuffix;		/* pretty suffix */
@@ -271,6 +335,9 @@ typedef struct metatarget_t {
 
 	struct berval		mt_binddn;
 	struct berval		mt_bindpw;
+
+	/* we only care about the TLS options here */
+	slap_bindconf		mt_tls;
 
 	slap_idassert_t		mt_idassert;
 #define	mt_idassert_mode	mt_idassert.si_mode
@@ -286,21 +353,31 @@ typedef struct metatarget_t {
 #define	mt_idassert_flags	mt_idassert.si_flags
 #define	mt_idassert_authz	mt_idassert.si_authz
 
-	int			mt_nretries;
-#define META_RETRY_UNDEFINED	(-2)
-#define META_RETRY_FOREVER	(-1)
-#define META_RETRY_NEVER	(0)
-#define META_RETRY_DEFAULT	(10)
-
 	struct ldaprwmap	mt_rwmap;
 
 	sig_atomic_t		mt_isquarantined;
-	slap_retry_info_t	mt_quarantine;
 	ldap_pvt_thread_mutex_t	mt_quarantine_mutex;
 
-	unsigned		mt_flags;
+	metacommon_t	mt_mc;
+#define	mt_nretries	mt_mc.mc_nretries
+#define	mt_flags	mt_mc.mc_flags
+#define	mt_version	mt_mc.mc_version
+#define	mt_ps		mt_mc.mc_ps
+#define	mt_network_timeout	mt_mc.mc_network_timeout
+#define	mt_bind_timeout	mt_mc.mc_bind_timeout
+#define	mt_timeout	mt_mc.mc_timeout
+#define	mt_quarantine	mt_mc.mc_quarantine
+
 #define	META_BACK_TGT_ISSET(mt,f)		( ( (mt)->mt_flags & (f) ) == (f) )
 #define	META_BACK_TGT_ISMASK(mt,m,f)		( ( (mt)->mt_flags & (m) ) == (f) )
+
+#define META_BACK_TGT_SAVECRED(mt)		META_BACK_TGT_ISSET( (mt), LDAP_BACK_F_SAVECRED )
+
+#define META_BACK_TGT_USE_TLS(mt)		META_BACK_TGT_ISSET( (mt), LDAP_BACK_F_USE_TLS )
+#define META_BACK_TGT_PROPAGATE_TLS(mt)		META_BACK_TGT_ISSET( (mt), LDAP_BACK_F_PROPAGATE_TLS )
+#define META_BACK_TGT_TLS_CRITICAL(mt)		META_BACK_TGT_ISSET( (mt), LDAP_BACK_F_TLS_CRITICAL )
+
+#define META_BACK_TGT_CHASE_REFERRALS(mt)	META_BACK_TGT_ISSET( (mt), LDAP_BACK_F_CHASE_REFERRALS )
 
 #define	META_BACK_TGT_T_F(mt)			META_BACK_TGT_ISMASK( (mt), LDAP_BACK_F_T_F_MASK, LDAP_BACK_F_T_F )
 #define	META_BACK_TGT_T_F_DISCOVER(mt)		META_BACK_TGT_ISMASK( (mt), LDAP_BACK_F_T_F_MASK2, LDAP_BACK_F_T_F_DISCOVER )
@@ -311,11 +388,16 @@ typedef struct metatarget_t {
 #define	META_BACK_TGT_CANCEL_DISCOVER(mt)	META_BACK_TGT_ISMASK( (mt), LDAP_BACK_F_CANCEL_MASK2, LDAP_BACK_F_CANCEL_EXOP_DISCOVER )
 #define	META_BACK_TGT_QUARANTINE(mt)		META_BACK_TGT_ISSET( (mt), LDAP_BACK_F_QUARANTINE )
 
-	int			mt_version;
-	time_t			mt_network_timeout;
-	struct timeval		mt_bind_timeout;
-#define META_BIND_TIMEOUT	LDAP_BACK_RESULT_UTIMEOUT
-	time_t			mt_timeout[ SLAP_OP_LAST ];
+#ifdef SLAP_CONTROL_X_SESSION_TRACKING
+#define	META_BACK_TGT_ST_REQUEST(mt)		META_BACK_TGT_ISSET( (mt), LDAP_BACK_F_ST_REQUEST )
+#define	META_BACK_TGT_ST_RESPONSE(mt)		META_BACK_TGT_ISSET( (mt), LDAP_BACK_F_ST_RESPONSE )
+#endif /* SLAP_CONTROL_X_SESSION_TRACKING */
+
+#define	META_BACK_TGT_NOREFS(mt)		META_BACK_TGT_ISSET( (mt), LDAP_BACK_F_NOREFS )
+#define	META_BACK_TGT_NOUNDEFFILTER(mt)		META_BACK_TGT_ISSET( (mt), LDAP_BACK_F_NOUNDEFFILTER )
+
+	slap_mask_t		mt_rep_flags;
+
 } metatarget_t;
 
 typedef struct metadncache_t {
@@ -341,12 +423,21 @@ typedef struct metainfo_t {
 	int			mi_ntargets;
 	int			mi_defaulttarget;
 #define META_DEFAULT_TARGET_NONE	(-1)
-	int			mi_nretries;
+
+#define	mi_nretries	mi_mc.mc_nretries
+#define	mi_flags	mi_mc.mc_flags
+#define	mi_version	mi_mc.mc_version
+#define	mi_ps		mi_mc.mc_ps
+#define	mi_network_timeout	mi_mc.mc_network_timeout
+#define	mi_bind_timeout	mi_mc.mc_bind_timeout
+#define	mi_timeout	mi_mc.mc_timeout
+#define	mi_quarantine	mi_mc.mc_quarantine
 
 	metatarget_t		**mi_targets;
 	metacandidates_t	*mi_candidates;
 
 	LDAP_REBIND_PROC	*mi_rebind_f;
+	LDAP_URLLIST_PROC	*mi_urllist_f;
 
 	metadncache_t		mi_cache;
 	
@@ -360,20 +451,18 @@ typedef struct metainfo_t {
 	int			mi_conn_priv_max;
 
 	/* NOTE: quarantine uses the connection mutex */
-	slap_retry_info_t	mi_quarantine;
 	meta_back_quarantine_f	mi_quarantine_f;
 	void			*mi_quarantine_p;
 
-	unsigned		mi_flags;
 #define	li_flags		mi_flags
 /* uses flags as defined in <back-ldap/back-ldap.h> */
-#define	META_BACK_F_ONERR_STOP		(0x00100000U)
-#define	META_BACK_F_ONERR_REPORT	(0x00200000U)
+#define	META_BACK_F_ONERR_STOP		(0x01000000U)
+#define	META_BACK_F_ONERR_REPORT	(0x02000000U)
 #define	META_BACK_F_ONERR_MASK		(META_BACK_F_ONERR_STOP|META_BACK_F_ONERR_REPORT)
-#define	META_BACK_F_DEFER_ROOTDN_BIND	(0x00400000U)
-#define	META_BACK_F_PROXYAUTHZ_ALWAYS	(0x00800000U)	/* users always proxyauthz */
-#define	META_BACK_F_PROXYAUTHZ_ANON	(0x01000000U)	/* anonymous always proxyauthz */
-#define	META_BACK_F_PROXYAUTHZ_NOANON	(0x02000000U)	/* anonymous remains anonymous */
+#define	META_BACK_F_DEFER_ROOTDN_BIND	(0x04000000U)
+#define	META_BACK_F_PROXYAUTHZ_ALWAYS	(0x08000000U)	/* users always proxyauthz */
+#define	META_BACK_F_PROXYAUTHZ_ANON	(0x10000000U)	/* anonymous always proxyauthz */
+#define	META_BACK_F_PROXYAUTHZ_NOANON	(0x20000000U)	/* anonymous remains anonymous */
 
 #define	META_BACK_ONERR_STOP(mi)	LDAP_BACK_ISSET( (mi), META_BACK_F_ONERR_STOP )
 #define	META_BACK_ONERR_REPORT(mi)	LDAP_BACK_ISSET( (mi), META_BACK_F_ONERR_REPORT )
@@ -386,12 +475,12 @@ typedef struct metainfo_t {
 
 #define META_BACK_QUARANTINE(mi)	LDAP_BACK_ISSET( (mi), LDAP_BACK_F_QUARANTINE )
 
-	int			mi_version;
-	time_t			mi_network_timeout;
 	time_t			mi_conn_ttl;
 	time_t			mi_idle_timeout;
-	struct timeval		mi_bind_timeout;
-	time_t			mi_timeout[ SLAP_OP_LAST ];
+
+	metacommon_t	mi_mc;
+	ldap_extra_t	*mi_ldap_extra;
+
 } metainfo_t;
 
 typedef enum meta_op_type {
@@ -500,6 +589,14 @@ meta_back_op_result(
 	ldap_back_send_t	sendok );
 
 extern int
+meta_back_controls_add(
+	Operation	*op,
+	SlapReply	*rs,
+	metaconn_t	*mc,
+	int		candidate,
+	LDAPControl	***pctrls );
+
+extern int
 back_meta_LTX_init_module(
 	int			argc,
 	char			*argv[] );
@@ -578,7 +675,14 @@ meta_dncache_delete_entry(
 extern void
 meta_dncache_free( void *entry );
 
+extern void
+meta_back_map_free( struct ldapmap *lm );
+
+extern int
+meta_subtree_destroy( metasubtree_t *ms );
+
 extern LDAP_REBIND_PROC		meta_back_default_rebind;
+extern LDAP_URLLIST_PROC	meta_back_default_urllist;
 
 LDAP_END_DECL
 

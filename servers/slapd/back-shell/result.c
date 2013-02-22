@@ -1,8 +1,8 @@
 /* result.c - shell backend result reading function */
-/* $OpenLDAP: pkg/ldap/servers/slapd/back-shell/result.c,v 1.21.2.4 2008/02/11 23:24:23 kurt Exp $ */
+/* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2008 The OpenLDAP Foundation.
+ * Copyright 1998-2012 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -80,7 +80,7 @@ read_and_send_results(
 		}
 
 		len = strlen( line );
-		while ( bp + len - buf > bsize ) {
+		while ( bp + len + 1 - buf > bsize ) {
 			size_t offset = bp - buf;
 			bsize += BUFSIZ;
 			buf = (char *) ch_realloc( buf, bsize );
@@ -103,6 +103,7 @@ read_and_send_results(
 				rs->sr_flags = REP_ENTRY_MODIFIABLE;
 				send_search_entry( op, rs );
 				entry_free( rs->sr_entry );
+				rs->sr_attrs = NULL;
 			}
 
 			bp = buf;

@@ -1,8 +1,8 @@
 #! /bin/sh
-# $OpenLDAP: pkg/ldap/tests/scripts/test042-valsort,v 1.1.2.5 2008/02/11 23:24:28 kurt Exp $
+# $OpenLDAP$
 ## This work is part of OpenLDAP Software <http://www.openldap.org/>.
 ##
-## Copyright 2004-2008 The OpenLDAP Foundation.
+## Copyright 2004-2012 The OpenLDAP Foundation.
 ## All rights reserved.
 ##
 ## Redistribution and use in source and binary forms, with or without
@@ -22,6 +22,9 @@ if test $VALSORT = valsortno; then
 fi 
 
 mkdir -p $TESTDIR $DBDIR1
+
+$SLAPPASSWD -g -n >$CONFIGPWF
+echo "rootpw `$SLAPPASSWD -T $CONFIGPWF`" >$TESTDIR/configpw.conf
 
 echo "Running slapadd to build slapd database..."
 . $CONFFILTER $BACKEND $MONITORDB < $VALSORTCONF > $CONF1
@@ -75,9 +78,11 @@ if test $RC != 0 ; then
 fi
 
 echo "Filtering ldapsearch results..."
-. $LDIFFILTER < $SEARCHOUT > $SEARCHFLT
+$LDIFFILTER < $SEARCHOUT > $SEARCHFLT
+echo "Filtering expected ldif..."
+$LDIFFILTER < $VALSORTOUT1 > $LDIFFLT
 echo "Comparing filter output..."
-$CMP $SEARCHFLT $VALSORTOUT1 > $CMPOUT
+$CMP $SEARCHFLT $LDIFFLT > $CMPOUT
 
 if test $? != 0 ; then
 	echo "Comparison failed"
@@ -85,11 +90,9 @@ if test $? != 0 ; then
 	exit 1
 fi
 
-echo ">>>>> Test succeeded"
-
 echo "Reconfiguring slapd to test valsort descending"
 
-$LDAPMODIFY -x -D cn=config -h $LOCALHOST -p $PORT1 -w $PASSWD > \
+$LDAPMODIFY -x -D cn=config -h $LOCALHOST -p $PORT1 -y $CONFIGPWF > \
 	$TESTOUT 2>&1 << EOMODS
 version: 1
 dn: olcOverlay={0}valsort,olcDatabase={1}$BACKEND,cn=config
@@ -123,17 +126,17 @@ if test $RC != 0 ; then
 fi
 
 echo "Filtering ldapsearch results..."
-. $LDIFFILTER < $SEARCHOUT > $SEARCHFLT
+$LDIFFILTER < $SEARCHOUT > $SEARCHFLT
+echo "Filtering expected ldif..."
+$LDIFFILTER < $VALSORTOUT2 > $LDIFFLT
 echo "Comparing filter output..."
-$CMP $SEARCHFLT $VALSORTOUT2 > $CMPOUT
+$CMP $SEARCHFLT $LDIFFLT > $CMPOUT
 
 if test $? != 0 ; then
 	echo "Comparison failed"
 	test $KILLSERVERS != no && kill -HUP $KILLPIDS
 	exit 1
 fi
-
-echo ">>>>> Test succeeded"
 
 echo "Adding a valsort record with weighted ou..."
 
@@ -205,9 +208,11 @@ if test $RC != 0 ; then
 fi
 
 echo "Filtering ldapsearch results..."
-. $LDIFFILTER < $SEARCHOUT > $SEARCHFLT
+$LDIFFILTER -s ldif=e < $SEARCHOUT > $SEARCHFLT
+echo "Filtering expected ldif..."
+$LDIFFILTER -s ldif=e < $VALSORTOUT3 > $LDIFFLT
 echo "Comparing filter output..."
-$CMP $SEARCHFLT $VALSORTOUT3 > $CMPOUT
+$CMP $SEARCHFLT $LDIFFLT > $CMPOUT
 
 if test $? != 0 ; then
 	echo "Comparison failed"
@@ -217,5 +222,8 @@ fi
 
 test $KILLSERVERS != no && kill -HUP $KILLPIDS
 
+test $KILLSERVERS != no && wait
+
 echo ">>>>> Test succeeded"
+
 exit 0

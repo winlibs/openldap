@@ -1,7 +1,7 @@
-/* $OpenLDAP: pkg/ldap/libraries/librewrite/rule.c,v 1.14.2.9 2008/02/11 23:24:14 kurt Exp $ */
+/* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2000-2008 The OpenLDAP Foundation.
+ * Copyright 2000-2012 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -125,7 +125,7 @@ rewrite_rule_compile(
 {
 	int flags = REWRITE_REGEX_EXTENDED | REWRITE_REGEX_ICASE;
 	int mode = REWRITE_RECURSE;
-	int max_passes = info->li_max_passes_per_rule;
+	int max_passes;
 
 	struct rewrite_rule *rule = NULL;
 	struct rewrite_subst *subst = NULL;
@@ -137,10 +137,11 @@ rewrite_rule_compile(
 	assert( context != NULL );
 	assert( pattern != NULL );
 	assert( result != NULL );
-
 	/*
 	 * A null flagstring should be allowed
 	 */
+
+	max_passes = info->li_max_passes_per_rule;
 
 	/*
 	 * Take care of substitution string
@@ -336,7 +337,6 @@ rewrite_rule_compile(
 	 * REGEX compilation (luckily I don't need to take care of this ...)
 	 */
 	if ( regcomp( &rule->lr_regex, ( char * )pattern, flags ) != 0 ) {
-		free( rule );
 		goto fail;
 	}
 	
@@ -346,6 +346,12 @@ rewrite_rule_compile(
 	rule->lr_pattern = strdup( pattern );
 	rule->lr_subststring = strdup( result );
 	rule->lr_flagstring = strdup( flagstring );
+	if ( rule->lr_pattern == NULL
+		|| rule->lr_subststring == NULL
+		|| rule->lr_flagstring == NULL )
+	{
+		goto fail;
+	}
 	
 	/*
 	 * Load compiled data into rule
@@ -368,6 +374,12 @@ rewrite_rule_compile(
 	return REWRITE_SUCCESS;
 
 fail:
+	if ( rule ) {
+		if ( rule->lr_pattern ) free( rule->lr_pattern );
+		if ( rule->lr_subststring ) free( rule->lr_subststring );
+		if ( rule->lr_flagstring ) free( rule->lr_flagstring );
+		free( rule );
+	}
 	destroy_actions( first_action );
 	free( subst );
 	return REWRITE_ERR;

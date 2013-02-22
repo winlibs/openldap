@@ -1,8 +1,8 @@
 /* back-monitor.h - ldap monitor back-end header file */
-/* $OpenLDAP: pkg/ldap/servers/slapd/back-monitor/back-monitor.h,v 1.39.2.8 2008/02/11 23:24:22 kurt Exp $ */
+/* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2001-2008 The OpenLDAP Foundation.
+ * Copyright 2001-2012 The OpenLDAP Foundation.
  * Portions Copyright 2001-2003 Pierangelo Masarati.
  * All rights reserved.
  *
@@ -39,9 +39,13 @@ typedef struct monitor_callback_t {
 	int				(*mc_modify)( Operation *op, SlapReply *rs, Entry *e, void *priv );
 						/* modify callback
 						   for user-defined entries */
-	int				(*mc_free)( Entry *e, void *priv );
+	int				(*mc_free)( Entry *e, void **priv );
 						/* delete callback
 						   for user-defined entries */
+	void				(*mc_dispose)( void **priv );
+						/* dispose callback
+						   to dispose of the callback
+						   private data itself */
 	void				*mc_private;	/* opaque pointer to
 						   private data */
 	struct monitor_callback_t	*mc_next;
@@ -70,6 +74,8 @@ typedef struct monitor_entry_t {
 	struct monitor_callback_t	*mp_cb;		/* callback sequence */
 } monitor_entry_t;
 
+struct entry_limbo_t;			/* in init.c */
+
 typedef struct monitor_info_t {
 
 	/*
@@ -83,6 +89,7 @@ typedef struct monitor_info_t {
 	 */
 	struct berval		mi_startTime;		/* don't free it! */
 	struct berval		mi_creatorsName;	/* don't free it! */
+	struct berval		mi_ncreatorsName;	/* don't free it! */
 
 	/*
 	 * Specific schema entities
@@ -123,6 +130,7 @@ typedef struct monitor_info_t {
 	AttributeDescription	*mi_ad_monitorIsShadow;
 	AttributeDescription	*mi_ad_monitorUpdateRef;
 	AttributeDescription	*mi_ad_monitorRuntimeConfig;
+	AttributeDescription	*mi_ad_monitorSuperiorDN;
 
 	/*
 	 * Generic description attribute
@@ -130,7 +138,7 @@ typedef struct monitor_info_t {
 	AttributeDescription	*mi_ad_readOnly;
 	AttributeDescription	*mi_ad_restrictedOperation;
 
-	void			*mi_entry_limbo;
+	struct entry_limbo_t	*mi_entry_limbo;
 } monitor_info_t;
 
 /*
@@ -260,12 +268,53 @@ typedef struct monitor_subsys_t {
 				struct berval *ndn, Entry *, Entry ** );
 	/* modify entry and subentries */
 	int		( *mss_modify )( Operation *, SlapReply *, Entry * );
+
+	void		*mss_private;
 } monitor_subsys_t;
 
 extern BackendDB *be_monitor;
 
 /* increase this bufsize if entries in string form get too big */
 #define BACKMONITOR_BUFSIZE	8192
+
+typedef int (monitor_cbfunc)( struct berval *ndn, monitor_callback_t *cb,
+	struct berval *base, int scope, struct berval *filter );
+
+typedef int (monitor_cbafunc)( struct berval *ndn, Attribute *a,
+	monitor_callback_t *cb,
+	struct berval *base, int scope, struct berval *filter );
+
+typedef struct monitor_extra_t {
+	int (*is_configured)(void);
+	monitor_subsys_t * (*get_subsys)( const char *name );
+	monitor_subsys_t * (*get_subsys_by_dn)( struct berval *ndn, int sub );
+
+	int (*register_subsys)( monitor_subsys_t *ms );
+	int (*register_backend)( BackendInfo *bi );
+	int (*register_database)( BackendDB *be, struct berval *ndn_out );
+	int (*register_overlay_info)( slap_overinst *on );
+	int (*register_overlay)( BackendDB *be, slap_overinst *on, struct berval *ndn_out );
+	int (*register_entry)( Entry *e, monitor_callback_t *cb,
+		monitor_subsys_t *ms, unsigned long flags );
+	int (*register_entry_parent)( Entry *e, monitor_callback_t *cb,
+		monitor_subsys_t *ms, unsigned long flags,
+		struct berval *base, int scope, struct berval *filter );
+	monitor_cbafunc *register_entry_attrs;
+	monitor_cbfunc *register_entry_callback;
+
+	int (*unregister_entry)( struct berval *ndn );
+	monitor_cbfunc *unregister_entry_parent;
+	monitor_cbafunc *unregister_entry_attrs;
+	monitor_cbfunc *unregister_entry_callback;
+	Entry * (*entry_stub)( struct berval *pdn,
+		struct berval *pndn,
+		struct berval *rdn,
+		ObjectClass *oc,
+		struct berval *create,
+		struct berval *modify );
+	monitor_entry_t * (*entrypriv_create)( void );
+	int (*register_subsys_late)( monitor_subsys_t *ms );
+} monitor_extra_t;
 
 LDAP_END_DECL
 

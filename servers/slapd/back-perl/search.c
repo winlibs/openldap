@@ -1,7 +1,7 @@
-/* $OpenLDAP: pkg/ldap/servers/slapd/back-perl/search.c,v 1.25.2.6 2008/02/11 23:24:23 kurt Exp $ */
+/* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1999-2008 The OpenLDAP Foundation.
+ * Copyright 1999-2012 The OpenLDAP Foundation.
  * Portions Copyright 1999 John C. Quillan.
  * Portions Copyright 2002 myinternet Limited.
  * All rights reserved.
@@ -34,9 +34,7 @@ perl_back_search(
 	char *buf;
 	int i;
 
-#if defined(HAVE_WIN32_ASPERL) || defined(USE_ITHREADS)
 	PERL_SET_CONTEXT( PERL_INTERPRETER );
-#endif
 	ldap_pvt_thread_mutex_lock( &perl_interpreter_mutex );	
 
 	{
@@ -44,24 +42,20 @@ perl_back_search(
 
 		PUSHMARK(sp) ;
 		XPUSHs( perl_back->pb_obj_ref );
-		XPUSHs(sv_2mortal(newSVpv( op->o_req_ndn.bv_val , 0)));
+		XPUSHs(sv_2mortal(newSVpv( op->o_req_ndn.bv_val , op->o_req_ndn.bv_len)));
 		XPUSHs(sv_2mortal(newSViv( op->ors_scope )));
 		XPUSHs(sv_2mortal(newSViv( op->ors_deref )));
 		XPUSHs(sv_2mortal(newSViv( op->ors_slimit )));
 		XPUSHs(sv_2mortal(newSViv( op->ors_tlimit )));
-		XPUSHs(sv_2mortal(newSVpv( op->ors_filterstr.bv_val , 0)));
+		XPUSHs(sv_2mortal(newSVpv( op->ors_filterstr.bv_val , op->ors_filterstr.bv_len)));
 		XPUSHs(sv_2mortal(newSViv( op->ors_attrsonly )));
 
 		for ( an = op->ors_attrs; an && an->an_name.bv_val; an++ ) {
-			XPUSHs(sv_2mortal(newSVpv( an->an_name.bv_val , 0)));
+			XPUSHs(sv_2mortal(newSVpv( an->an_name.bv_val , an->an_name.bv_len)));
 		}
 		PUTBACK;
 
-#ifdef PERL_IS_5_6
 		count = call_method("search", G_ARRAY );
-#else
-		count = perl_call_method("search", G_ARRAY );
-#endif
 
 		SPAGAIN;
 
@@ -92,8 +86,10 @@ perl_back_search(
 						rs->sr_flags = REP_ENTRY_MODIFIABLE;
 						rs->sr_err = LDAP_SUCCESS;
 						rs->sr_err = send_search_entry( op, rs );
+						rs->sr_flags = 0;
+						rs->sr_attrs = NULL;
+						rs->sr_entry = NULL;
 						if ( rs->sr_err == LDAP_SIZELIMIT_EXCEEDED ) {
-							rs->sr_entry = NULL;
 							goto done;
 						}
 					}
@@ -124,4 +120,3 @@ done:;
 
 	return 0;
 }
-

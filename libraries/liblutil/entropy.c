@@ -1,8 +1,8 @@
 /* entropy.c -- routines for providing pseudo-random data */
-/* $OpenLDAP: pkg/ldap/libraries/liblutil/entropy.c,v 1.27.2.4 2008/02/11 23:24:13 kurt Exp $ */
+/* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1999-2008 The OpenLDAP Foundation.
+ * Copyright 1999-2012 The OpenLDAP Foundation.
  * Portions Copyright 1999-2003 Kurt D. Zeilenga.
  * All rights reserved.
  *
@@ -73,7 +73,7 @@ int lutil_entropy( unsigned char *buf, ber_len_t nbytes )
 		close(fd);
 		return nbytes > 0 ? -1 : 0;
 	}
-#elif PROV_RSA_FULL
+#elif defined(PROV_RSA_FULL)
 	{
 		/* Not used since _WIN32_WINNT not set... */
 		HCRYPTPROV hProv = 0;

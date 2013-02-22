@@ -1,7 +1,7 @@
-/* $OpenLDAP: pkg/ldap/servers/slapd/back-perl/modify.c,v 1.21.2.6 2008/02/11 23:24:23 kurt Exp $ */
+/* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1999-2008 The OpenLDAP Foundation.
+ * Copyright 1999-2012 The OpenLDAP Foundation.
  * Portions Copyright 1999 John C. Quillan.
  * Portions Copyright 2002 myinternet Limited.
  * All rights reserved.
@@ -16,6 +16,7 @@
  */
 
 #include "perl_back.h"
+#include <ac/string.h>
 
 int
 perl_back_modify(
@@ -27,10 +28,7 @@ perl_back_modify(
 	int count;
 	int i;
 
-#if defined(HAVE_WIN32_ASPERL) || defined(USE_ITHREADS)
 	PERL_SET_CONTEXT( PERL_INTERPRETER );
-#endif
-
 	ldap_pvt_thread_mutex_lock( &perl_interpreter_mutex );	
 
 	{
@@ -45,26 +43,27 @@ perl_back_modify(
 
 			switch ( mods->sm_op & ~LDAP_MOD_BVALUES ) {
 			case LDAP_MOD_ADD:
-				XPUSHs(sv_2mortal(newSVpv("ADD", 0 )));
+				XPUSHs(sv_2mortal(newSVpv("ADD", STRLENOF("ADD") )));
 				break;
 				
 			case LDAP_MOD_DELETE:
-				XPUSHs(sv_2mortal(newSVpv("DELETE", 0 )));
+				XPUSHs(sv_2mortal(newSVpv("DELETE", STRLENOF("DELETE") )));
 				break;
 				
 			case LDAP_MOD_REPLACE:
-				XPUSHs(sv_2mortal(newSVpv("REPLACE", 0 )));
+				XPUSHs(sv_2mortal(newSVpv("REPLACE", STRLENOF("REPLACE") )));
 				break;
 			}
 
 			
-			XPUSHs(sv_2mortal(newSVpv( mods->sm_desc->ad_cname.bv_val, 0 )));
+			XPUSHs(sv_2mortal(newSVpv( mods->sm_desc->ad_cname.bv_val,
+				mods->sm_desc->ad_cname.bv_len )));
 
 			for ( i = 0;
 				mods->sm_values != NULL && mods->sm_values[i].bv_val != NULL;
 				i++ )
 			{
-				XPUSHs(sv_2mortal(newSVpv( mods->sm_values[i].bv_val, 0 )));
+				XPUSHs(sv_2mortal(newSVpv( mods->sm_values[i].bv_val, mods->sm_values[i].bv_len )));
 			}
 
 			/* Fix delete attrib without value. */
@@ -75,11 +74,7 @@ perl_back_modify(
 
 		PUTBACK;
 
-#ifdef PERL_IS_5_6
 		count = call_method("modify", G_SCALAR);
-#else
-		count = perl_call_method("modify", G_SCALAR);
-#endif
 
 		SPAGAIN;
 

@@ -1,8 +1,8 @@
 /* back-bdb.h - bdb back-end header file */
-/* $OpenLDAP: pkg/ldap/servers/slapd/back-bdb/back-bdb.h,v 1.117.2.16 2008/02/11 23:24:18 kurt Exp $ */
+/* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2000-2008 The OpenLDAP Foundation.
+ * Copyright 2000-2012 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -54,10 +54,6 @@ LDAP_BEGIN_DECL
 #define	BDB_ID2ENTRY_PAGESIZE	16384
 #endif
 
-#ifndef BDB_PAGESIZE
-#define	BDB_PAGESIZE	4096	/* BDB's original default */
-#endif
-
 #define DEFAULT_CACHE_SIZE     1000
 
 /* The default search IDL stack cache depth */
@@ -70,6 +66,7 @@ typedef struct bdb_idl_cache_entry_s {
 	struct berval kstr;
 	ID      *idl;
 	DB      *db;
+	int		idl_flags;
 	struct bdb_idl_cache_entry_s* idl_lru_prev;
 	struct bdb_idl_cache_entry_s* idl_lru_next;
 } bdb_idl_cache_entry_t;
@@ -93,6 +90,9 @@ typedef struct bdb_entry_info {
 #define	CACHE_ENTRY_LOADING	0x10
 #define	CACHE_ENTRY_WALKING	0x20
 #define	CACHE_ENTRY_ONELEVEL	0x40
+#define	CACHE_ENTRY_REFERENCED	0x80
+#define	CACHE_ENTRY_NOT_CACHED	0x100
+	int bei_finders;
 
 	/*
 	 * remaining fields require backend cache lock to access
@@ -120,20 +120,23 @@ typedef struct bdb_entry_info {
 
 /* for the in-core cache of entries */
 typedef struct bdb_cache {
-	int             c_maxsize;
-	int             c_cursize;
-	int		c_minfree;
-	int		c_eiused;	/* EntryInfo's in use */
-	int		c_leaves;	/* EntryInfo leaf nodes */
-	EntryInfo	c_dntree;
 	EntryInfo	*c_eifree;	/* free list */
-	Avlnode         *c_idtree;
+	Avlnode		*c_idtree;
 	EntryInfo	*c_lruhead;	/* lru - add accessed entries here */
 	EntryInfo	*c_lrutail;	/* lru - rem lru entries from here */
+	EntryInfo	c_dntree;
+	ID		c_maxsize;
+	ID		c_cursize;
+	ID		c_minfree;
+	ID		c_eimax;
+	ID		c_eiused;	/* EntryInfo's in use */
+	ID		c_leaves;	/* EntryInfo leaf nodes */
+	int		c_purging;
+	DB_TXN	*c_txn;	/* used by lru cleaner */
 	ldap_pvt_thread_rdwr_t c_rwlock;
-	ldap_pvt_thread_mutex_t lru_head_mutex;
-	ldap_pvt_thread_mutex_t lru_tail_mutex;
-	u_int32_t	c_locker;	/* used by lru cleaner */
+	ldap_pvt_thread_mutex_t c_lru_mutex;
+	ldap_pvt_thread_mutex_t c_count_mutex;
+	ldap_pvt_thread_mutex_t c_eifree_mutex;
 #ifdef SLAP_ZONE_ALLOC
 	void *c_zctx;
 #endif
@@ -145,9 +148,24 @@ typedef struct bdb_cache {
 #define BDB_INDICES		128
 
 struct bdb_db_info {
-	char		*bdi_name;
+	struct berval	bdi_name;
 	DB			*bdi_db;
 };
+
+struct bdb_db_pgsize {
+	struct bdb_db_pgsize *bdp_next;
+	struct berval	bdp_name;
+	int	bdp_size;
+};
+
+#ifdef LDAP_DEVEL
+#define BDB_MONITOR_IDX
+#endif /* LDAP_DEVEL */
+
+typedef struct bdb_monitor_t {
+	void		*bdm_cb;
+	struct berval	bdm_ndn;
+} bdb_monitor_t;
 
 /* From ldap_rq.h */
 struct re_s;
@@ -162,9 +180,10 @@ struct bdb_info {
 	int			bi_dbenv_mode;
 
 	int			bi_ndatabases;
+	int		bi_db_opflags;	/* db-specific flags */
 	struct bdb_db_info **bi_databases;
 	ldap_pvt_thread_mutex_t	bi_database_mutex;
-	int		bi_db_opflags;	/* db-specific flags */
+	struct bdb_db_pgsize *bi_pagesizes;
 
 	slap_mask_t	bi_defaultmask;
 	Cache		bi_cache;
@@ -180,13 +199,13 @@ struct bdb_info {
 	struct re_s		*bi_txn_cp_task;
 	struct re_s		*bi_index_task;
 
-	int			bi_lock_detect;
+	u_int32_t		bi_lock_detect;
 	long		bi_shm_key;
 
 	ID			bi_lastid;
 	ldap_pvt_thread_mutex_t	bi_lastid_mutex;
-	int		bi_idl_cache_max_size;
-	int		bi_idl_cache_size;
+	ID	bi_idl_cache_max_size;
+	ID		bi_idl_cache_size;
 	Avlnode		*bi_idl_tree;
 	bdb_idl_cache_entry_t	*bi_idl_lru_head;
 	bdb_idl_cache_entry_t	*bi_idl_lru_tail;
@@ -195,12 +214,22 @@ struct bdb_info {
 	alock_info_t	bi_alock_info;
 	char		*bi_db_config_path;
 	BerVarray	bi_db_config;
+	char		*bi_db_crypt_file;
+	struct berval	bi_db_crypt_key;
+	bdb_monitor_t	bi_monitor;
+
+#ifdef BDB_MONITOR_IDX
+	ldap_pvt_thread_mutex_t	bi_idx_mutex;
+	Avlnode		*bi_idx;
+#endif /* BDB_MONITOR_IDX */
+
 	int		bi_flags;
 #define	BDB_IS_OPEN		0x01
 #define	BDB_HAS_CONFIG	0x02
 #define	BDB_UPD_CONFIG	0x04
 #define	BDB_DEL_INDEX	0x08
 #define	BDB_RE_OPEN		0x10
+#define BDB_CHKSUM		0x20
 #ifdef BDB_HIER
 	int		bi_modrdns;		/* number of modrdns completed */
 	ldap_pvt_thread_mutex_t	bi_modrdns_mutex;
@@ -210,20 +239,24 @@ struct bdb_info {
 #define bi_id2entry	bi_databases[BDB_ID2ENTRY]
 #define bi_dn2id	bi_databases[BDB_DN2ID]
 
+
 struct bdb_lock_info {
 	struct bdb_lock_info *bli_next;
-	ID		bli_id;
 	DB_LOCK	bli_lock;
+	ID		bli_id;
+	int		bli_flag;
 };
+#define	BLI_DONTFREE	1
 
 struct bdb_op_info {
-	BackendDB*	boi_bdb;
+	OpExtra boi_oe;
 	DB_TXN*		boi_txn;
-	u_int32_t	boi_err;
-	u_int32_t	boi_locker;
-	int		boi_acl_cache;
 	struct bdb_lock_info *boi_locks;	/* used when no txn */
+	u_int32_t	boi_err;
+	char		boi_acl_cache;
+	char		boi_flag;
 };
+#define BOI_DONTFREE	1
 
 #define	DB_OPEN(db, file, name, type, flags, mode) \
 	((db)->open)(db, file, name, type, flags, mode)
@@ -260,9 +293,33 @@ struct bdb_op_info {
 	((db)->open)(db, NULL, file, name, type, flags, mode)
 #endif
 
+/* #undef BDB_LOG_DEBUG */
+
+#ifdef BDB_LOG_DEBUG
+
+/* env->log_printf appeared in 4.4 */
+#if DB_VERSION_FULL >= 0x04040000
+#define	BDB_LOG_PRINTF(env,txn,fmt,...)	(env)->log_printf((env),(txn),(fmt),__VA_ARGS__)
+#else
+extern int __db_logmsg(const DB_ENV *env, DB_TXN *txn, const char *op, u_int32_t flags,
+	const char *fmt,...);
+#define	BDB_LOG_PRINTF(env,txn,fmt,...)	__db_logmsg((env),(txn),"DIAGNOSTIC",0,(fmt),__VA_ARGS__)
 #endif
 
-#define BDB_REUSE_LOCKERS
+/* !BDB_LOG_DEBUG */
+#elif (defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L) || \
+	(defined(__GNUC__) && __GNUC__ >= 3 && !defined(__STRICT_ANSI__))
+#define BDB_LOG_PRINTF(a,b,c,...)
+#else
+#define BDB_LOG_PRINTF (void)	/* will evaluate and discard the arguments */
+
+#endif /* BDB_LOG_DEBUG */
+
+#endif
+
+#ifndef DB_BUFFER_SMALL
+#define DB_BUFFER_SMALL			ENOMEM
+#endif
 
 #define BDB_CSN_COMMIT	0
 #define BDB_CSN_ABORT	1
@@ -279,7 +336,7 @@ struct bdb_op_info {
 
 /* Copy a pointer "src" to a pointer "dst" from big-endian to native order */
 #define BDB_DISK2ID( src, dst ) \
-	do { int i0; ID tmp = 0; unsigned char *_p;	\
+	do { unsigned i0; ID tmp = 0; unsigned char *_p;	\
 		_p = (unsigned char *)(src);	\
 		for ( i0=0; i0<sizeof(ID); i0++ ) {	\
 			tmp <<= 8; tmp |= *_p++;	\

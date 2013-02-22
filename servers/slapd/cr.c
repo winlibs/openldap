@@ -1,8 +1,8 @@
 /* cr.c - content rule routines */
-/* $OpenLDAP: pkg/ldap/servers/slapd/cr.c,v 1.14.2.6 2008/02/11 23:24:16 kurt Exp $ */
+/* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2008 The OpenLDAP Foundation.
+ * Copyright 1998-2012 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -30,7 +30,7 @@ struct cindexrec {
 };
 
 static Avlnode	*cr_index = NULL;
-static LDAP_STAILQ_HEAD(CRList, slap_content_rule) cr_list
+static LDAP_STAILQ_HEAD(CRList, ContentRule) cr_list
 	= LDAP_STAILQ_HEAD_INITIALIZER(cr_list);
 
 static int
@@ -120,15 +120,14 @@ cr_insert(
 	struct cindexrec	*cir;
 	char			**names;
 
+	assert( scr != NULL );
+
 	if ( scr->scr_oid ) {
 		cir = (struct cindexrec *)
 			ch_calloc( 1, sizeof(struct cindexrec) );
 		cir->cir_name.bv_val = scr->scr_oid;
 		cir->cir_name.bv_len = strlen( scr->scr_oid );
 		cir->cir_cr = scr;
-
-		assert( cir->cir_name.bv_val != NULL );
-		assert( cir->cir_cr != NULL );
 
 		if ( avl_insert( &cr_index, (caddr_t) cir,
 		                 cr_index_cmp, avl_dup_error ) )
@@ -149,9 +148,6 @@ cr_insert(
 			cir->cir_name.bv_val = *names;
 			cir->cir_name.bv_len = strlen( *names );
 			cir->cir_cr = scr;
-
-			assert( cir->cir_name.bv_val != NULL );
-			assert( cir->cir_cr != NULL );
 
 			if ( avl_insert( &cr_index, (caddr_t) cir,
 			                 cr_index_cmp, avl_dup_error ) )
@@ -372,37 +368,43 @@ cr_add(
 	scr->scr_sclass = oc_find(cr->cr_oid);
 	if ( !scr->scr_sclass ) {
 		*err = cr->cr_oid;
-		return SLAP_SCHERR_CLASS_NOT_FOUND;
+		code = SLAP_SCHERR_CLASS_NOT_FOUND;
+		goto fail;
 	}
 
 	/* check object class usage */
 	if( scr->scr_sclass->soc_kind != LDAP_SCHEMA_STRUCTURAL )
 	{
 		*err = cr->cr_oid;
-		return SLAP_SCHERR_CR_BAD_STRUCT;
+		code = SLAP_SCHERR_CR_BAD_STRUCT;
+		goto fail;
 	}
 
 	if( scr->scr_sclass->soc_flags & SLAP_OC_OPERATIONAL ) op++;
 
 	code = cr_add_auxiliaries( scr, &op, err );
-	if ( code != 0 ) return code;
+	if ( code != 0 ) goto fail;
 
 	code = cr_create_required( scr, &op, err );
-	if ( code != 0 ) return code;
+	if ( code != 0 ) goto fail;
 
 	code = cr_create_allowed( scr, &op, err );
-	if ( code != 0 ) return code;
+	if ( code != 0 ) goto fail;
 
 	code = cr_create_precluded( scr, &op, err );
-	if ( code != 0 ) return code;
+	if ( code != 0 ) goto fail;
 
 	if( user && op ) {
-		return SLAP_SCHERR_CR_BAD_AUX;
+		code = SLAP_SCHERR_CR_BAD_AUX;
+		goto fail;
 	}
 
 	code = cr_insert(scr,err);
 	if ( code == 0 && rscr )
 		*rscr = scr;
+	return code;
+fail:
+	ch_free( scr );
 	return code;
 }
 

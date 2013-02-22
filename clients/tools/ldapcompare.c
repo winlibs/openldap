@@ -1,8 +1,8 @@
 /* ldapcompare.c -- LDAP compare tool */
-/* $OpenLDAP: pkg/ldap/clients/tools/ldapcompare.c,v 1.34.2.7 2008/02/11 23:24:07 kurt Exp $ */
+/* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2008 The OpenLDAP Foundation.
+ * Copyright 1998-2012 The OpenLDAP Foundation.
  * Portions Copyright 1998-2003 Kurt D. Zeilenga.
  * Portions Copyright 1998-2001 Net Boolean Incorporated.
  * All rights reserved.
@@ -46,6 +46,7 @@
 #include <ac/string.h>
 #include <ac/unistd.h>
 #include <ac/errno.h>
+#include <ac/socket.h>
 #include <ac/time.h>
 #include <sys/stat.h>
 
@@ -82,6 +83,10 @@ usage( void )
 	fprintf( stderr, _("  b64value\tbase64 encoding of assertion value\n"));
 
 	fprintf( stderr, _("Compare options:\n"));
+	fprintf( stderr, _("  -E [!]<ext>[=<extparam>] compare extensions (! indicates criticality)\n"));
+	fprintf( stderr, _("             !dontUseCopy                (Don't Use Copy)\n"));
+	fprintf( stderr, _("  -M         enable Manage DSA IT control (-MM to make critical)\n"));
+	fprintf( stderr, _("  -P version protocol version (default: 3)\n"));
 	fprintf( stderr, _("  -z         Quiet mode,"
 		" don't print anything, use return values\n"));
 	tool_common_usage();
@@ -99,15 +104,19 @@ static int docompare LDAP_P((
 
 
 const char options[] = "z"
-	"Cd:D:e:h:H:IkKMnO:p:P:QR:U:vVw:WxX:y:Y:Z";
+	"Cd:D:e:h:H:IMnNO:o:p:P:QR:U:vVw:WxX:y:Y:Z";
+
+#ifdef LDAP_CONTROL_DONTUSECOPY
+int dontUseCopy = 0;
+#endif
 
 int
 handle_private_option( int i )
 {
+	char	*control, *cvalue;
+	int		crit;
+
 	switch ( i ) {
-#if 0
-		char	*control, *cvalue;
-		int		crit;
 	case 'E': /* compare extensions */
 		if( protocol == LDAP_VERSION2 ) {
 			fprintf( stderr, _("%s: -E incompatible with LDAPv%d\n"),
@@ -126,13 +135,38 @@ handle_private_option( int i )
 			optarg++;
 		}
 
-		control = strdup( optarg );
+		control = ber_strdup( optarg );
 		if ( (cvalue = strchr( control, '=' )) != NULL ) {
 			*cvalue++ = '\0';
 		}
-		fprintf( stderr, _("Invalid compare extension name: %s\n"), control );
-		usage();
+
+#ifdef LDAP_CONTROL_DONTUSECOPY
+		if ( strcasecmp( control, "dontUseCopy" ) == 0 ) {
+			if( dontUseCopy ) {
+				fprintf( stderr,
+					_("dontUseCopy control previously specified\n"));
+				exit( EXIT_FAILURE );
+			}
+			if( cvalue != NULL ) {
+				fprintf( stderr,
+					_("dontUseCopy: no control value expected\n") );
+				usage();
+			}
+			if( !crit ) {
+				fprintf( stderr,
+					_("dontUseCopy: critical flag required\n") );
+				usage();
+			}
+
+			dontUseCopy = 1 + crit;
+		} else
 #endif
+		{
+			fprintf( stderr,
+				_("Invalid compare extension name: %s\n"), control );
+			usage();
+		}
+		break;
 
 	case 'z':
 		quiet = 1;
@@ -148,13 +182,16 @@ handle_private_option( int i )
 int
 main( int argc, char **argv )
 {
-	char	*compdn = NULL, *attrs = NULL;
-	char	*sep;
+	char		*compdn = NULL, *attrs = NULL;
+	char		*sep;
 	int		rc;
-	LDAP	*ld = NULL;
-	struct berval bvalue = { 0, NULL };
+	LDAP		*ld = NULL;
+	struct berval	bvalue = { 0, NULL };
+	int		i = 0; 
+	LDAPControl	c[1];
 
-	tool_init();
+
+	tool_init( TOOL_COMPARE );
 	prog = lutil_progname( "ldapcompare", argc, argv );
 
 	tool_args( argc, argv );
@@ -193,21 +230,26 @@ main( int argc, char **argv )
 
 	ld = tool_conn_setup( 0, 0 );
 
-	if ( pw_file || want_bindpw ) {
-		if ( pw_file ) {
-			rc = lutil_get_filed_password( pw_file, &passwd );
-			if( rc ) return EXIT_FAILURE;
-		} else {
-			passwd.bv_val = getpassphrase( _("Enter LDAP Password: ") );
-			passwd.bv_len = passwd.bv_val ? strlen( passwd.bv_val ) : 0;
-		}
-	}
-
 	tool_bind( ld );
 
-	if ( assertion || authzid || manageDSAit || noop ) {
-		tool_server_controls( ld, NULL, 0 );
+	if ( 0
+#ifdef LDAP_CONTROL_DONTUSECOPY
+		|| dontUseCopy
+#endif
+		)
+	{
+#ifdef LDAP_CONTROL_DONTUSECOPY
+		if ( dontUseCopy ) {  
+			c[i].ldctl_oid = LDAP_CONTROL_DONTUSECOPY;
+			c[i].ldctl_value.bv_val = NULL;
+			c[i].ldctl_value.bv_len = 0;
+			c[i].ldctl_iscritical = dontUseCopy > 1;
+			i++;    
+		}
+#endif
 	}
+
+	tool_server_controls( ld, c, i );
 
 	if ( verbose ) {
 		fprintf( stderr, _("DN:%s, attr:%s, value:%s\n"),
@@ -218,9 +260,7 @@ main( int argc, char **argv )
 
 	free( bvalue.bv_val );
 
-	tool_unbind( ld );
-	tool_destroy();
-	return rc;
+	tool_exit( ld, rc );
 }
 
 
@@ -240,7 +280,7 @@ static int docompare(
 	char		**refs;
 	LDAPControl **ctrls = NULL;
 
-	if ( not ) {
+	if ( dont ) {
 		return LDAP_SUCCESS;
 	}
 
@@ -262,7 +302,7 @@ static int docompare(
 
 		rc = ldap_result( ld, LDAP_RES_ANY, LDAP_MSG_ALL, &tv, &res );
 		if ( rc < 0 ) {
-			ldap_perror( ld, "ldapcompare: ldap_result" );
+			tool_perror( "ldap_result", rc, NULL, NULL, NULL, NULL );
 			return rc;
 		}
 

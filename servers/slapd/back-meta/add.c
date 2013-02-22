@@ -1,7 +1,7 @@
-/* $OpenLDAP: pkg/ldap/servers/slapd/back-meta/add.c,v 1.27.2.18 2008/02/11 23:24:21 kurt Exp $ */
+/* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1999-2008 The OpenLDAP Foundation.
+ * Copyright 1999-2012 The OpenLDAP Foundation.
  * Portions Copyright 2001-2003 Pierangelo Masarati.
  * Portions Copyright 1999-2003 Howard Chu.
  * All rights reserved.
@@ -45,7 +45,7 @@ meta_back_add( Operation *op, SlapReply *rs )
 	struct berval	mdn = BER_BVNULL, mapped;
 	dncookie	dc;
 	int		msgid;
-	int		do_retry = 1;
+	ldap_back_send_t	retrying = LDAP_BACK_RETRYING;
 	LDAPControl	**ctrls = NULL;
 
 	Debug(LDAP_DEBUG_ARGS, "==> meta_back_add: %s\n",
@@ -86,7 +86,7 @@ meta_back_add( Operation *op, SlapReply *rs )
 	for ( i = 0, a = op->ora_e->e_attrs; a; a = a->a_next ) {
 		int			j, is_oc = 0;
 
-		if ( !isupdate && !get_manageDIT( op ) && a->a_desc->ad_type->sat_no_user_mod  )
+		if ( !isupdate && !get_relax( op ) && a->a_desc->ad_type->sat_no_user_mod  )
 		{
 			continue;
 		}
@@ -169,8 +169,7 @@ meta_back_add( Operation *op, SlapReply *rs )
 
 retry:;
 	ctrls = op->o_ctrls;
-	if ( ldap_back_proxy_authz_ctrl( &mc->mc_conns[ candidate ].msc_bound_ndn,
-		mt->mt_version, &mt->mt_idassert, op, rs, &ctrls ) != LDAP_SUCCESS )
+	if ( meta_back_controls_add( op, rs, mc, candidate, &ctrls ) != LDAP_SUCCESS )
 	{
 		send_ldap_result( op, rs );
 		goto cleanup;
@@ -179,18 +178,18 @@ retry:;
 	rs->sr_err = ldap_add_ext( mc->mc_conns[ candidate ].msc_ld, mdn.bv_val,
 			      attrs, ctrls, NULL, &msgid );
 	rs->sr_err = meta_back_op_result( mc, op, rs, candidate, msgid,
-		mt->mt_timeout[ SLAP_OP_ADD ], LDAP_BACK_SENDRESULT );
-	if ( rs->sr_err == LDAP_UNAVAILABLE && do_retry ) {
-		do_retry = 0;
+		mt->mt_timeout[ SLAP_OP_ADD ], ( LDAP_BACK_SENDRESULT | retrying ) );
+	if ( rs->sr_err == LDAP_UNAVAILABLE && retrying ) {
+		retrying &= ~LDAP_BACK_RETRYING;
 		if ( meta_back_retry( op, rs, &mc, candidate, LDAP_BACK_SENDERR ) ) {
 			/* if the identity changed, there might be need to re-authz */
-			(void)ldap_back_proxy_authz_ctrl_free( op, &ctrls );
+			(void)mi->mi_ldap_extra->controls_free( op, rs, &ctrls );
 			goto retry;
 		}
 	}
 
 cleanup:;
-	(void)ldap_back_proxy_authz_ctrl_free( op, &ctrls );
+	(void)mi->mi_ldap_extra->controls_free( op, rs, &ctrls );
 
 	for ( --i; i >= 0; --i ) {
 		free( attrs[ i ]->mod_bvalues );

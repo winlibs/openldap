@@ -1,7 +1,7 @@
-/* $OpenLDAP: pkg/ldap/include/lber_pvt.h,v 1.30.2.6 2008/02/11 23:24:10 kurt Exp $ */
+/* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2008 The OpenLDAP Foundation.
+ * Copyright 1998-2012 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -145,6 +145,9 @@ ber_bvarray_free_x LDAP_P(( BerVarray p, void *ctx ));
 LBER_F( int )
 ber_bvarray_add_x LDAP_P(( BerVarray *p, BerValue *bv, void *ctx ));
 
+LBER_F( int )
+ber_bvarray_dup_x LDAP_P(( BerVarray *dst, BerVarray src, void *ctx ));
+
 #if 0
 #define ber_bvstrcmp(v1,v2) \
 	((v1)->bv_len < (v2)->bv_len \
@@ -170,35 +173,35 @@ ber_bvarray_add_x LDAP_P(( BerVarray *p, BerValue *bv, void *ctx ));
 	((char *) memchr( (bv)->bv_val, (c), (bv)->bv_len ))
 
 #define ber_bvrchr(bv,c) \
-	((char *) memrchr( (bv)->bv_val, (c), (bv)->bv_len ))
+	((char *) lutil_memrchr( (bv)->bv_val, (c), (bv)->bv_len ))
 
-#define ber_bvchr_right(dst,bv,c) \
+#define ber_bvchr_post(dst,bv,c) \
 	do { \
 		(dst)->bv_val = memchr( (bv)->bv_val, (c), (bv)->bv_len ); \
 		(dst)->bv_len = (dst)->bv_val ? (bv)->bv_len - ((dst)->bv_val - (bv)->bv_val) : 0; \
 	} while (0)
 
-#define ber_bvchr_left(dst,bv,c) \
+#define ber_bvchr_pre(dst,bv,c) \
 	do { \
 		(dst)->bv_val = memchr( (bv)->bv_val, (c), (bv)->bv_len ); \
 		(dst)->bv_len = (dst)->bv_val ? ((dst)->bv_val - (bv)->bv_val) : (bv)->bv_len; \
 		(dst)->bv_val = (bv)->bv_val; \
 	} while (0)
 
-#define ber_bvrchr_right(dst,bv,c) \
+#define ber_bvrchr_post(dst,bv,c) \
 	do { \
-		(dst)->bv_val = memrchr( (bv)->bv_val, (c), (bv)->bv_len ); \
+		(dst)->bv_val = lutil_memrchr( (bv)->bv_val, (c), (bv)->bv_len ); \
 		(dst)->bv_len = (dst)->bv_val ? (bv)->bv_len - ((dst)->bv_val - (bv)->bv_val) : 0; \
 	} while (0)
 
-#define ber_bvrchr_left(dst,bv,c) \
+#define ber_bvrchr_pre(dst,bv,c) \
 	do { \
-		(dst)->bv_val = memrchr( (bv)->bv_val, (c), (bv)->bv_len ); \
+		(dst)->bv_val = lutil_memrchr( (bv)->bv_val, (c), (bv)->bv_len ); \
 		(dst)->bv_len = (dst)->bv_val ? ((dst)->bv_val - (bv)->bv_val) : (bv)->bv_len; \
 		(dst)->bv_val = (bv)->bv_val; \
 	} while (0)
 
-#define BER_BVC(s)		{ STRLENOF(s), (s) }
+#define BER_BVC(s)		{ STRLENOF(s), (char *)(s) }
 #define BER_BVNULL		{ 0L, NULL }
 #define BER_BVZERO(bv) \
 	do { \

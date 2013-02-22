@@ -1,6 +1,7 @@
+/* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1999-2008 The OpenLDAP Foundation.
+ * Copyright 1999-2012 The OpenLDAP Foundation.
  * Portions Copyright 1999 Dmitry Kovalev.
  * Portions Copyright 2002 Pierangelo Mararati.
  * All rights reserved.
@@ -111,24 +112,32 @@ extern struct berval	backsql_baseObject_bv;
 #endif /* BACKSQL_ARBITRARY_KEY */
 
 /* stores in *id the ID in table ldap_entries corresponding to DN, if any */
-int backsql_dn2id( Operation *op, SlapReply *rs, SQLHDBC dbh,
+extern int
+backsql_dn2id( Operation *op, SlapReply *rs, SQLHDBC dbh,
 		struct berval *ndn, backsql_entryID *id,
 		int matched, int muck );
 
 /* stores in *nchildren the count of children for an entry */
-int backsql_count_children( Operation *op, SQLHDBC dbh,
+extern int
+backsql_count_children( Operation *op, SQLHDBC dbh,
 		struct berval *dn, unsigned long *nchildren );
 
 /* returns LDAP_COMPARE_TRUE/LDAP_COMPARE_FALSE if the entry corresponding
  * to DN has/has not children */
-int backsql_has_children( Operation *op, SQLHDBC dbh, struct berval *dn );
+extern int
+backsql_has_children( Operation *op, SQLHDBC dbh, struct berval *dn );
 
-/* frees *id and returns next in list */
-backsql_entryID *backsql_free_entryID( Operation *op, backsql_entryID *id,
-		int freeit );
+/* free *id and return next in list */
+extern backsql_entryID *
+backsql_free_entryID( backsql_entryID *id, int freeit, void *ctx );
 
-/* turns an ID into an entry */
-int backsql_id2entry( backsql_srch_info *bsi, backsql_entryID *id );
+/* turn an ID into an entry */
+extern int
+backsql_id2entry( backsql_srch_info *bsi, backsql_entryID *id );
+
+/* duplicate an entryID */
+extern backsql_entryID *
+backsql_entryID_dup( backsql_entryID *eid, void *ctx );
 
 /*
  * operational.c
@@ -175,32 +184,37 @@ void backsql_entry_clean( Operation *op, Entry *e );
  * sql-wrap.h
  */
 
-RETCODE backsql_Prepare( SQLHDBC dbh, SQLHSTMT *sth, char* query, int timeout );
+RETCODE backsql_Prepare( SQLHDBC dbh, SQLHSTMT *sth, const char* query, int timeout );
 
 #define backsql_BindParamStr( sth, par_ind, io, str, maxlen ) 		\
 	SQLBindParameter( (sth), (SQLUSMALLINT)(par_ind), 		\
 			(io), SQL_C_CHAR, SQL_VARCHAR,			\
-         		(SQLUINTEGER)(maxlen), 0, (SQLPOINTER)(str),	\
-			(SQLUINTEGER)(maxlen), NULL )
+         		(SQLULEN)(maxlen), 0, (SQLPOINTER)(str),	\
+			(SQLLEN)(maxlen), NULL )
 
 #define backsql_BindParamBerVal( sth, par_ind, io, bv ) 		\
 	SQLBindParameter( (sth), (SQLUSMALLINT)(par_ind), 		\
 			(io), SQL_C_CHAR, SQL_VARCHAR,			\
-         		(SQLUINTEGER)(bv)->bv_len, 0,			\
+         		(SQLULEN)(bv)->bv_len, 0,			\
 			(SQLPOINTER)(bv)->bv_val,			\
-			(SQLUINTEGER)(bv)->bv_len, NULL )
+			(SQLLEN)(bv)->bv_len, NULL )
 
 #define backsql_BindParamInt( sth, par_ind, io, val )			\
 	SQLBindParameter( (sth), (SQLUSMALLINT)(par_ind),		\
 			(io), SQL_C_ULONG, SQL_INTEGER,			\
-			0, 0, (SQLPOINTER)(val), 0, (SQLINTEGER*)NULL )
+			0, 0, (SQLPOINTER)(val), 0, (SQLLEN*)NULL )
+
+#define backsql_BindParamNumID( sth, par_ind, io, val )			\
+	SQLBindParameter( (sth), (SQLUSMALLINT)(par_ind),		\
+			(io), BACKSQL_C_NUMID, SQL_INTEGER,		\
+			0, 0, (SQLPOINTER)(val), 0, (SQLLEN*)NULL )
 
 #ifdef BACKSQL_ARBITRARY_KEY
 #define backsql_BindParamID( sth, par_ind, io, id )			\
 	backsql_BindParamBerVal( (sth), (par_ind), (io), (id) )
 #else /* ! BACKSQL_ARBITRARY_KEY */
 #define backsql_BindParamID( sth, par_ind, io, id )			\
-	backsql_BindParamInt( (sth), (par_ind), (io), (id) )
+	backsql_BindParamNumID( (sth), (par_ind), (io), (id) )
 #endif /* ! BACKSQL_ARBITRARY_KEY */
 
 RETCODE backsql_BindRowAsStrings_x( SQLHSTMT sth, BACKSQL_ROW_NTS *row, void *ctx );
@@ -219,15 +233,15 @@ int backsql_init_db_env( backsql_info *si );
 
 int backsql_free_db_env( backsql_info *si );
 
-int backsql_get_db_conn( Operation *op, SQLHDBC *dbh );
+int backsql_get_db_conn( Operation *op, SQLHDBC	*dbh );
 
-int backsql_free_db_conn( Operation *op );
+int backsql_free_db_conn( Operation *op, SQLHDBC dbh );
 
 /*
  * util.c
  */
 
-extern char 
+extern const char 
 	backsql_def_oc_query[],
 	backsql_def_needs_select_oc_query[],
 	backsql_def_at_query[],
@@ -238,8 +252,7 @@ extern char
 	backsql_def_subtree_cond[],
 	backsql_def_upper_subtree_cond[],
 	backsql_id_query[],
-	backsql_def_concat_func[];
-extern char 
+	backsql_def_concat_func[],
 	backsql_check_dn_ru_query[];
 
 struct berbuf * backsql_strcat_x( struct berbuf *dest, void *memctx, ... );
@@ -294,5 +307,7 @@ extern BI_entry_get_rw		backsql_entry_get;
 extern BI_entry_release_rw	backsql_entry_release;
 
 extern BI_connection_destroy	backsql_connection_destroy;
+
+int backsql_init_cf( BackendInfo * bi );
 
 #endif /* PROTO_SQL_H */

@@ -1,7 +1,7 @@
 .TH SLAPD.ACCESS 5 "RELEASEDATE" "OpenLDAP LDVERSION"
-.\" Copyright 1998-2008 The OpenLDAP Foundation All Rights Reserved.
+.\" Copyright 1998-2012 The OpenLDAP Foundation All Rights Reserved.
 .\" Copying restrictions apply.  See COPYRIGHT/LICENSE.
-.\" $OpenLDAP: pkg/ldap/doc/man/man5/slapd.access.5,v 1.55.2.11 2008/02/11 23:24:09 kurt Exp $
+.\" $OpenLDAP$
 .SH NAME
 slapd.access \- access configuration for slapd, the stand-alone LDAP daemon
 .SH SYNOPSIS
@@ -11,9 +11,7 @@ The
 .BR slapd.conf (5)
 file contains configuration information for the
 .BR slapd (8)
-daemon. This configuration file is also used by the
-.BR slurpd (8)
-replication daemon and by the SLAPD tools
+daemon. This configuration file is also used by the SLAPD tools
 .BR slapacl (8),
 .BR slapadd (8),
 .BR slapauth (8),
@@ -56,11 +54,18 @@ are then used.
 If no access controls are present, the default policy
 allows anyone and everyone to read anything but restricts
 updates to rootdn.  (e.g., "access to * by * read").
-The rootdn can always read and write EVERYTHING!
+.LP
+When dealing with an access list, because the global access list is 
+effectively appended to each per-database list, if the resulting 
+list is non-empty then the access list will end with an implicit 
+.B access to * by * none
+directive. If there are no access directives applicable to a backend, 
+then a default read is used.
+.LP
+.B Be warned: the rootdn can always read and write EVERYTHING!
 .LP
 For entries not held in any backend (such as a root DSE), the
-directives of the first backend (and any global directives) are
-used.
+global directives are used.
 .LP
 Arguments that should be replaced by actual text are shown in
 brackets <>.
@@ -74,6 +79,50 @@ to a set of entries and/or attributes (specified by
 .BR <what> ) 
 by one or more requestors (specified by 
 .BR <who> ).
+
+.LP
+Lists of access directives are evaluated in the order they appear
+in \fIslapd.conf\fP.
+When a
+.B <what>
+clause matches the datum whose access is being evaluated, its
+.B <who>
+clause list is checked.
+When a
+.B <who>
+clause matches the accessor's properties, its
+.B <access>
+and
+.B <control>
+clauses are evaluated.
+Access control checking stops at the first match of the
+.B <what>
+and
+.B <who>
+clause, unless otherwise dictated by the
+.B <control>
+clause.
+Each
+.B <who>
+clause list is implicitly terminated by a
+.LP
+.nf
+	by * none stop
+.fi
+.LP
+clause that results in stopping the access control with no access 
+privileges granted.
+Each
+.B <what>
+clause list is implicitly terminated by a
+.LP
+.nf
+	access to *
+		by * none
+.fi
+.LP
+clause that results in granting no access privileges to an otherwise
+unspecified datum.
 .SH THE <WHAT> FIELD
 The field
 .BR <what>
@@ -147,11 +196,11 @@ as detailed in
 and/or
 .BR re_format (7),
 matching a normalized string representation of the entry's DN.
-The regex form of the pattern does not (yet) support UTF\-8.
+The regex form of the pattern does not (yet) support UTF-8.
 .LP
 The statement
 .B filter=<ldapfilter>
-selects the entries based on a valid LDAP filter as described in RFC 2254.
+selects the entries based on a valid LDAP filter as described in RFC 4515.
 A filter of
 .B (objectClass=*)
 is implied if no
@@ -208,6 +257,24 @@ resulting in base, onelevel, subtree or children match, respectively.
 The dn, filter, and attrs statements are additive; they can be used in sequence 
 to select entities the access rule applies to based on naming context,
 value and attribute type simultaneously.
+Submatches resulting from
+.B regex
+matching can be dereferenced in the
+.B <who>
+field using the syntax
+.IR ${v<n>} ,
+where
+.I <n>
+is the submatch number.
+The default syntax,
+.IR $<n> ,
+is actually an alias for
+.IR ${d<n>} ,
+that corresponds to dereferencing submatches from the
+.B dnpattern
+portion of the
+.B <what>
+field.
 .SH THE <WHO> FIELD
 The field
 .B <who>
@@ -248,8 +315,7 @@ It can have the forms
 	tls_ssf=<n>
 	sasl_ssf=<n>
 
-	aci[=<attrname>]
-	dynacl/name[/<options>][.<dynstyle>][=<pattern>]
+	dynacl/<name>[/<options>][.<dynstyle>][=<pattern>]
 .fi
 .LP
 with
@@ -260,10 +326,11 @@ with
 	<dnstyle>={{exact|base(object)}|regex
 		|one(level)|sub(tree)|children|level{<n>}}
 	<groupstyle>={exact|expand}
-	<peernamestyle>={<style>|ip|path}
+	<peernamestyle>={<style>|ip|ipv6|path}
 	<domainstyle>={exact|regex|sub(tree)}
-	<setstyle>={exact|regex}
+	<setstyle>={exact|expand}
 	<modifier>={expand}
+	<name>=aci		<pattern>=<attrname>]
 .fi
 .LP
 They may be specified in combination.
@@ -327,6 +394,10 @@ ranging from 0 to 9 (where 0 matches the entire string),
 or the form
 .BR ${<digit>+} ,
 for submatches higher than 9.
+Substring substitution from attribute value can
+be done in 
+using the form
+.BR ${v<digit>+} .
 Since the dollar character is used to indicate a substring replacement,
 the dollar character that is used to indicate match up to the end of
 the string must be escaped by a second dollar character, e.g.
@@ -490,7 +561,10 @@ The statements
 and
 .BR sockurl=<sockurl>
 mean that the contacting host IP (in the form 
-.BR "IP=<ip>:<port>" )
+.BR "IP=<ip>:<port>"
+for IPv4, or
+.BR "IP=[<ipv6>]:<port>"
+for IPv6)
 or the contacting host named pipe file name (in the form
 .B "PATH=<path>"
 if connecting through a named pipe) for
@@ -539,6 +613,9 @@ and
 are dotted digit representations of the IP and the mask, while
 .BR <n> ,
 delimited by curly brackets, is an optional port.
+The same applies to IPv6 addresses when the special
+.B ipv6
+style is used.
 When checking access privileges, the IP portion of the
 .BR peername 
 is extracted, eliminating the
@@ -548,10 +625,13 @@ prefix and the
 part, and it is compared against the
 .B <ip>
 portion of the pattern after masking with
-.BR <mask> .
+.BR <mask> :
+\fI((peername & <mask>) == <ip>)\fP.
 As an example, 
 .B peername.ip=127.0.0.1
-allows connections only from localhost,
+and
+.B peername.ipv6=::1
+allow connections only from localhost,
 .B peername.ip=192.168.1.0%255.255.255.0 
 allows connections from any IP in the 192.168.1 class C domain, and
 .B peername.ip=192.168.1.16%255.255.255.240{9009}
@@ -614,19 +694,6 @@ The statement
 is undocumented yet.
 .LP
 The statement
-.B aci[=<attrname>]
-means that the access control is determined by the values in the
-.B attrname
-of the entry itself.
-The optional
-.B <attrname>
-indicates what attributeType holds the ACI information in the entry.
-By default, the 
-.B OpenLDAPaci
-operational attribute is used.
-ACIs are experimental; they must be enabled at compile time.
-.LP
-The statement
 .B dynacl/<name>[/<options>][.<dynstyle>][=<pattern>]
 means that access checking is delegated to the admin-defined method
 indicated by
@@ -641,12 +708,19 @@ and
 .B <pattern>
 are optional, and are directly passed to the registered parsing routine.
 Dynacl is experimental; it must be enabled at compile time.
-If dynacl and ACIs are both enabled, ACIs are cast into the dynacl scheme,
-where 
-.B <name>=aci
-and, optionally,
-.BR <patten>=<attrname> .
-However, the original ACI syntax is preserved for backward compatibility.
+.LP
+The statement
+.B dynacl/aci[=<attrname>]
+means that the access control is determined by the values in the
+.B attrname
+of the entry itself.
+The optional
+.B <attrname>
+indicates what attributeType holds the ACI information in the entry.
+By default, the 
+.B OpenLDAPaci
+operational attribute is used.
+ACIs are experimental; they must be enabled at compile time.
 .LP
 The statements
 .BR ssf=<n> ,
@@ -657,7 +731,7 @@ and
 set the minimum required Security Strength Factor (ssf) needed
 to grant access.  The value should be positive integer.
 .SH THE <ACCESS> FIELD
-The field
+The optional field
 .B <access> ::= [[real]self]{<level>|<priv>}
 determines the access level or the specific access privileges the
 .B who 
@@ -665,8 +739,8 @@ field will have.
 Its component are defined as
 .LP
 .nf
-	<level> ::= none|disclose|auth|compare|search|read|write
-	<priv> ::= {=|+|-}{w|r|s|c|x|d|0}+
+	<level> ::= none|disclose|auth|compare|search|read|{write|add|delete}|manage
+	<priv> ::= {=|+|\-}{0|d|x|c|s|r|{w|a|z}|m}+
 .fi
 .LP
 The modifier
@@ -683,7 +757,8 @@ modifier.
 An example is the
 .B selfwrite
 access to the member attribute of a group, which allows one to add/delete
-its own DN from the member list of a group, without affecting other members.
+its own DN from the member list of a group, while being not allowed
+to affect other members.
 .LP
 The 
 .B level 
@@ -696,11 +771,22 @@ The possible levels are
 .BR compare ,
 .BR search ,
 .BR read ,
+.BR write ,
 and
-.BR write .
+.BR manage .
 Each access level implies all the preceding ones, thus 
-.B write
-access will imply all accesses.
+.B manage
+grants all access including administrative access.
+The 
+.BR write
+access is actually the combination of
+.BR add
+and
+.BR delete ,
+which respectively restrict the write privilege to add or delete
+the specified
+.BR <what> .
+
 .LP
 The
 .B none 
@@ -730,11 +816,17 @@ access privileges will be only those defined by the clause.
 The 
 .B +
 and
-.B -
+.B \-
 signs add/remove access privileges to the existing ones.
 The privileges are
+.B m
+for manage,
 .B w
 for write,
+.B a
+for add,
+.B z
+for delete,
 .B r
 for read,
 .B s 
@@ -748,6 +840,11 @@ for disclose.
 More than one of the above privileges can be added in one statement.
 .B 0
 indicates no privileges and is used only by itself (e.g., +0).
+Note that
+.B +az
+is equivalent to
+.BR +w .
+.LP
 If no access is given, it defaults to 
 .BR +0 .
 .SH THE <CONTROL> FIELD
@@ -831,17 +928,27 @@ the BDB and HDB backends.   Requirements for other backends may
 The
 .B add
 operation requires
-.B write (=w)
+.B add (=a)
 privileges on the pseudo-attribute 
 .B entry
 of the entry being added, and 
-.B write (=w)
+.B add (=a)
 privileges on the pseudo-attribute
 .B children
 of the entry's parent.
-When adding the suffix entry of a database, write access to
+When adding the suffix entry of a database,
+.B add
+access to
 .B children
-of the empty DN ("") is required.
+of the empty DN ("") is required. Also if
+Add content ACL checking has been configured on
+the database (see the
+.BR slapd.conf (5)
+or
+.BR slapd\-config (5)
+manual page),
+.B add (=a)
+will be required on all of the attributes being added.
 
 .LP
 The 
@@ -862,11 +969,11 @@ privileges on the attribute that is being compared.
 The
 .B delete
 operation requires
-.B write (=w)
+.B delete (=z)
 privileges on the pseudo-attribute
 .B entry 
 of the entry being deleted, and
-.B write (=w)
+.B delete (=d)
 privileges on the
 .B children
 pseudo-attribute of the entry's parent.
@@ -877,6 +984,18 @@ The
 operation requires 
 .B write (=w)
 privileges on the attributes being modified.
+In detail, 
+.B add (=a)
+is required to add new values,
+.B delete (=z)
+is required to delete existing values,
+and both
+.B delete
+and
+.BR "add (=az)" ,
+or
+.BR "write (=w)" ,
+are required to replace existing values.
 
 .LP
 The
@@ -886,13 +1005,17 @@ operation requires
 privileges on the pseudo-attribute
 .B entry
 of the entry whose relative DN is being modified,
-.B write (=w)
+.B delete (=z)
 privileges on the pseudo-attribute
 .B children
-of the old and new entry's parents, and
-.B write (=w)
+of the old entry's parents,
+.B add (=a)
+privileges on the pseudo-attribute
+.B children
+of the new entry's parents, and
+.B add (=a)
 privileges on the attributes that are present in the new relative DN.
-.B Write (=w)
+.B Delete (=z)
 privileges are also required on the attributes that are present 
 in the old relative DN if 
 .B deleteoldrdn
@@ -905,7 +1028,8 @@ operation, requires
 .B search (=s)
 privileges on the 
 .B entry
-pseudo-attribute of the searchBase (NOTE: this was introduced with 2.3).
+pseudo-attribute of the searchBase
+(NOTE: this was introduced with OpenLDAP 2.4).
 Then, for each entry, it requires
 .B search (=s)
 privileges on the attributes that are defined in the filter.
@@ -951,18 +1075,22 @@ privileges are also required on the
 attribute of the authorizing identity and/or on the 
 .B authzFrom
 attribute of the authorized identity.
+In general, when an internal lookup is performed for authentication
+or authorization purposes, search-specific privileges (see the access
+requirements for the search operation illustrated above) are relaxed to
+.BR auth .
 
 .LP
 Access control to search entries is checked by the frontend,
 so it is fully honored by all backends; for all other operations
 and for the discovery phase of the search operation,
 full ACL semantics is only supported by the primary backends, i.e.
-.BR back-bdb (5),
+.BR back\-bdb (5),
 and
-.BR back-hdb (5).
+.BR back\-hdb (5).
 
 Some other backend, like
-.BR back-sql (5),
+.BR back\-sql (5),
 may fully support them; others may only support a portion of the 
 described semantics, or even differ in some aspects.
 The relevant details are described in the backend-specific man pages.
@@ -1045,14 +1173,11 @@ ETCDIR/slapd.conf
 default slapd configuration file
 .SH SEE ALSO
 .BR slapd (8),
-.BR slapd-* (5),
+.BR slapd\-* (5),
 .BR slapacl (8),
 .BR regex (7),
 .BR re_format (7)
 .LP
 "OpenLDAP Administrator's Guide" (http://www.OpenLDAP.org/doc/admin/)
 .SH ACKNOWLEDGEMENTS
-.B OpenLDAP
-is developed and maintained by The OpenLDAP Project (http://www.openldap.org/).
-.B OpenLDAP
-is derived from University of Michigan LDAP 3.3 Release.
+.so ../Project

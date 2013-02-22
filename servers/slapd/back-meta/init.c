@@ -1,7 +1,7 @@
-/* $OpenLDAP: pkg/ldap/servers/slapd/back-meta/init.c,v 1.37.2.17 2008/02/11 23:24:22 kurt Exp $ */
+/* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1999-2008 The OpenLDAP Foundation.
+ * Copyright 1999-2012 The OpenLDAP Foundation.
  * Portions Copyright 2001-2003 Pierangelo Masarati.
  * Portions Copyright 1999-2003 Howard Chu.
  * All rights reserved.
@@ -23,6 +23,7 @@
 #include <ac/socket.h>
 
 #include "slap.h"
+#include "config.h"
 #include "../back-ldap/back-ldap.h"
 #include "back-meta.h"
 
@@ -40,13 +41,30 @@ int
 meta_back_initialize(
 	BackendInfo	*bi )
 {
+	bi->bi_flags =
+#if 0
+	/* this is not (yet) set essentially because back-meta does not
+	 * directly support extended operations... */
+#ifdef LDAP_DYNAMIC_OBJECTS
+		/* this is set because all the support a proxy has to provide
+		 * is the capability to forward the refresh exop, and to
+		 * pass thru entries that contain the dynamicObject class
+		 * and the entryTtl attribute */
+		SLAP_BFLAG_DYNAMIC |
+#endif /* LDAP_DYNAMIC_OBJECTS */
+#endif
+
+		/* back-meta recognizes RFC4525 increment;
+		 * let the remote server complain, if needed (ITS#5912) */
+		SLAP_BFLAG_INCREMENT;
+
 	bi->bi_open = meta_back_open;
 	bi->bi_config = 0;
 	bi->bi_close = 0;
 	bi->bi_destroy = 0;
 
 	bi->bi_db_init = meta_back_db_init;
-	bi->bi_db_config = meta_back_db_config;
+	bi->bi_db_config = config_generic_wrapper;
 	bi->bi_db_open = meta_back_db_open;
 	bi->bi_db_close = 0;
 	bi->bi_db_destroy = meta_back_db_destroy;
@@ -68,20 +86,34 @@ meta_back_initialize(
 	bi->bi_connection_init = 0;
 	bi->bi_connection_destroy = meta_back_conn_destroy;
 
-	return 0;
+	return meta_back_init_cf( bi );
 }
 
 int
 meta_back_db_init(
-	Backend		*be )
+	Backend		*be,
+	ConfigReply	*cr)
 {
 	metainfo_t	*mi;
 	int		i;
+	BackendInfo	*bi;
+
+	bi = backend_info( "ldap" );
+	if ( !bi || !bi->bi_extra ) {
+		Debug( LDAP_DEBUG_ANY,
+			"meta_back_db_init: needs back-ldap\n",
+			0, 0, 0 );
+		return 1;
+	}
 
 	mi = ch_calloc( 1, sizeof( metainfo_t ) );
 	if ( mi == NULL ) {
  		return -1;
  	}
+
+	/* set default flags */
+	mi->mi_flags =
+		META_BACK_F_DEFER_ROOTDN_BIND;
 
 	/*
 	 * At present the default is no default target;
@@ -92,6 +124,7 @@ meta_back_db_init(
 	mi->mi_bind_timeout.tv_usec = META_BIND_TIMEOUT;
 
 	mi->mi_rebind_f = meta_back_default_rebind;
+	mi->mi_urllist_f = meta_back_default_urllist;
 
 	ldap_pvt_thread_mutex_init( &mi->mi_conninfo.lai_mutex );
 	ldap_pvt_thread_mutex_init( &mi->mi_cache.mutex );
@@ -106,14 +139,18 @@ meta_back_db_init(
 	}
 	mi->mi_conn_priv_max = LDAP_BACK_CONN_PRIV_DEFAULT;
 	
+	mi->mi_ldap_extra = (ldap_extra_t *)bi->bi_extra;
+
 	be->be_private = mi;
+	be->be_cf_ocs = be->bd_info->bi_cf_ocs;
 
 	return 0;
 }
 
 int
 meta_back_db_open(
-	Backend		*be )
+	Backend		*be,
+	ConfigReply	*cr )
 {
 	metainfo_t	*mi = (metainfo_t *)be->be_private;
 
@@ -131,10 +168,18 @@ meta_back_db_open(
 	}
 
 	for ( i = 0; i < mi->mi_ntargets; i++ ) {
+		slap_bindconf	sb = { BER_BVNULL };
 		metatarget_t	*mt = mi->mi_targets[ i ];
 
+		struct berval mapped;
+
+		ber_str2bv( mt->mt_uri, 0, 0, &sb.sb_uri );
+		sb.sb_version = mt->mt_version;
+		sb.sb_method = LDAP_AUTH_SIMPLE;
+		BER_BVSTR( &sb.sb_binddn, "" );
+
 		if ( META_BACK_TGT_T_F_DISCOVER( mt ) ) {
-			rc = slap_discover_feature( mt->mt_uri, mt->mt_version,
+			rc = slap_discover_feature( &sb,
 					slap_schema.si_ad_supportedFeatures->ad_cname.bv_val,
 					LDAP_FEATURE_ABSOLUTE_FILTERS );
 			if ( rc == LDAP_COMPARE_TRUE ) {
@@ -143,7 +188,7 @@ meta_back_db_open(
 		}
 
 		if ( META_BACK_TGT_CANCEL_DISCOVER( mt ) ) {
-			rc = slap_discover_feature( mt->mt_uri, mt->mt_version,
+			rc = slap_discover_feature( &sb,
 					slap_schema.si_ad_supportedExtension->ad_cname.bv_val,
 					LDAP_EXOP_CANCEL );
 			if ( rc == LDAP_COMPARE_TRUE ) {
@@ -181,6 +226,22 @@ meta_back_db_open(
 			{
 				not_always_anon_non_prescriptive = 1;
 			}
+		}
+
+		BER_BVZERO( &mapped );
+		ldap_back_map( &mt->mt_rwmap.rwm_at, 
+			&slap_schema.si_ad_entryDN->ad_cname, &mapped,
+			BACKLDAP_REMAP );
+		if ( BER_BVISNULL( &mapped ) || mapped.bv_val[0] == '\0' ) {
+			mt->mt_rep_flags |= REP_NO_ENTRYDN;
+		}
+
+		BER_BVZERO( &mapped );
+		ldap_back_map( &mt->mt_rwmap.rwm_at, 
+			&slap_schema.si_ad_subschemaSubentry->ad_cname, &mapped,
+			BACKLDAP_REMAP );
+		if ( BER_BVISNULL( &mapped ) || mapped.bv_val[0] == '\0' ) {
+			mt->mt_rep_flags |= REP_NO_SUBSCHEMA;
 		}
 	}
 
@@ -250,6 +311,15 @@ mapping_dst_free(
 	}
 }
 
+void
+meta_back_map_free( struct ldapmap *lm )
+{
+	avl_free( lm->remap, mapping_dst_free );
+	avl_free( lm->map, mapping_free );
+	lm->remap = NULL;
+	lm->map = NULL;
+}
+
 static void
 target_free(
 	metatarget_t	*mt )
@@ -258,8 +328,9 @@ target_free(
 		free( mt->mt_uri );
 		ldap_pvt_thread_mutex_destroy( &mt->mt_uri_mutex );
 	}
-	if ( mt->mt_subtree_exclude ) {
-		ber_bvarray_free( mt->mt_subtree_exclude );
+	if ( mt->mt_subtree ) {
+		meta_subtree_destroy( mt->mt_subtree );
+		mt->mt_subtree = NULL;
 	}
 	if ( !BER_BVISNULL( &mt->mt_psuffix ) ) {
 		free( mt->mt_psuffix.bv_val );
@@ -296,18 +367,20 @@ target_free(
 	}
 	if ( mt->mt_rwmap.rwm_rw ) {
 		rewrite_info_delete( &mt->mt_rwmap.rwm_rw );
+		if ( mt->mt_rwmap.rwm_bva_rewrite )
+			ber_bvarray_free( mt->mt_rwmap.rwm_bva_rewrite );
 	}
-	avl_free( mt->mt_rwmap.rwm_oc.remap, mapping_dst_free );
-	avl_free( mt->mt_rwmap.rwm_oc.map, mapping_free );
-	avl_free( mt->mt_rwmap.rwm_at.remap, mapping_dst_free );
-	avl_free( mt->mt_rwmap.rwm_at.map, mapping_free );
+	meta_back_map_free( &mt->mt_rwmap.rwm_oc );
+	meta_back_map_free( &mt->mt_rwmap.rwm_at );
+	ber_bvarray_free( mt->mt_rwmap.rwm_bva_map );
 
 	free( mt );
 }
 
 int
 meta_back_db_destroy(
-	Backend		*be )
+	Backend		*be,
+	ConfigReply	*cr )
 {
 	metainfo_t	*mi;
 
@@ -344,7 +417,7 @@ meta_back_db_destroy(
 				if ( META_BACK_TGT_QUARANTINE( mt ) ) {
 					if ( mt->mt_quarantine.ri_num != mi->mi_quarantine.ri_num )
 					{
-						slap_retry_info_destroy( &mt->mt_quarantine );
+						mi->mi_ldap_extra->retry_info_destroy( &mt->mt_quarantine );
 					}
 
 					ldap_pvt_thread_mutex_destroy( &mt->mt_quarantine_mutex );
@@ -372,7 +445,7 @@ meta_back_db_destroy(
 		}
 
 		if ( META_BACK_QUARANTINE( mi ) ) {
-			slap_retry_info_destroy( &mi->mi_quarantine );
+			mi->mi_ldap_extra->retry_info_destroy( &mi->mi_quarantine );
 		}
 	}
 

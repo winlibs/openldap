@@ -1,5 +1,6 @@
+// $OpenLDAP$
 /*
- * Copyright 2000, OpenLDAP Foundation, All Rights Reserved.
+ * Copyright 2000-2012 The OpenLDAP Foundation, All Rights Reserved.
  * COPYING RESTRICTIONS APPLY, see COPYRIGHT file
  */
 
@@ -28,14 +29,14 @@ class LDAPSearchResults{
         /**
          * For internal use only.
          *
-         * This method read Search result entries from a
+         * This method reads Search result entries from a
          * LDAPMessageQueue-object.
          * @param msg The message queue to read
          */
         LDAPResult* readMessageQueue(LDAPMessageQueue* msg);
 
         /**
-         * The methode is used by the client-application to read the
+         * The method is used by the client-application to read the
          * result entries of the  SEARCH-Operation. Every call of this
          * method returns one entry. If all entries were read it return 0.
          * @throws LDAPReferralException  If a Search Reference was

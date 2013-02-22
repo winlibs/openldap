@@ -1,8 +1,8 @@
 /* init.c - initialize ldap backend */
-/* $OpenLDAP: pkg/ldap/servers/slapd/back-dnssrv/init.c,v 1.24.2.7 2008/02/11 23:24:19 kurt Exp $ */
+/* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2000-2008 The OpenLDAP Foundation.
+ * Copyright 2000-2012 The OpenLDAP Foundation.
  * Portions Copyright 2000-2003 Kurt D. Zeilenga.
  * All rights reserved.
  *
@@ -24,8 +24,11 @@
 #include <stdio.h>
 
 #include <ac/socket.h>
+#include <ac/param.h>
+#include <ac/string.h>
 
 #include "slap.h"
+#include "config.h"
 #include "proto-dnssrv.h"
 
 int
@@ -46,7 +49,7 @@ dnssrv_back_initialize(
 
 	bi->bi_db_init = 0;
 	bi->bi_db_destroy = 0;
-	bi->bi_db_config = dnssrv_back_db_config;
+	bi->bi_db_config = 0 /* dnssrv_back_db_config */;
 	bi->bi_db_open = 0;
 	bi->bi_db_close = 0;
 
@@ -67,9 +70,7 @@ dnssrv_back_initialize(
 	bi->bi_connection_init = 0;
 	bi->bi_connection_destroy = 0;
 
-#ifdef SLAP_OVERLAY_ACCESS
 	bi->bi_access_allowed = slap_access_always_allowed;
-#endif /* SLAP_OVERLAY_ACCESS */
 
 	return 0;
 }
@@ -91,14 +92,16 @@ dnssrv_back_open(
 
 int
 dnssrv_back_db_init(
-    Backend	*be )
+	Backend	*be,
+	ConfigReply *cr)
 {
 	return 0;
 }
 
 int
 dnssrv_back_db_destroy(
-    Backend	*be )
+	Backend	*be,
+	ConfigReply *cr )
 {
 	return 0;
 }

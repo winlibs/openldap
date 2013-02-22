@@ -1,5 +1,6 @@
+// $OpenLDAP$
 /*
- * Copyright 2000, OpenLDAP Foundation, All Rights Reserved.
+ * Copyright 2000-2012 The OpenLDAP Foundation, All Rights Reserved.
  * COPYING RESTRICTIONS APPLY, see COPYRIGHT file
  */
 
@@ -88,6 +89,10 @@ class LDAPConnection : private LDAPAsynConnection {
          */
         void bind(const std::string& dn="", const std::string& passwd="",
                 LDAPConstraints* cons=0);
+        void saslInteractiveBind(const std::string& mech,
+                int flags=0,
+                SaslInteractionHandler *sih=0,
+                const LDAPConstraints *cons=0);
         
         /**
          * Performs the UNBIND-operation on the destination server
@@ -230,6 +235,7 @@ class LDAPConnection : private LDAPAsynConnection {
         void setConstraints(LDAPConstraints *cons);
         
         const LDAPConstraints* getConstraints() const ;
+        TlsOptions getTlsOptions() const;
 };
 
 #endif //LDAP_CONNECTION_H

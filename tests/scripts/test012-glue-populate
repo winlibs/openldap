@@ -1,8 +1,8 @@
 #! /bin/sh
-# $OpenLDAP: pkg/ldap/tests/scripts/test012-glue-populate,v 1.4.2.6 2008/02/11 23:24:28 kurt Exp $
+# $OpenLDAP$
 ## This work is part of OpenLDAP Software <http://www.openldap.org/>.
 ##
-## Copyright 1998-2008 The OpenLDAP Foundation.
+## Copyright 1998-2012 The OpenLDAP Foundation.
 ## All rights reserved.
 ##
 ## Redistribution and use in source and binary forms, with or without
@@ -65,9 +65,9 @@ if test $RC != 0 ; then
 fi
 
 echo "Filtering ldapsearch results..."
-. $LDIFFILTER < $SEARCHOUT > $SEARCHFLT
+$LDIFFILTER -s ldif=e < $SEARCHOUT > $SEARCHFLT
 echo "Filtering original ldif used to create database..."
-. $LDIFFILTER < $LDIFGLUED > $LDIFFLT
+$LDIFFILTER -s ldif=e < $LDIFGLUED > $LDIFFLT
 echo "Comparing filter output..."
 $CMP $SEARCHFLT $LDIFFLT > $CMPOUT
 
@@ -77,4 +77,7 @@ if test $? != 0 ; then
 fi
 
 echo ">>>>> Test succeeded"
+
+test $KILLSERVERS != no && wait
+
 exit 0

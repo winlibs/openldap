@@ -1,8 +1,8 @@
 /* valsort.c - sort attribute values */
-/* $OpenLDAP: pkg/ldap/servers/slapd/overlays/valsort.c,v 1.9.2.8 2008/02/11 23:24:25 kurt Exp $ */
+/* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2005-2008 The OpenLDAP Foundation.
+ * Copyright 2005-2012 The OpenLDAP Foundation.
  * Portions copyright 2005 Symas Corporation.
  * All rights reserved.
  *
@@ -152,16 +152,16 @@ valsort_cf_func(ConfigArgs *c) {
 	vitmp.vi_ad = NULL;
 	i = slap_str2ad( c->argv[1], &vitmp.vi_ad, &text );
 	if ( i ) {
-		sprintf( c->msg, "<%s> %s", c->argv[0], text );
+		snprintf( c->cr_msg, sizeof( c->cr_msg), "<%s> %s", c->argv[0], text );
 		Debug( LDAP_DEBUG_ANY, "%s: %s (%s)!\n",
-			c->log, c->msg, c->argv[1] );
+			c->log, c->cr_msg, c->argv[1] );
 		return(1);
 	}
 	if ( is_at_single_value( vitmp.vi_ad->ad_type )) {
-		sprintf( c->msg, "<%s> %s is single-valued, ignoring", c->argv[0],
+		snprintf( c->cr_msg, sizeof( c->cr_msg ), "<%s> %s is single-valued, ignoring", c->argv[0],
 			vitmp.vi_ad->ad_cname.bv_val );
 		Debug( LDAP_DEBUG_ANY, "%s: %s (%s)!\n",
-			c->log, c->msg, c->argv[1] );
+			c->log, c->cr_msg, c->argv[1] );
 		return(0);
 	}
 	is_numeric = ( vitmp.vi_ad->ad_type->sat_syntax == syn_numericString ||
@@ -170,34 +170,34 @@ valsort_cf_func(ConfigArgs *c) {
 	ber_str2bv( c->argv[2], 0, 0, &bv );
 	i = dnNormalize( 0, NULL, NULL, &bv, &vitmp.vi_dn, NULL );
 	if ( i ) {
-		sprintf( c->msg, "<%s> unable to normalize DN", c->argv[0] );
+		snprintf( c->cr_msg, sizeof( c->cr_msg ), "<%s> unable to normalize DN", c->argv[0] );
 		Debug( LDAP_DEBUG_ANY, "%s: %s (%s)!\n",
-			c->log, c->msg, c->argv[2] );
+			c->log, c->cr_msg, c->argv[2] );
 		return(1);
 	}
 	i = verb_to_mask( c->argv[3], sorts );
 	if ( BER_BVISNULL( &sorts[i].word )) {
-		sprintf( c->msg, "<%s> unrecognized sort type", c->argv[0] );
+		snprintf( c->cr_msg, sizeof( c->cr_msg ), "<%s> unrecognized sort type", c->argv[0] );
 		Debug( LDAP_DEBUG_ANY, "%s: %s (%s)!\n",
-			c->log, c->msg, c->argv[3] );
+			c->log, c->cr_msg, c->argv[3] );
 		return(1);
 	}
 	vitmp.vi_sort = sorts[i].mask;
 	if ( sorts[i].mask == VALSORT_WEIGHTED && c->argc == 5 ) {
 		i = verb_to_mask( c->argv[4], sorts );
 		if ( BER_BVISNULL( &sorts[i].word )) {
-			sprintf( c->msg, "<%s> unrecognized sort type", c->argv[0] );
+			snprintf( c->cr_msg, sizeof( c->cr_msg ), "<%s> unrecognized sort type", c->argv[0] );
 			Debug( LDAP_DEBUG_ANY, "%s: %s (%s)!\n",
-				c->log, c->msg, c->argv[4] );
+				c->log, c->cr_msg, c->argv[4] );
 			return(1);
 		}
 		vitmp.vi_sort |= sorts[i].mask;
 	}
 	if (( vitmp.vi_sort & VALSORT_NUMERIC ) && !is_numeric ) {
-		sprintf( c->msg, "<%s> numeric sort specified for non-numeric syntax",
+		snprintf( c->cr_msg, sizeof( c->cr_msg ), "<%s> numeric sort specified for non-numeric syntax",
 			c->argv[0] );
 		Debug( LDAP_DEBUG_ANY, "%s: %s (%s)!\n",
-			c->log, c->msg, c->argv[1] );
+			c->log, c->cr_msg, c->argv[1] );
 		return(1);
 	}
 	vi = ch_malloc( sizeof(valsort_info) );
@@ -297,16 +297,11 @@ valsort_response( Operation *op, SlapReply *rs )
 		a = attr_find( rs->sr_entry->e_attrs, vi->vi_ad );
 		if ( !a ) continue;
 
-		if (( rs->sr_flags & ( REP_ENTRY_MODIFIABLE|REP_ENTRY_MUSTBEFREED )) !=
-			( REP_ENTRY_MODIFIABLE|REP_ENTRY_MUSTBEFREED )) {
-			rs->sr_entry = entry_dup( rs->sr_entry );
-			rs->sr_flags |= REP_ENTRY_MODIFIABLE|REP_ENTRY_MUSTBEFREED;
+		if ( rs_entry2modifiable( op, rs, on )) {
 			a = attr_find( rs->sr_entry->e_attrs, vi->vi_ad );
 		}
 
-		/* count values */
-		for ( n = 0; !BER_BVISNULL( &a->a_vals[n] ); n++ );
-
+		n = a->a_numvals;
 		if ( vi->vi_sort & VALSORT_WEIGHTED ) {
 			int j, gotnvals;
 			long *index = op->o_tmpalloc( n * sizeof(long), op->o_tmpmemctx );
@@ -479,7 +474,8 @@ valsort_modify( Operation *op, SlapReply *rs )
 
 static int
 valsort_db_open(
-	BackendDB *be
+	BackendDB *be,
+	ConfigReply *cr
 )
 {
 	return overlay_register_control( be, LDAP_CONTROL_VALSORT );
@@ -487,11 +483,16 @@ valsort_db_open(
 
 static int
 valsort_destroy(
-	BackendDB *be
+	BackendDB *be,
+	ConfigReply *cr
 )
 {
 	slap_overinst *on = (slap_overinst *)be->bd_info;
 	valsort_info *vi = on->on_bi.bi_private, *next;
+
+#ifdef SLAP_CONFIG_DELETE
+	overlay_unregister_control( be, LDAP_CONTROL_VALSORT );
+#endif /* SLAP_CONFIG_DELETE */
 
 	for (; vi; vi = next) {
 		next = vi->vi_next;
@@ -513,8 +514,13 @@ valsort_parseCtrl(
 	BerElement *ber = (BerElement *)&berbuf;
 	ber_int_t flag = 0;
 
-	if ( ctrl->ldctl_value.bv_len == 0 ) {
-		rs->sr_text = "valSort control value is empty (or absent)";
+	if ( BER_BVISNULL( &ctrl->ldctl_value )) {
+		rs->sr_text = "valSort control value is absent";
+		return LDAP_PROTOCOL_ERROR;
+	}
+
+	if ( BER_BVISEMPTY( &ctrl->ldctl_value )) {
+		rs->sr_text = "valSort control value is empty";
 		return LDAP_PROTOCOL_ERROR;
 	}
 
@@ -553,7 +559,7 @@ int valsort_initialize( void )
 		SLAP_CTRL_SEARCH | SLAP_CTRL_HIDE, NULL, valsort_parseCtrl,
 		&valsort_cid );
 	if ( rc != LDAP_SUCCESS ) {
-		fprintf( stderr, "Failed to register control %d\n", rc );
+		Debug( LDAP_DEBUG_ANY, "Failed to register control %d\n", rc, 0, 0 );
 		return rc;
 	}
 

@@ -1,9 +1,9 @@
 .TH SLAPD-SHELL 5 "RELEASEDATE" "OpenLDAP LDVERSION"
-.\" Copyright 1998-2008 The OpenLDAP Foundation All Rights Reserved.
+.\" Copyright 1998-2012 The OpenLDAP Foundation All Rights Reserved.
 .\" Copying restrictions apply.  See COPYRIGHT/LICENSE.
-.\" $OpenLDAP: pkg/ldap/doc/man/man5/slapd-shell.5,v 1.13.2.7 2008/02/11 23:24:09 kurt Exp $
+.\" $OpenLDAP$
 .SH NAME
-slapd-shell \- Shell backend to slapd
+slapd\-shell \- Shell backend to slapd
 .SH SYNOPSIS
 ETCDIR/slapd.conf
 .SH DESCRIPTION
@@ -14,7 +14,7 @@ make it easy to tie an existing database to the
 .B slapd
 front-end.
 .LP
-This backend is is primarily intended to be used in prototypes.
+This backend is primarily intended to be used in prototypes.
 .SH WARNING
 The
 .B abandon
@@ -78,7 +78,7 @@ dn: <DN>
 <repeat {
     <"add"/"delete"/"replace">: <attribute>
     <repeat { <attribute>: <value> }>
-    -
+    \-
 }>
 .fi
 .TP
@@ -219,14 +219,14 @@ pseudo_attribute of the searchBase;
 access to the attributes and values used in the filter is not checked.
 
 .SH EXAMPLE
-There is an example search script in the slapd/back-shell/ directory
+There is an example search script in the slapd/back\-shell/ directory
 in the OpenLDAP source tree.
 .SH LIMITATIONS
 The shell backend does not support threaded environments.
 When using the shell backend, 
 .BR slapd (8)
 should be built
-.IR --without-threads .
+.IR \-\-without\-threads .
 .SH FILES
 .TP
 ETCDIR/slapd.conf
