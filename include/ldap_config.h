@@ -45,28 +45,28 @@
 
 /* directories */
 #ifndef LDAP_BINDIR
-#define LDAP_BINDIR			"%BINDIR%"
+#define LDAP_BINDIR			""
 #endif
 #ifndef LDAP_SBINDIR
-#define LDAP_SBINDIR		"%SBINDIR%"
+#define LDAP_SBINDIR		""
 #endif
 #ifndef LDAP_DATADIR
-#define LDAP_DATADIR		"%DATADIR%"
+#define LDAP_DATADIR		""
 #endif
 #ifndef LDAP_SYSCONFDIR
-#define LDAP_SYSCONFDIR		"%SYSCONFDIR%"
+#define LDAP_SYSCONFDIR		"c:\\openldap\\sysconf"
 #endif
 #ifndef LDAP_LIBEXECDIR
-#define LDAP_LIBEXECDIR		"%LIBEXECDIR%"
+#define LDAP_LIBEXECDIR		""
 #endif
 #ifndef LDAP_MODULEDIR
-#define LDAP_MODULEDIR		"%MODULEDIR%"
+#define LDAP_MODULEDIR         ""
 #endif
 #ifndef LDAP_RUNDIR
-#define LDAP_RUNDIR			"%RUNDIR%"
+#define LDAP_RUNDIR			""
 #endif
 #ifndef LDAP_LOCALEDIR
-#define LDAP_LOCALEDIR		"%LOCALEDIR%"
+#define LDAP_LOCALEDIR		""
 #endif
 
 
