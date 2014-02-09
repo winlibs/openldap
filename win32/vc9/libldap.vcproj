@@ -215,7 +215,7 @@
 			/>
 			<Tool
 				Name="VCLinkerTool"
-				AdditionalDependencies="libeay32.lib ssleay32.lib liblber.lib"
+				AdditionalDependencies="libeay32.lib ssleay32.lib olber32.lib libsasl.lib ws2_32.lib"
 				AdditionalLibraryDirectories="..\..\..\..\deps\lib"
 				RandomizedBaseAddress="1"
 				DataExecutionPrevention="0"
