@@ -1,7 +1,29 @@
-diff --git a/include/ldap_config.h b/include/ldap_config.h
-index ee6e325..acebcae 100644
---- a/include/ldap_config.h
-+++ b/include/ldap_config.h
+diff -ur ../openldap-2.4.33/include/ldap_cdefs.h ./include/ldap_cdefs.h
+--- ../openldap-2.4.33/include/ldap_cdefs.h	Wed Oct 10 05:18:49 2012
++++ ./include/ldap_cdefs.h	Mon Feb 10 04:50:33 2014
+@@ -132,6 +132,9 @@
+      (!defined(LDAP_LIBS_DYNAMIC) && defined(SLAPD_IMPORT)))
+ #	define LBER_F(type)		extern __declspec(dllimport) type
+ #	define LBER_V(type)		extern __declspec(dllimport) type
++#elif defined LBER_DLL_LIB
++#	define LBER_F(type)		__declspec(dllexport) type
++#	define LBER_V(type)		__declspec(dllexport) type
+ #else
+ #	define LBER_F(type)		extern type
+ #	define LBER_V(type)		extern type
+@@ -143,6 +146,9 @@
+      (!defined(LDAP_LIBS_DYNAMIC) && defined(SLAPD_IMPORT)))
+ #	define LDAP_F(type)		extern __declspec(dllimport) type
+ #	define LDAP_V(type)		extern __declspec(dllimport) type
++#elif defined (LDAP_EXPORT)
++#	define LDAP_F(type)		__declspec(dllexport) type
++#	define LDAP_V(type)		__declspec(dllexport) type
+ #else
+ #	define LDAP_F(type)		extern type
+ #	define LDAP_V(type)		extern type
+diff -ur ../openldap-2.4.33/include/ldap_config.h ./include/ldap_config.h
+--- ../openldap-2.4.33/include/ldap_config.h	Wed Oct 10 05:18:49 2012
++++ ./include/ldap_config.h	Mon Sep  9 23:45:50 2013
 @@ -45,28 +45,28 @@
  
  /* directories */
@@ -39,3 +61,15 @@ index ee6e325..acebcae 100644
  #endif
  
  
+diff -ur ../openldap-2.4.33/libraries/liblber/nt_err.c ./libraries/liblber/nt_err.c
+--- ../openldap-2.4.33/libraries/liblber/nt_err.c	Wed Oct 10 05:18:49 2012
++++ ./libraries/liblber/nt_err.c	Mon Feb 10 04:52:46 2014
+@@ -23,7 +23,7 @@
+ 
+ #define LBER_RETSTR( x ) case x: return #x;
+ 
+-char *ber_pvt_wsa_err2string( int err )
++LBER_F( char * ) ber_pvt_wsa_err2string( int err )
+ {
+ 	switch( err ) {
+ 		LBER_RETSTR( WSAEINTR )
