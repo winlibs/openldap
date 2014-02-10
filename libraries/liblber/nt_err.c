@@ -23,7 +23,7 @@
 
 #define LBER_RETSTR( x ) case x: return #x;
 
-char *ber_pvt_wsa_err2string( int err )
+LBER_F( char * ) ber_pvt_wsa_err2string( int err )
 {
 	switch( err ) {
 		LBER_RETSTR( WSAEINTR )
