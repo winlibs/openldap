@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2000-2012 The OpenLDAP Foundation.
+ * Copyright 2000-2015 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -358,7 +358,7 @@ done:;
 
 done2:;
 	if ( LogTest( LDAP_DEBUG_ACL ) ) {
-		if ( BER_BVISNULL( set ) ) {
+		if ( !set || BER_BVISNULL( set ) ) {
 			Debug( LDAP_DEBUG_ACL, "  ACL set: empty\n", 0, 0, 0 );
 
 		} else {

@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2012 The OpenLDAP Foundation.
+ * Copyright 1998-2015 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -268,6 +268,9 @@ ldap_init_fd(
 	int rc;
 	LDAP *ld;
 	LDAPConn *conn;
+#ifdef LDAP_CONNECTIONLESS
+	ber_socklen_t	len;
+#endif
 
 	*ldp = NULL;
 	rc = ldap_create( &ld );
@@ -308,6 +311,15 @@ ldap_init_fd(
 
 #ifdef LDAP_CONNECTIONLESS
 	case LDAP_PROTO_UDP:
+		LDAP_IS_UDP(ld) = 1;
+		if( ld->ld_options.ldo_peer )
+			ldap_memfree( ld->ld_options.ldo_peer );
+		ld->ld_options.ldo_peer = ldap_memcalloc( 1, sizeof( struct sockaddr_storage ) );
+		len = sizeof( struct sockaddr_storage );
+		if( getpeername ( fd, ld->ld_options.ldo_peer, &len ) < 0) {
+			ldap_unbind_ext( ld, NULL, NULL );
+			return( AC_SOCKET_ERROR );
+		}
 #ifdef LDAP_DEBUG
 		ber_sockbuf_add_io( conn->lconn_sb, &ber_sockbuf_io_debug,
 			LBER_SBIOD_LEVEL_PROVIDER, (void *)"udp_" );
@@ -540,7 +552,7 @@ ldap_int_check_async_open( LDAP *ld, ber_socket_t sd )
 	struct timeval tv = { 0 };
 	int rc;
 
-	rc = ldap_int_poll( ld, sd, &tv );
+	rc = ldap_int_poll( ld, sd, &tv, 1 );
 	switch ( rc ) {
 	case 0:
 		/* now ready to start tls */

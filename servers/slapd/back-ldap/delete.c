@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2003-2012 The OpenLDAP Foundation.
+ * Copyright 2003-2015 The OpenLDAP Foundation.
  * Portions Copyright 1999-2003 Howard Chu.
  * Portions Copyright 2000-2003 Pierangelo Masarati.
  * All rights reserved.
@@ -53,7 +53,6 @@ retry:
 	rc = ldap_back_controls_add( op, rs, lc, &ctrls );
 	if ( rc != LDAP_SUCCESS ) {
 		send_ldap_result( op, rs );
-		rc = rs->sr_err;
 		goto cleanup;
 	}
 
@@ -82,5 +81,5 @@ cleanup:
 		ldap_back_release_conn( li, lc );
 	}
 
-	return rc;
+	return rs->sr_err;
 }

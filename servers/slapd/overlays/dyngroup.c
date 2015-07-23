@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2003-2012 The OpenLDAP Foundation.
+ * Copyright 2003-2015 The OpenLDAP Foundation.
  * Copyright 2003 by Howard Chu.
  * All rights reserved.
  *
@@ -181,7 +181,7 @@ dyngroup_response( Operation *op, SlapReply *rs )
 }
 
 static int
-dyngroup_close(
+dyngroup_destroy(
 	BackendDB *be,
 	ConfigReply *cr
 )
@@ -207,7 +207,7 @@ int dyngroup_initialize() {
 	int code;
 
 	dyngroup.on_bi.bi_type = "dyngroup";
-	dyngroup.on_bi.bi_db_close = dyngroup_close;
+	dyngroup.on_bi.bi_db_destroy = dyngroup_destroy;
 	dyngroup.on_response = dyngroup_response;
 
 	dyngroup.on_bi.bi_cf_ocs = dgroupocs;

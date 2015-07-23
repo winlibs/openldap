@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2005-2012 The OpenLDAP Foundation.
+ * Copyright 2005-2015 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -826,7 +826,6 @@ ldif_readdir(
 			if ( rs != NULL )
 				rs->sr_text =
 					save_errno != ENOENT ? "internal error (bad directory)"
-					: !is_rootDSE ? "internal error (missing directory)"
 					: "internal error (database directory does not exist)";
 		}
 
@@ -1780,7 +1779,7 @@ ldif_tool_entry_first_x( BackendDB *be, struct berval *base, int scope, Filter *
 		op.ors_scope = LDAP_SCOPE_SUBTREE;
 		if ( search_tree( &op, NULL ) != LDAP_SUCCESS ) {
 			tl->ecurrent = tl->ecount; /* fail ldif_tool_entry_next() */
-			return 0; /* fail ldif_tool_entry_get() */
+			return NOID; /* fail ldif_tool_entry_get() */
 		}
 	}
 	return ldif_tool_entry_next( be );

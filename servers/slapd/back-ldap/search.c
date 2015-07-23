@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1999-2012 The OpenLDAP Foundation.
+ * Copyright 1999-2015 The OpenLDAP Foundation.
  * Portions Copyright 1999-2003 Howard Chu.
  * Portions Copyright 2000-2003 Pierangelo Masarati.
  * All rights reserved.
@@ -338,7 +338,7 @@ retry:
 
 		} else {
 			/* only touch when activity actually took place... */
-			if ( li->li_idle_timeout && lc ) {
+			if ( li->li_idle_timeout ) {
 				lc->lc_time = op->o_time;
 			}
 
@@ -554,16 +554,25 @@ retry:
 		}
 	}
 
- 	if ( rc == -1 && dont_retry == 0 ) {
-		if ( do_retry ) {
-			do_retry = 0;
-			if ( ldap_back_retry( &lc, op, rs, LDAP_BACK_DONTSEND ) ) {
-				goto retry;
+ 	if ( rc == -1 ) {
+		if ( dont_retry == 0 ) {
+			if ( do_retry ) {
+				do_retry = 0;
+				if ( ldap_back_retry( &lc, op, rs, LDAP_BACK_DONTSEND ) ) {
+					goto retry;
+				}
 			}
+
+			rs->sr_err = LDAP_SERVER_DOWN;
+			rs->sr_err = slap_map_api2result( rs );
+			goto finish;
+
+		} else if ( LDAP_BACK_ONERR_STOP( li ) ) {
+			/* if onerr == STOP */
+			rs->sr_err = LDAP_SERVER_DOWN;
+			rs->sr_err = slap_map_api2result( rs );
+			goto finish;
 		}
-		rs->sr_err = LDAP_SERVER_DOWN;
-		rs->sr_err = slap_map_api2result( rs );
-		goto finish;
 	}
 
 	/*
@@ -579,6 +588,8 @@ retry:
 		rs->sr_matched = pmatch.bv_val;
 		rs->sr_flags |= REP_MATCHED_MUSTBEFREED;
 	}
+
+finish:;
 	if ( !BER_BVISNULL( &match ) ) {
 		ber_memfree( match.bv_val );
 	}
@@ -587,7 +598,6 @@ retry:
 		rs->sr_err = LDAP_REFERRAL;
 	}
 
-finish:;
 	if ( LDAP_BACK_QUARANTINE( li ) ) {
 		ldap_back_quarantine( op, rs );
 	}
@@ -635,6 +645,13 @@ finish:;
 		ldap_back_release_conn( li, lc );
 	}
 
+	if ( rs->sr_err == LDAP_UNAVAILABLE &&
+		/* if we originally bound and wanted rebind-as-user, must drop
+		 * the connection now because we just discarded the credentials.
+		 * ITS#7464, #8142
+		 */
+		LDAP_BACK_SAVECRED( li ) && SLAP_IS_AUTHZ_BACKEND( op ) )
+		rs->sr_err = SLAPD_DISCONNECT;
 	return rs->sr_err;
 }
 

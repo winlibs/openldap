@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1999-2012 The OpenLDAP Foundation.
+ * Copyright 1999-2015 The OpenLDAP Foundation.
  * Portions Copyright 1999-2003 Howard Chu.
  * Portions Copyright 2000-2003 Pierangelo Masarati.
  * All rights reserved.
@@ -215,7 +215,9 @@ rwm_map_attrnames(
 		return LDAP_NO_MEMORY;
 	}
 
-	for ( i = 0, j = 0; !BER_BVISNULL( &an[i].an_name ); i++ ) {
+	j = 0;
+	if ( an != NULL ) {
+	for ( i = 0; !BER_BVISNULL( &an[i].an_name ); i++ ) {
 		struct ldapmapping	*m;
 		int			at_drop_missing = 0,
 					oc_drop_missing = 0;
@@ -330,6 +332,7 @@ rwm_map_attrnames(
 				continue;
 			}
 		}
+	}
 	}
 
 	if ( op->o_bd->be_extra_anlist != NULL ) {

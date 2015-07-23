@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2000-2012 The OpenLDAP Foundation.
+ * Copyright 2000-2015 The OpenLDAP Foundation.
  * Portions Copyright 2000-2003 Kurt D. Zeilenga.
  * All rights reserved.
  *
@@ -228,7 +228,7 @@ dnssrv_back_search(
 		send_ldap_result( op, rs );
 	}
 
-	if ( refdn ) free( refdn );
+	free( refdn );
 	if ( nrefdn.bv_val ) free( nrefdn.bv_val );
 
 done:

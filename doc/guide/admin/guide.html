@@ -23,7 +23,7 @@
 <DIV CLASS="title">
 <H1 CLASS="doc-title">OpenLDAP Software 2.4 Administrator's Guide</H1>
 <ADDRESS CLASS="doc-author">The OpenLDAP Project &lt;<A HREF="http://www.openldap.org/">http://www.openldap.org/</A>&gt;</ADDRESS>
-<ADDRESS CLASS="doc-modified">10 October 2012</ADDRESS>
+<ADDRESS CLASS="doc-modified">20 June 2015</ADDRESS>
 <BR CLEAR="All">
 </DIV>
 <DIV CLASS="contents">
@@ -243,7 +243,7 @@
 <BR>
 <A HREF="#Further Information">11.3.3. Further Information</A></UL>
 <BR>
-<A HREF="#MDB">11.4. MDB</A><UL>
+<A HREF="#LMDB">11.4. LMDB</A><UL>
 <A HREF="#Overview">11.4.1. Overview</A>
 <BR>
 <A HREF="#back-mdb Configuration">11.4.2. back-mdb Configuration</A>
@@ -1347,10 +1347,14 @@ This command will search for and retrieve every entry in the database.</OL>
 <P>Heimdal Kerberos is available from <A HREF="http://www.pdc.kth.se/heimdal/">http://www.pdc.kth.se/heimdal/</A>. MIT Kerberos is available from <A HREF="http://web.mit.edu/kerberos/www/">http://web.mit.edu/kerberos/www/</A>.</P>
 <P>Use of strong authentication services, such as those provided by Kerberos, is highly recommended.</P>
 <H3><A NAME="Database Software">4.2.4. Database Software</A></H3>
-<P>OpenLDAP's <EM>slapd</EM>(8) <TERM>BDB</TERM> and <TERM>HDB</TERM> primary database backends require <A HREF="http://www.oracle.com/">Oracle Corporation</A> <A HREF="http://www.oracle.com/database/berkeley-db/db/index.html">Berkeley DB</A>. If not available at configure time, you will not be able to build <EM>slapd</EM>(8) with these primary database backends.</P>
+<P>OpenLDAP's <EM>slapd</EM>(8) <TERM>MDB</TERM> primary database backend uses the <TERM>LMDB</TERM> software included with the OpenLDAP source.  There is no need to download any additional software to have <EM>MDB</EM> support.</P>
+<P>OpenLDAP's <EM>slapd</EM>(8) <TERM>BDB</TERM> and <TERM>HDB</TERM> deprecated database backends require <A HREF="http://www.oracle.com/">Oracle Corporation</A> <A HREF="http://www.oracle.com/database/berkeley-db/db/index.html">Berkeley DB</A>. If not available at configure time, you will not be able to build <EM>slapd</EM>(8) with these primary database backends.</P>
 <P>Your operating system may provide a supported version of <A HREF="http://www.oracle.com/database/berkeley-db/db/index.html">Berkeley DB</A> in the base system or as an optional software component.  If not, you'll have to obtain and install it yourself.</P>
 <P><A HREF="http://www.oracle.com/database/berkeley-db/db/index.html">Berkeley DB</A> is available from <A HREF="http://www.oracle.com/">Oracle Corporation</A>'s Berkeley DB download page <A HREF="http://www.oracle.com/technology/software/products/berkeley-db/index.html">http://www.oracle.com/technology/software/products/berkeley-db/index.html</A>.</P>
-<P>There are several versions available. Generally, the most recent release (with published patches) is recommended. This package is required if you wish to use the <TERM>BDB</TERM> or <TERM>HDB</TERM> database backends.</P>
+<P>There are several versions available. Generally, the most recent release (with published patches) is recommended. This package is required if you wish to use the deprecated <TERM>BDB</TERM> or <TERM>HDB</TERM> database backends.</P>
+<P><HR WIDTH="80%" ALIGN="Left">
+<STRONG>Note: </STRONG>Berkeley DB version 6.0.20 and later uses a software license that is incompatible with LDAP technology and should not be used with OpenLDAP.
+<HR WIDTH="80%" ALIGN="Left"></P>
 <P><HR WIDTH="80%" ALIGN="Left">
 <STRONG>Note: </STRONG>Please see <A HREF="#Recommended OpenLDAP Software Dependency Versions">Recommended OpenLDAP Software Dependency Versions</A> for more information.
 <HR WIDTH="80%" ALIGN="Left"></P>
@@ -2244,12 +2248,12 @@ olcDbIndex: objectClass eq
  31.    objectClass: olcDatabaseConfig
  32.    objectClass: olcBdbConfig
  33.    olcDatabase: bdb
- 34.    olcSuffix: &quot;dc=example,dc=com&quot;
+ 34.    olcSuffix: dc=example,dc=com
  35.    olcDbDirectory: /usr/local/var/openldap-data
- 36.    olcRootDN: &quot;cn=Manager,dc=example,dc=com&quot;
+ 36.    olcRootDN: cn=Manager,dc=example,dc=com
  37.    olcRootPW: secret
  38.    olcDbIndex: uid pres,eq
- 39.    olcDbIndex: cn,sn,uid pres,eq,approx,sub
+ 39.    olcDbIndex: cn,sn pres,eq,approx,sub
  40.    olcDbIndex: objectClass eq
  41.    olcAccess: to attrs=userPassword
  42.      by self write
@@ -2834,7 +2838,7 @@ SQL Programmable backend
  10.    rootpw secret
  11.    # indexed attribute definitions
  12.    index uid pres,eq
- 13.    index cn,sn,uid pres,eq,approx,sub
+ 13.    index cn,sn pres,eq,approx,sub
  14.    index objectClass eq
  15.    # database access control definitions
  16.    access to attrs=userPassword
@@ -4633,10 +4637,13 @@ Members of a group
 </PRE>
 <H2><A NAME="Berkeley DB Backends">11.1. Berkeley DB Backends</A></H2>
 <H3><A NAME="Overview">11.1.1. Overview</A></H3>
-<P>The <EM>bdb</EM> backend to <EM>slapd</EM>(8) is the recommended primary backend for a normal <EM>slapd</EM> database.  It uses the Oracle Berkeley DB (<TERM>BDB</TERM>) package to store data. It makes extensive use of indexing and caching (see the <A HREF="#Tuning">Tuning</A> section) to speed data access.</P>
-<P><EM>hdb</EM> is a variant of the <EM>bdb</EM> backend that uses a hierarchical database layout which supports subtree renames. It is otherwise identical to the <EM>bdb</EM> behavior, and all the same configuration options apply.</P>
+<P>The <EM>hdb</EM> backend to <EM>slapd</EM>(8) is the recommended primary backend for a normal <EM>slapd</EM> database.  It uses the Oracle Berkeley DB (<TERM>BDB</TERM>) package to store data. It makes extensive use of indexing and caching (see the <A HREF="#Tuning">Tuning</A> section) to speed data access.</P>
+<P><EM>hdb</EM> is a variant of the original <EM>bdb</EM> backend which was first written for use with BDB. <EM>hdb</EM> uses a hierarchical database layout which supports subtree renames. It is otherwise identical to the <EM>bdb</EM> behavior, and all the same configuration options apply.</P>
 <P><HR WIDTH="80%" ALIGN="Left">
 <STRONG>Note: </STRONG>An <EM>hdb</EM> database needs a large <EM>idlcachesize</EM> for good search performance, typically three times the <EM>cachesize</EM> (entry cache size) or larger.
+<HR WIDTH="80%" ALIGN="Left"></P>
+<P><HR WIDTH="80%" ALIGN="Left">
+<STRONG>Note: </STRONG>The <EM>hdb</EM> backend has superseded the <EM>bdb</EM> backend, and both will soon be deprecated in favor of the new <EM>mdb</EM> backend. See below.
 <HR WIDTH="80%" ALIGN="Left"></P>
 <H3><A NAME="back-bdb/back-hdb Configuration">11.1.2. back-bdb/back-hdb Configuration</A></H3>
 <P>MORE LATER</P>
@@ -4719,12 +4726,12 @@ Members of a group
 <P>This is the complete format you would get when exporting your directory using <TT>slapcat</TT> etc.</P>
 <H3><A NAME="Further Information">11.3.3. Further Information</A></H3>
 <P><EM>slapd-ldif</EM>(5)</P>
-<H2><A NAME="MDB">11.4. MDB</A></H2>
+<H2><A NAME="LMDB">11.4. LMDB</A></H2>
 <H3><A NAME="Overview">11.4.1. Overview</A></H3>
-<P>The <EM>mdb</EM> backend to <EM>slapd</EM>(8) is the upcoming primary backend for a normal <EM>slapd</EM> database.  It uses OpenLDAP's own Memory-Mapped Database (<TERM>MDB</TERM>) library to store data and is intended to replace the Berkeley DB backends.</P>
+<P>The <EM>mdb</EM> backend to <EM>slapd</EM>(8) is the upcoming primary backend for a normal <EM>slapd</EM> database.  It uses OpenLDAP's own Lightning Memory-Mapped Database (<TERM>LMDB</TERM>) library to store data and is intended to replace the Berkeley DB backends.</P>
 <P>It supports indexing like the BDB backends, but it uses no caching and requires no tuning to deliver maximum search performance.  Like <EM>hdb</EM>, it is also fully hierarchical and supports subtree renames in constant time.</P>
 <H3><A NAME="back-mdb Configuration">11.4.2. back-mdb Configuration</A></H3>
-<P>Unlike the BDB backends, the MDB backend can be instantiated with very few configuration lines:</P>
+<P>Unlike the BDB backends, the <EM>mdb</EM> backend can be instantiated with very few configuration lines:</P>
 <PRE>
         include ./schema/core.schema
 
@@ -4735,7 +4742,7 @@ Members of a group
         rootpw    mdb
         maxsize   1073741824
 </PRE>
-<P>In addition to the usual parameters that a minimal configuration requires, the MDB backend requires a maximum size to be set. This should be the largest that the database is ever anticipated to grow (in bytes). The filesystem must also provide enough free space to accommodate this size.</P>
+<P>In addition to the usual parameters that a minimal configuration requires, the <EM>mdb</EM> backend requires a maximum size to be set. This should be the largest that the database is ever anticipated to grow (in bytes). The filesystem must also provide enough free space to accommodate this size.</P>
 <H3><A NAME="Further Information">11.4.3. Further Information</A></H3>
 <P><EM>slapd-mdb</EM>(5)</P>
 <H2><A NAME="Metadirectory">11.5. Metadirectory</A></H2>
@@ -5447,7 +5454,7 @@ Members of a group
         rootdn          &quot;dc=example,dc=com&quot;
         uri             ldap://ldap.example.com/
         overlay pcache
-        pcache         bdb 100000 1 1000 100
+        pcache         hdb 100000 1 1000 100
         pcacheAttrset  0 mail postaladdress telephonenumber
         pcacheTemplate (sn=) 0 3600
         pcacheTemplate (&amp;(sn=)(givenName=)) 0 3600
@@ -5461,7 +5468,7 @@ Members of a group
 <H4><A NAME="Example for slapd-config">12.9.2.5. Example for slapd-config</A></H4>
 <P>The same example as a LDIF file for back-config for a caching server which proxies for the <TT>&quot;dc=example,dc=com&quot;</TT> subtree held at server <TT>ldap.example.com</TT>.</P>
 <PRE>
-   dn: olcDatabase={2}ldap
+   dn: olcDatabase={2}ldap,cn=config
    objectClass: olcDatabaseConfig
    objectClass: olcLDAPConfig
    olcDatabase: {2}ldap
@@ -5469,17 +5476,17 @@ Members of a group
    olcRootDN: dc=example,dc=com
    olcDbURI: &quot;ldap://ldap.example.com&quot;
 
-   dn: olcOverlay={0}pcache
+   dn: olcOverlay={0}pcache,olcDatabase={2}ldap,cn=config
    objectClass: olcOverlayConfig
    objectClass: olcPcacheConfig
    olcOverlay: {0}pcache
-   olcPcache: bdb 100000 1 1000 100
+   olcPcache: hdb 100000 1 1000 100
    olcPcacheAttrset: 0 mail postalAddress telephoneNumber
    olcPcacheTemplate: &quot;(sn=)&quot; 0 3600 0 0 0
    olcPcacheTemplate: &quot;(&amp;(sn=)(givenName=))&quot; 0 3600 0 0 0
    olcPcacheTemplate: &quot;(&amp;(departmentNumber=)(secretary=))&quot; 0 3600
 
-   dn: olcDatabase={0}hdb
+   dn: olcDatabase={0}hdb,olcOverlay={0}pcache,olcDatabase={2}ldap,cn=config
    objectClass: olcHdbConfig
    objectClass: olcPcacheDatabase
    olcDatabase: {0}hdb
@@ -8212,7 +8219,7 @@ Database objects of instances of this backend
 <P>Various factors can play a part in how your directory performs on your chosen hardware and environment. We will attempt to discuss these here.</P>
 <H3><A NAME="Memory">21.1.1. Memory</A></H3>
 <P>Scale your cache to use available memory and increase system memory if you can.</P>
-<P>See <A HREF="#Caching">Caching</A> for BDB cache tuning hints. Note that MDB uses no cache of its own and has no tuning options, so the Caching section can be ignored when using MDB.</P>
+<P>See <A HREF="#Caching">Caching</A> for BDB cache tuning hints. Note that LMDB uses no cache of its own and has no tuning options, so the Caching section can be ignored when using LMDB.</P>
 <H3><A NAME="Disks">21.1.2. Disks</A></H3>
 <P>Use fast filesystems, and conduct your own testing to see which filesystem types perform best with your workload. (On our own Linux testing, EXT2 and JFS tend to provide better write performance than everything else, including newer filesystems like EXT4, BTRFS, etc.)</P>
 <P>Use fast subsystems. Put each database and logs on separate disks (for BDB this is configurable via <EM>DB_CONFIG</EM>):</P>
@@ -8907,7 +8914,7 @@ Database objects of instances of this backend
 <TT>&nbsp;<A HREF="http://www.gnu.org/software/gnutls/">GnuTLS</A></TT>
 </TD>
 <TD>
-<TT>2.0.1</TT>
+<TT>2.12.0</TT>
 </TD>
 </TR>
 <TR>
@@ -8973,84 +8980,7 @@ Database Software
 <TT>&nbsp;<A HREF="http://www.oracle.com/database/berkeley-db/db/index.html">Berkeley DB</A>:</TT>
 </TD>
 <TD>
-<TT>&nbsp;</TT>
-</TD>
-</TR>
-<TR>
-<TD>
-&nbsp;
-</TD>
-<TD>
-<TT>&nbsp;</TT>
-</TD>
-<TD>
-<TT>4.4</TT>
-</TD>
-</TR>
-<TR>
-<TD>
-&nbsp;
-</TD>
-<TD>
-<TT>&nbsp;</TT>
-</TD>
-<TD>
-<TT>4.5</TT>
-</TD>
-</TR>
-<TR>
-<TD>
-&nbsp;
-</TD>
-<TD>
-<TT>&nbsp;</TT>
-</TD>
-<TD>
-<TT>4.6</TT>
-</TD>
-</TR>
-<TR>
-<TD>
-&nbsp;
-</TD>
-<TD>
-<TT>&nbsp;</TT>
-</TD>
-<TD>
-<TT>4.7</TT>
-</TD>
-</TR>
-<TR>
-<TD>
-&nbsp;
-</TD>
-<TD>
-<TT>&nbsp;</TT>
-</TD>
-<TD>
-<TT>4.8</TT>
-</TD>
-</TR>
-<TR>
-<TD>
-&nbsp;
-</TD>
-<TD>
-<TT>&nbsp;</TT>
-</TD>
-<TD>
-<TT>5.0</TT>
-</TD>
-</TR>
-<TR>
-<TD>
-&nbsp;
-</TD>
-<TD>
-<TT>&nbsp;</TT>
-</TD>
-<TD>
-<TT>5.1</TT>
+<TT>5.3</TT>
 </TD>
 </TR>
 <TR>
@@ -9866,6 +9796,14 @@ LDAP Data Interchange Format
 </TR>
 <TR>
 <TD>
+LMDB
+</TD>
+<TD>
+Lightning Memory-Mapped Database
+</TD>
+</TR>
+<TR>
+<TD>
 MD5
 </TD>
 <TD>
@@ -9877,7 +9815,7 @@ Message Digest 5
 MDB
 </TD>
 <TD>
-Memory-Mapped Database
+Memory-Mapped Database (Backend)
 </TD>
 </TR>
 <TR>

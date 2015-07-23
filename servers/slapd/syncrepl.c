@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2003-2012 The OpenLDAP Foundation.
+ * Copyright 2003-2015 The OpenLDAP Foundation.
  * Portions Copyright 2003 by IBM Corporation.
  * Portions Copyright 2003-2008 by Howard Chu, Symas Corporation.
  * All rights reserved.
@@ -35,6 +35,8 @@
 #include "rewrite.h"
 #define SUFFIXM_CTX	"<suffix massage>"
 #endif
+
+#define	UUIDLEN	16
 
 struct nonpresent_entry {
 	struct berval *npe_name;
@@ -112,6 +114,7 @@ typedef struct syncinfo_s {
 	int			si_logstate;
 	int			si_got;
 	int			si_strict_refresh;	/* stop listening during fallback refresh */
+	int			si_too_old;
 	ber_int_t	si_msgid;
 	Avlnode			*si_presentlist;
 	LDAP			*si_ld;
@@ -125,7 +128,10 @@ typedef struct syncinfo_s {
 } syncinfo_t;
 
 static int syncuuid_cmp( const void *, const void * );
-static int avl_presentlist_insert( syncinfo_t* si, struct berval *syncUUID );
+static int presentlist_insert( syncinfo_t* si, struct berval *syncUUID );
+static void presentlist_delete( Avlnode **av, struct berval *syncUUID );
+static char *presentlist_find( Avlnode *av, struct berval *syncUUID );
+static int presentlist_free( Avlnode *av );
 static void syncrepl_del_nonpresent( Operation *, syncinfo_t *, BerVarray, struct sync_cookie *, int );
 static int syncrepl_message_to_op(
 					syncinfo_t *, Operation *, LDAPMessage * );
@@ -589,7 +595,8 @@ check_syncprov(
 		slap_compose_sync_cookie( NULL, &si->si_syncCookie.octet_str,
 			si->si_syncCookie.ctxcsn, si->si_syncCookie.rid,
 			si->si_syncCookie.sid );
-		slap_parse_sync_cookie( &si->si_syncCookie, NULL );
+		ch_free( si->si_syncCookie.sids );
+		slap_reparse_sync_cookie( &si->si_syncCookie, op->o_tmpmemctx );
 	}
 	ldap_pvt_thread_mutex_unlock( &si->si_cookieState->cs_mutex );
 	return changed;
@@ -666,11 +673,11 @@ do_syncrep1(
 
 			LDAP_STAILQ_REMOVE( &slap_sync_cookie, sc, sync_cookie, sc_next );
 
-			/* ctxcsn wasn't parsed yet, do it now */
-			slap_parse_sync_cookie( sc, NULL );
 			slap_sync_cookie_free( &si->si_syncCookie, 0 );
-			slap_dup_sync_cookie( &si->si_syncCookie, sc );
-			slap_sync_cookie_free( sc, 1 );
+			si->si_syncCookie.octet_str = sc->octet_str;
+			ch_free( sc );
+			/* ctxcsn wasn't parsed yet, do it now */
+			slap_parse_sync_cookie( &si->si_syncCookie, NULL );
 		} else {
 			ldap_pvt_thread_mutex_lock( &si->si_cookieState->cs_mutex );
 			if ( !si->si_cookieState->cs_num ) {
@@ -711,6 +718,7 @@ do_syncrep1(
 			ldap_pvt_thread_mutex_unlock( &si->si_cookieState->cs_mutex );
 		}
 
+		ch_free( si->si_syncCookie.octet_str.bv_val );
 		slap_compose_sync_cookie( NULL, &si->si_syncCookie.octet_str,
 			si->si_syncCookie.ctxcsn, si->si_syncCookie.rid,
 			si->si_syncCookie.sid );
@@ -896,10 +904,10 @@ do_syncrep2(
 			}
 			/* FIXME: what if syncUUID is NULL or empty?
 			 * (happens with back-sql...) */
-			if ( BER_BVISEMPTY( &syncUUID[0] ) ) {
+			if ( syncUUID[0].bv_len != UUIDLEN ) {
 				bdn.bv_val[bdn.bv_len] = '\0';
 				Debug( LDAP_DEBUG_ANY, "do_syncrep2: %s "
-					"got empty syncUUID with LDAP_SYNC_%s (%s)\n",
+					"got empty or invalid syncUUID with LDAP_SYNC_%s (%s)\n",
 					si->si_ridtxt,
 					syncrepl_state2str( syncstate ), bdn.bv_val );
 				ldap_controls_free( rctrls );
@@ -908,7 +916,7 @@ do_syncrep2(
 			}
 			punlock = -1;
 			if ( ber_peek_tag( ber, &len ) == LDAP_TAG_SYNC_COOKIE ) {
-				ber_scanf( ber, /*"{"*/ "m}", &cookie );
+				if ( ber_scanf( ber, /*"{"*/ "m}", &cookie ) != LBER_ERROR ) {
 
 				Debug( LDAP_DEBUG_SYNC, "do_syncrep2: %s cookie=%s\n",
 					si->si_ridtxt,
@@ -924,6 +932,7 @@ do_syncrep2(
 					if ( syncCookie.ctxcsn ) {
 						int i, sid = slap_parse_csn_sid( syncCookie.ctxcsn );
 						check_syncprov( op, si );
+						ldap_pvt_thread_mutex_lock( &si->si_cookieState->cs_mutex );
 						for ( i =0; i<si->si_cookieState->cs_num; i++ ) {
 							/* new SID */
 							if ( sid < si->si_cookieState->cs_sids[i] )
@@ -933,13 +942,18 @@ do_syncrep2(
 									bdn.bv_val[bdn.bv_len] = '\0';
 									Debug( LDAP_DEBUG_SYNC, "do_syncrep2: %s CSN too old, ignoring %s (%s)\n",
 										si->si_ridtxt, syncCookie.ctxcsn->bv_val, bdn.bv_val );
+									si->si_too_old = 1;
+									ldap_pvt_thread_mutex_unlock( &si->si_cookieState->cs_mutex );
 									ldap_controls_free( rctrls );
 									rc = 0;
 									goto done;
 								}
+								si->si_too_old = 0;
 								break;
 							}
 						}
+						ldap_pvt_thread_mutex_unlock( &si->si_cookieState->cs_mutex );
+
 						/* check pending CSNs too */
 						while ( ldap_pvt_thread_mutex_trylock( &si->si_cookieState->cs_pmutex )) {
 							if ( slapd_shutdown ) {
@@ -949,17 +963,18 @@ do_syncrep2(
 							if ( !ldap_pvt_thread_pool_pausecheck( &connection_pool ))
 								ldap_pvt_thread_yield();
 						}
+
 						for ( i =0; i<si->si_cookieState->cs_pnum; i++ ) {
 							if ( sid < si->si_cookieState->cs_psids[i] )
 								break;
 							if ( si->si_cookieState->cs_psids[i] == sid ) {
 								if ( ber_bvcmp( syncCookie.ctxcsn, &si->si_cookieState->cs_pvals[i] ) <= 0 ) {
+									ldap_pvt_thread_mutex_unlock( &si->si_cookieState->cs_pmutex );
 									bdn.bv_val[bdn.bv_len] = '\0';
 									Debug( LDAP_DEBUG_SYNC, "do_syncrep2: %s CSN pending, ignoring %s (%s)\n",
 										si->si_ridtxt, syncCookie.ctxcsn->bv_val, bdn.bv_val );
 									ldap_controls_free( rctrls );
 									rc = 0;
-									ldap_pvt_thread_mutex_unlock( &si->si_cookieState->cs_pmutex );
 									goto done;
 								}
 								ber_bvreplace( &si->si_cookieState->cs_pvals[i],
@@ -976,8 +991,16 @@ do_syncrep2(
 						}
 						assert( punlock < 0 );
 						punlock = i;
+					} else if (si->si_too_old) {
+						bdn.bv_val[bdn.bv_len] = '\0';
+						Debug( LDAP_DEBUG_SYNC, "do_syncrep2: %s CSN too old, ignoring (%s)\n",
+							si->si_ridtxt, bdn.bv_val, 0 );
+						ldap_controls_free( rctrls );
+						rc = 0;
+						goto done;
 					}
 					op->o_controls[slap_cids.sc_LDAPsync] = &syncCookie;
+				}
 				}
 			}
 			rc = 0;
@@ -1021,6 +1044,7 @@ do_syncrep2(
 				/* on failure, revert pending CSN */
 				if ( rc != LDAP_SUCCESS ) {
 					int i;
+					ldap_pvt_thread_mutex_lock( &si->si_cookieState->cs_mutex );
 					for ( i = 0; i<si->si_cookieState->cs_num; i++ ) {
 						if ( si->si_cookieState->cs_sids[i] == si->si_cookieState->cs_psids[punlock] ) {
 							ber_bvreplace( &si->si_cookieState->cs_pvals[punlock],
@@ -1030,6 +1054,7 @@ do_syncrep2(
 					}
 					if ( i == si->si_cookieState->cs_num )
 						si->si_cookieState->cs_pvals[punlock].bv_val[0] = '\0';
+					ldap_pvt_thread_mutex_unlock( &si->si_cookieState->cs_mutex );
 				}
 				ldap_pvt_thread_mutex_unlock( &si->si_cookieState->cs_pmutex );
 			}
@@ -1151,8 +1176,8 @@ do_syncrep2(
 				{
 					syncrepl_del_nonpresent( op, si, NULL,
 						&syncCookie, m );
-				} else {
-					avl_free( si->si_presentlist, ch_free );
+				} else if ( si->si_presentlist ) {
+					presentlist_free( si->si_presentlist );
 					si->si_presentlist = NULL;
 				}
 			}
@@ -1279,20 +1304,23 @@ do_syncrep2(
 						ber_scanf( ber, "b", &refreshDeletes );
 					}
 					syncUUIDs = NULL;
-					ber_scanf( ber, "[W]", &syncUUIDs );
+					rc = ber_scanf( ber, "[W]", &syncUUIDs );
 					ber_scanf( ber, /*"{"*/ "}" );
-					if ( refreshDeletes ) {
-						syncrepl_del_nonpresent( op, si, syncUUIDs,
-							&syncCookie, m );
-						ber_bvarray_free_x( syncUUIDs, op->o_tmpmemctx );
-					} else {
-						int i;
-						for ( i = 0; !BER_BVISNULL( &syncUUIDs[i] ); i++ ) {
-							(void)avl_presentlist_insert( si, &syncUUIDs[i] );
-							slap_sl_free( syncUUIDs[i].bv_val, op->o_tmpmemctx );
+					if ( rc != LBER_ERROR ) {
+						if ( refreshDeletes ) {
+							syncrepl_del_nonpresent( op, si, syncUUIDs,
+								&syncCookie, m );
+							ber_bvarray_free_x( syncUUIDs, op->o_tmpmemctx );
+						} else {
+							int i;
+							for ( i = 0; !BER_BVISNULL( &syncUUIDs[i] ); i++ ) {
+								(void)presentlist_insert( si, &syncUUIDs[i] );
+								slap_sl_free( syncUUIDs[i].bv_val, op->o_tmpmemctx );
+							}
+							slap_sl_free( syncUUIDs, op->o_tmpmemctx );
 						}
-						slap_sl_free( syncUUIDs, op->o_tmpmemctx );
 					}
+					rc = 0;
 					slap_sync_cookie_free( &syncCookie, 0 );
 					break;
 				default:
@@ -1329,10 +1357,17 @@ do_syncrep2(
 					{
 						rc = syncrepl_updateCookie( si, op, &syncCookie);
 					}
+					if ( si->si_presentlist ) {
+						presentlist_free( si->si_presentlist );
+						si->si_presentlist = NULL;
+					}
 				} 
 
 				ldap_memfree( retoid );
 				ber_bvfree( retdata );
+
+				if ( rc )
+					goto done;
 
 			} else {
 				Debug( LDAP_DEBUG_ANY, "do_syncrep2: %s "
@@ -1353,8 +1388,8 @@ do_syncrep2(
 		}
 		if ( !BER_BVISNULL( &syncCookie.octet_str ) ) {
 			slap_sync_cookie_free( &syncCookie_req, 0 );
-			slap_dup_sync_cookie( &syncCookie_req, &syncCookie );
-			slap_sync_cookie_free( &syncCookie, 0 );
+			syncCookie_req = syncCookie;
+			memset( &syncCookie, 0, sizeof( syncCookie ));
 		}
 		ldap_msgfree( msg );
 		msg = NULL;
@@ -1425,6 +1460,8 @@ do_syncrepl(
 		if ( !ldap_pvt_thread_pool_pausecheck( &connection_pool ))
 			ldap_pvt_thread_yield();
 	}
+
+	si->si_too_old = 0;
 
 	if ( si->si_ctype < 1 ) {
 		goto deleted;
@@ -1500,7 +1537,7 @@ do_syncrepl(
 		si->si_refreshPresent = 0;
 
 		if ( si->si_presentlist ) {
-		    avl_free( si->si_presentlist, ch_free );
+		    presentlist_free( si->si_presentlist );
 		    si->si_presentlist = NULL;
 		}
 
@@ -1522,6 +1559,10 @@ reload:
 		op->o_ndn = op->o_bd->be_rootndn;
 		rc = do_syncrep2( op, si );
 		if ( rc == LDAP_SYNC_REFRESH_REQUIRED )	{
+			if ( BER_BVISNULL( &si->si_syncCookie.octet_str ))
+				slap_compose_sync_cookie( NULL, &si->si_syncCookie.octet_str,
+					si->si_syncCookie.ctxcsn, si->si_syncCookie.rid,
+					si->si_syncCookie.sid );
 			rc = ldap_sync_search( si, op->o_tmpmemctx );
 			goto reload;
 		}
@@ -2035,8 +2076,11 @@ syncrepl_op_modify( Operation *op, SlapReply *rs )
 		overlay_entry_release_ov( op, e, 0, on );
 	}
 	/* equal? Should never happen */
-	if ( match == 0 )
+	if ( match == 0 ) {
+		/* tell accesslog this was a failure */
+		rs->sr_err = LDAP_TYPE_OR_VALUE_EXISTS;
 		return LDAP_SUCCESS;
+	}
 
 	/* mod is older: resolve conflicts...
 	 * 1. Save/copy original modlist. Split Replace to Del/Add.
@@ -2652,27 +2696,101 @@ typedef struct dninfo {
 	AttributeDescription *newDesc;	/* for renames */
 } dninfo;
 
+#define HASHUUID	1
+
 /* return 1 if inserted, 0 otherwise */
 static int
-avl_presentlist_insert(
+presentlist_insert(
 	syncinfo_t* si,
 	struct berval *syncUUID )
 {
-	struct berval *syncuuid_bv = ch_malloc( sizeof( struct berval ) + syncUUID->bv_len + 1 );
+	char *val;
 
-	syncuuid_bv->bv_len = syncUUID->bv_len;
-	syncuuid_bv->bv_val = (char *)&syncuuid_bv[1];
-	AC_MEMCPY( syncuuid_bv->bv_val, syncUUID->bv_val, syncUUID->bv_len );
-	syncuuid_bv->bv_val[ syncuuid_bv->bv_len ] = '\0';
+#ifdef HASHUUID
+	Avlnode **av;
+	unsigned short s;
 
-	if ( avl_insert( &si->si_presentlist, (caddr_t) syncuuid_bv,
+	if ( !si->si_presentlist )
+		si->si_presentlist = ch_calloc(65536, sizeof( Avlnode * ));
+
+	av = (Avlnode **)si->si_presentlist;
+
+	val = ch_malloc(UUIDLEN-2);
+	memcpy(&s, syncUUID->bv_val, 2);
+	memcpy(val, syncUUID->bv_val+2, UUIDLEN-2);
+
+	if ( avl_insert( &av[s], val,
 		syncuuid_cmp, avl_dup_error ) )
 	{
-		ch_free( syncuuid_bv );
+		ch_free( val );
 		return 0;
 	}
+#else
+	val = ch_malloc(UUIDLEN);
+
+	AC_MEMCPY( val, syncUUID->bv_val, UUIDLEN );
+
+	if ( avl_insert( &si->si_presentlist, val,
+		syncuuid_cmp, avl_dup_error ) )
+	{
+		ch_free( val );
+		return 0;
+	}
+#endif
 
 	return 1;
+}
+
+static char *
+presentlist_find(
+	Avlnode *av,
+	struct berval *val )
+{
+#ifdef HASHUUID
+	Avlnode **a2 = (Avlnode **)av;
+	unsigned short s;
+
+	memcpy(&s, val->bv_val, 2);
+	return avl_find( a2[s], val->bv_val+2, syncuuid_cmp );
+#else
+	return avl_find( av, val->bv_val, syncuuid_cmp );
+#endif
+}
+
+static int
+presentlist_free( Avlnode *av )
+{
+#ifdef HASHUUID
+	Avlnode **a2 = (Avlnode **)av;
+	int i, count = 0;
+
+	if ( av ) {
+		for (i=0; i<65536; i++) {
+			if (a2[i])
+				count += avl_free( a2[i], ch_free );
+		}
+		ch_free( av );
+	}
+	return count;
+#else
+	return avl_free( av, ch_free );
+#endif
+}
+
+static void
+presentlist_delete(
+	Avlnode **av,
+	struct berval *val )
+{
+#ifdef HASHUUID
+	Avlnode **a2 = *(Avlnode ***)av;
+	unsigned short s;
+
+	memcpy(&s, val->bv_val, 2);
+	avl_delete( &a2[s], val->bv_val+2, syncuuid_cmp );
+#else
+	avl_delete( av, val->bv_val, syncuuid_cmp );
+#endif
 }
 
 static int
@@ -2705,7 +2823,7 @@ syncrepl_entry(
 
 	if (( syncstate == LDAP_SYNC_PRESENT || syncstate == LDAP_SYNC_ADD ) ) {
 		if ( !si->si_refreshPresent && !si->si_refreshDone ) {
-			syncuuid_inserted = avl_presentlist_insert( si, syncUUID );
+			syncuuid_inserted = presentlist_insert( si, syncUUID );
 		}
 	}
 
@@ -2864,6 +2982,7 @@ retry_add:;
 					/* Something's wrong, start over */
 					ber_bvarray_free( si->si_syncCookie.ctxcsn );
 					si->si_syncCookie.ctxcsn = NULL;
+					entry_free( entry );
 					ldap_pvt_thread_mutex_lock( &si->si_cookieState->cs_mutex );
 					ber_bvarray_free( si->si_cookieState->cs_vals );
 					ch_free( si->si_cookieState->cs_sids );
@@ -3803,18 +3922,19 @@ syncrepl_updateCookie(
 		ch_free( sc.sids );
 		ber_bvarray_free( sc.ctxcsn );
 	}
-	ldap_pvt_thread_mutex_unlock( &si->si_cookieState->cs_mutex );
-
-	op->o_bd = be;
-	op->o_tmpfree( op->o_csn.bv_val, op->o_tmpmemctx );
-	BER_BVZERO( &op->o_csn );
-	if ( mod.sml_next ) slap_mods_free( mod.sml_next, 1 );
 
 #ifdef CHECK_CSN
 	for ( i=0; i<si->si_cookieState->cs_num; i++ ) {
 		assert( !syn->ssyn_validate( syn, si->si_cookieState->cs_vals+i ));
 	}
 #endif
+
+	ldap_pvt_thread_mutex_unlock( &si->si_cookieState->cs_mutex );
+
+	op->o_bd = be;
+	op->o_tmpfree( op->o_csn.bv_val, op->o_tmpmemctx );
+	BER_BVZERO( &op->o_csn );
+	if ( mod.sml_next ) slap_mods_free( mod.sml_next, 1 );
 
 	return rc;
 }
@@ -4194,11 +4314,11 @@ nonpresent_callback(
 	syncinfo_t *si = op->o_callback->sc_private;
 	Attribute *a;
 	int count = 0;
-	struct berval* present_uuid = NULL;
+	char *present_uuid = NULL;
 	struct nonpresent_entry *np_entry;
 
 	if ( rs->sr_type == REP_RESULT ) {
-		count = avl_free( si->si_presentlist, ch_free );
+		count = presentlist_free( si->si_presentlist );
 		si->si_presentlist = NULL;
 
 	} else if ( rs->sr_type == REP_SEARCH ) {
@@ -4206,8 +4326,7 @@ nonpresent_callback(
 			a = attr_find( rs->sr_entry->e_attrs, slap_schema.si_ad_entryUUID );
 
 			if ( a ) {
-				present_uuid = avl_find( si->si_presentlist, &a->a_nvals[0],
-					syncuuid_cmp );
+				present_uuid = presentlist_find( si->si_presentlist, &a->a_nvals[0] );
 			}
 
 			if ( LogTest( LDAP_DEBUG_SYNC ) ) {
@@ -4231,8 +4350,7 @@ nonpresent_callback(
 			LDAP_LIST_INSERT_HEAD( &si->si_nonpresentlist, np_entry, npe_link );
 
 		} else {
-			avl_delete( &si->si_presentlist,
-				&a->a_nvals[0], syncuuid_cmp );
+			presentlist_delete( &si->si_presentlist, &a->a_nvals[0] );
 			ch_free( present_uuid );
 		}
 	}
@@ -4363,11 +4481,11 @@ done:;
 static int
 syncuuid_cmp( const void* v_uuid1, const void* v_uuid2 )
 {
-	const struct berval *uuid1 = v_uuid1;
-	const struct berval *uuid2 = v_uuid2;
-	int rc = uuid1->bv_len - uuid2->bv_len;
-	if ( rc ) return rc;
-	return ( memcmp( uuid1->bv_val, uuid2->bv_val, uuid1->bv_len ) );
+#ifdef HASHUUID
+	return ( memcmp( v_uuid1, v_uuid2, UUIDLEN-2 ));
+#else
+	return ( memcmp( v_uuid1, v_uuid2, UUIDLEN ));
+#endif
 }
 
 void
@@ -4465,7 +4583,7 @@ syncinfo_free( syncinfo_t *sie, int free_all )
 		}
 		slap_sync_cookie_free( &sie->si_syncCookie, 0 );
 		if ( sie->si_presentlist ) {
-		    avl_free( sie->si_presentlist, ch_free );
+		    presentlist_free( sie->si_presentlist );
 		}
 		while ( !LDAP_LIST_EMPTY( &sie->si_nonpresentlist ) ) {
 			struct nonpresent_entry* npe;
@@ -5068,14 +5186,15 @@ parse_syncrepl_line(
 					STRLENOF( STRICT_REFRESH ) ) )
 		{
 			si->si_strict_refresh = 1;
-		} else if ( bindconf_parse( c->argv[i], &si->si_bindconf ) ) {
+		} else if ( !bindconf_parse( c->argv[i], &si->si_bindconf ) ) {
+			si->si_got |= GOT_BINDCONF;
+		} else {
 			snprintf( c->cr_msg, sizeof( c->cr_msg ),
 				"Error: parse_syncrepl_line: "
 				"unable to parse \"%s\"\n", c->argv[ i ] );
 			Debug( LDAP_DEBUG_ANY, "%s: %s.\n", c->log, c->cr_msg, 0 );
 			return -1;
 		}
-		si->si_got |= GOT_BINDCONF;
 	}
 
 	if ( ( si->si_got & GOT_REQUIRED ) != GOT_REQUIRED ) {
@@ -5089,11 +5208,11 @@ parse_syncrepl_line(
 	}
 
 	if ( !be_issubordinate( c->be, &si->si_base ) && !( si->si_got & GOT_SUFFIXM )) {
-		ch_free( si->si_base.bv_val );
-		BER_BVZERO( &si->si_base );
 		snprintf( c->cr_msg, sizeof( c->cr_msg ),
 			"Base DN \"%s\" is not within the database naming context",
-			val );
+			si->si_base.bv_val );
+		ch_free( si->si_base.bv_val );
+		BER_BVZERO( &si->si_base );
 		Debug( LDAP_DEBUG_ANY, "%s: %s.\n", c->log, c->cr_msg, 0 );
 		return -1;
 	}

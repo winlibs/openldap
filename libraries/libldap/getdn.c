@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2012 The OpenLDAP Foundation.
+ * Copyright 1998-2015 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -2987,7 +2987,7 @@ int ldap_dn2bv_x( LDAPDN dn, struct berval *bv, unsigned flags, void *ctx )
 	 * a null dn means an empty dn string 
 	 * FIXME: better raise an error?
 	 */
-	if ( dn == NULL ) {
+	if ( dn == NULL || dn[0] == NULL ) {
 		bv->bv_val = LDAP_STRDUPX( "", ctx );
 		return( LDAP_SUCCESS );
 	}

@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2000-2012 The OpenLDAP Foundation.
+ * Copyright 2000-2015 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -672,6 +672,8 @@ ID bdb_tool_entry_put(
 			 text->bv_val, 0, 0 );
 		return NOID;
 	}
+	Debug( LDAP_DEBUG_TRACE, LDAP_XSTRING(bdb_tool_entry_put) ": txn id: %x\n",
+		tid->id(tid), 0, 0 );
 	}
 
 	op.o_hdr = &ohdr;
@@ -830,6 +832,11 @@ int bdb_tool_entry_reindex(
 		return -1;
 	}
 
+	op.o_hdr = &ohdr;
+	op.o_bd = be;
+	op.o_tmpmemctx = NULL;
+	op.o_tmpmfuncs = &ch_mfuncs;
+
 	if (! (slapMode & SLAP_TOOL_QUICK)) {
 	rc = TXN_BEGIN( bi->bi_dbenv, NULL, &tid, bi->bi_db_opflags );
 	if( rc != 0 ) {
@@ -839,6 +846,8 @@ int bdb_tool_entry_reindex(
 			db_strerror(rc), rc, 0 );
 		goto done;
 	}
+	Debug( LDAP_DEBUG_TRACE, LDAP_XSTRING(bdb_tool_entry_reindex) ": txn id: %x\n",
+		tid->id(tid), 0, 0 );
 	}
  	
 	/*
@@ -851,11 +860,6 @@ int bdb_tool_entry_reindex(
 	Debug( LDAP_DEBUG_TRACE,
 		"=> " LDAP_XSTRING(bdb_tool_entry_reindex) "( %ld, \"%s\" )\n",
 		(long) id, e->e_dn, 0 );
-
-	op.o_hdr = &ohdr;
-	op.o_bd = be;
-	op.o_tmpmemctx = NULL;
-	op.o_tmpmfuncs = &ch_mfuncs;
 
 	rc = bdb_tool_index_add( &op, tid, e );
 
@@ -929,6 +933,8 @@ ID bdb_tool_entry_modify(
 				 text->bv_val, 0, 0 );
 			return NOID;
 		}
+		Debug( LDAP_DEBUG_TRACE, LDAP_XSTRING(bdb_tool_entry_modify) ": txn id: %x\n",
+			tid->id(tid), 0, 0 );
 	}
 
 	op.o_hdr = &ohdr;

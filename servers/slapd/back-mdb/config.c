@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2000-2012 The OpenLDAP Foundation.
+ * Copyright 2000-2015 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -59,6 +59,7 @@ static ConfigTable mdbcfg[] = {
 	{ "envflags", "flags", 2, 0, 0, ARG_MAGIC|MDB_ENVFLAGS,
 		mdb_cf_gen, "( OLcfgDbAt:12.3 NAME 'olcDbEnvFlags' "
 			"DESC 'Database environment flags' "
+			"EQUALITY caseIgnoreMatch "
 			"SYNTAX OMsDirectoryString )", NULL, NULL },
 	{ "index", "attr> <[pres,eq,approx,sub]", 2, 3, 0, ARG_MAGIC|MDB_INDEX,
 		mdb_cf_gen, "( OLcfgDbAt:0.2 NAME 'olcDbIndex' "
@@ -93,7 +94,7 @@ static ConfigOCs mdbocs[] = {
 		"SUP olcDatabaseConfig "
 		"MUST olcDbDirectory "
 		"MAY ( olcDbCheckpoint $ olcDbEnvFlags $ "
-		"olcDbNoSync $ olcDbIndex $ olcDbMaxReaders $ olcDbMaxsize $ "
+		"olcDbNoSync $ olcDbIndex $ olcDbMaxReaders $ olcDbMaxSize $ "
 		"olcDbMode $ olcDbSearchStack ) )",
 		 	Cft_Database, mdbcfg },
 	{ NULL, 0, NULL }
@@ -104,6 +105,7 @@ static slap_verbmasks mdb_envflags[] = {
 	{ BER_BVC("nometasync"),	MDB_NOMETASYNC },
 	{ BER_BVC("writemap"),	MDB_WRITEMAP },
 	{ BER_BVC("mapasync"),	MDB_MAPASYNC },
+	{ BER_BVC("nordahead"),	MDB_NORDAHEAD },
 	{ BER_BVNULL, 0 }
 };
 
@@ -114,7 +116,7 @@ mdb_checkpoint( void *ctx, void *arg )
 	struct re_s *rtask = arg;
 	struct mdb_info *mdb = rtask->arg;
 
-	mdb_env_sync( mdb->mi_dbenv, 0 );
+	mdb_env_sync( mdb->mi_dbenv, 1 );
 	ldap_pvt_thread_mutex_lock( &slapd_rq.rq_mutex );
 	ldap_pvt_runqueue_stoptask( &slapd_rq, rtask );
 	ldap_pvt_thread_mutex_unlock( &slapd_rq.rq_mutex );
@@ -194,8 +196,13 @@ mdb_online_index( void *ctx, void *arg )
 			mdb_txn_abort( txn );
 			txn = NULL;
 		}
-		if ( rc )
+		if ( rc ) {
+			Debug( LDAP_DEBUG_ANY,
+				LDAP_XSTRING(mdb_online_index) ": database %s: "
+				"txn_commit failed: %s (%d)\n",
+				be->be_suffix[0].bv_val, mdb_strerror(rc), rc );
 			break;
+		}
 		id++;
 		getnext = 1;
 	}
@@ -399,6 +406,9 @@ mdb_cf_gen( ConfigArgs *c )
 					mdb->mi_dbenv_flags ^= mdb_envflags[i].mask;
 				} else {
 					/* unknown keyword */
+					snprintf( c->cr_msg, sizeof( c->cr_msg ), "%s: unknown keyword \"%s\"",
+						c->argv[0], c->argv[i] );
+					Debug( LDAP_DEBUG_CONFIG, "%s %s\n", c->log, c->cr_msg, 0 );
 					rc = 1;
 				}
 			}
@@ -598,10 +608,13 @@ mdb_cf_gen( ConfigArgs *c )
 					c->cleanup = mdb_cf_cleanup;
 					rc = 0;
 				}
-				mdb->mi_dbenv_flags |= mdb_envflags[i].mask;
+				mdb->mi_dbenv_flags |= mdb_envflags[j].mask;
 			} else {
 				/* unknown keyword */
-				rc = 1;
+				snprintf( c->cr_msg, sizeof( c->cr_msg ), "%s: unknown keyword \"%s\"",
+					c->argv[0], c->argv[i] );
+				Debug( LDAP_DEBUG_ANY, "%s %s\n", c->log, c->cr_msg, 0 );
+				return 1;
 			}
 		}
 		}
@@ -612,23 +625,25 @@ mdb_cf_gen( ConfigArgs *c )
 			c->argc - 1, &c->argv[1], &c->reply);
 
 		if( rc != LDAP_SUCCESS ) return 1;
-		c->cleanup = mdb_cf_cleanup;
 		mdb->mi_flags |= MDB_OPEN_INDEX;
-		if (( mdb->mi_flags & MDB_IS_OPEN ) && !mdb->mi_index_task ) {
-			/* Start the task as soon as we finish here. Set a long
-			 * interval (10 hours) so that it only gets scheduled once.
-			 */
-			if ( c->be->be_suffix == NULL || BER_BVISNULL( &c->be->be_suffix[0] ) ) {
-				fprintf( stderr, "%s: "
-					"\"index\" must occur after \"suffix\".\n",
-					c->log );
-				return 1;
+		if ( mdb->mi_flags & MDB_IS_OPEN ) {
+			c->cleanup = mdb_cf_cleanup;
+			if ( !mdb->mi_index_task ) {
+				/* Start the task as soon as we finish here. Set a long
+				 * interval (10 hours) so that it only gets scheduled once.
+				 */
+				if ( c->be->be_suffix == NULL || BER_BVISNULL( &c->be->be_suffix[0] ) ) {
+					fprintf( stderr, "%s: "
+						"\"index\" must occur after \"suffix\".\n",
+						c->log );
+					return 1;
+				}
+				ldap_pvt_thread_mutex_lock( &slapd_rq.rq_mutex );
+				mdb->mi_index_task = ldap_pvt_runqueue_insert( &slapd_rq, 36000,
+					mdb_online_index, c->be,
+					LDAP_XSTRING(mdb_online_index), c->be->be_suffix[0].bv_val );
+				ldap_pvt_thread_mutex_unlock( &slapd_rq.rq_mutex );
 			}
-			ldap_pvt_thread_mutex_lock( &slapd_rq.rq_mutex );
-			mdb->mi_index_task = ldap_pvt_runqueue_insert( &slapd_rq, 36000,
-				mdb_online_index, c->be,
-				LDAP_XSTRING(mdb_online_index), c->be->be_suffix[0].bv_val );
-			ldap_pvt_thread_mutex_unlock( &slapd_rq.rq_mutex );
 		}
 		break;
 

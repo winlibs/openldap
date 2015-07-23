@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2000-2012 The OpenLDAP Foundation.
+ * Copyright 2000-2015 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -62,6 +62,7 @@
 #define BDB_IDL_ALL( bdb, ids ) BDB_IDL_RANGE( ids, 1, ((bdb)->bi_lastid) )
 
 #define BDB_IDL_FIRST( ids )	( (ids)[1] )
+#define BDB_IDL_LLAST( ids )	( (ids)[(ids)[0]] )
 #define BDB_IDL_LAST( ids )		( BDB_IDL_IS_RANGE(ids) \
 	? (ids)[2] : (ids)[(ids)[0]] )
 

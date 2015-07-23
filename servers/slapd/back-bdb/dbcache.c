@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2000-2012 The OpenLDAP Foundation.
+ * Copyright 2000-2015 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -195,6 +195,8 @@ bdb_db_cache(
 			"bdb_db_cache: db_open(%s) failed: %s (%d)\n",
 			name->bv_val, db_strerror(rc), rc );
 		ldap_pvt_thread_mutex_unlock( &bdb->bi_database_mutex );
+		db->bdi_db->close( db->bdi_db, 0 );
+		ch_free( db );
 		return rc;
 	}
 

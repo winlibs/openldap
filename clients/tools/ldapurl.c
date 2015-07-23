@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2008-2012 The OpenLDAP Foundation.
+ * Copyright 2008-2015 The OpenLDAP Foundation.
  * Portions Copyright 2008 Pierangelo Masarati, SysNet
  * All rights reserved.
  *
@@ -159,6 +159,7 @@ do_uri_explode( const char *uri )
 			printf( "extension: %s\n", lud->lud_exts[i] );
 		}
 	}
+	ldap_free_urldesc( lud );
 
 	return 0;
 }

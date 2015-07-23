@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2000-2012 The OpenLDAP Foundation.
+ * Copyright 2000-2015 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -241,6 +241,8 @@ bdb_online_index( void *ctx, void *arg )
 		rc = TXN_BEGIN( bdb->bi_dbenv, NULL, &txn, bdb->bi_db_opflags );
 		if ( rc ) 
 			break;
+		Debug( LDAP_DEBUG_TRACE, LDAP_XSTRING(bdb_online_index) ": txn id: %x\n",
+			txn->id(txn), 0, 0 );
 		if ( getnext ) {
 			getnext = 0;
 			BDB_ID2DISK( id, &nid );
@@ -282,17 +284,16 @@ bdb_online_index( void *ctx, void *arg )
 		}
 		if ( ei->bei_e ) {
 			rc = bdb_index_entry( op, txn, BDB_INDEX_UPDATE_OP, ei->bei_e );
-			if ( rc == DB_LOCK_DEADLOCK ) {
+			if ( rc ) {
 				TXN_ABORT( txn );
-				ldap_pvt_thread_yield();
-				continue;
-			}
-			if ( rc == 0 ) {
-				rc = TXN_COMMIT( txn, 0 );
-				txn = NULL;
-			}
-			if ( rc )
+				if ( rc == DB_LOCK_DEADLOCK ) {
+					ldap_pvt_thread_yield();
+					continue;
+				}
 				break;
+			}
+			rc = TXN_COMMIT( txn, 0 );
+			txn = NULL;
 		}
 		id++;
 		getnext = 1;
@@ -323,6 +324,7 @@ bdb_cf_cleanup( ConfigArgs *c )
 {
 	struct bdb_info *bdb = c->be->be_private;
 	int rc = 0;
+	BerVarray bva;
 
 	if ( bdb->bi_flags & BDB_DEL_INDEX ) {
 		bdb_attr_flush( bdb );
@@ -331,16 +333,22 @@ bdb_cf_cleanup( ConfigArgs *c )
 
 	if ( bdb->bi_flags & BDB_RE_OPEN ) {
 		bdb->bi_flags ^= BDB_RE_OPEN;
+		bva = bdb->bi_db_config;
+		bdb->bi_db_config = NULL;
 		rc = c->be->bd_info->bi_db_close( c->be, &c->reply );
 		if ( rc == 0 ) {
 			if ( bdb->bi_flags & BDB_UPD_CONFIG ) {
-				if ( bdb->bi_db_config ) {
+				if ( bva ) {
 					int i;
 					FILE *f = fopen( bdb->bi_db_config_path, "w" );
 					if ( f ) {
+						bdb->bi_db_config = bva;
+						bva = NULL;
 						for (i=0; bdb->bi_db_config[i].bv_val; i++)
 							fprintf( f, "%s\n", bdb->bi_db_config[i].bv_val );
 						fclose( f );
+					} else {
+						ber_bvarray_free( bva );
 					}
 				} else {
 					unlink( bdb->bi_db_config_path );

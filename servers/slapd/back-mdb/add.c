@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2000-2012 The OpenLDAP Foundation.
+ * Copyright 2000-2015 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -101,6 +101,19 @@ txnReturn:
 		goto return_results;
 	}
 
+	/* begin transaction */
+	rs->sr_err = mdb_opinfo_get( op, mdb, 0, &moi );
+	rs->sr_text = NULL;
+	if( rs->sr_err != 0 ) {
+		Debug( LDAP_DEBUG_TRACE,
+			LDAP_XSTRING(mdb_add) ": txn_begin failed: %s (%d)\n",
+			mdb_strerror(rs->sr_err), rs->sr_err, 0 );
+		rs->sr_err = LDAP_OTHER;
+		rs->sr_text = "internal error";
+		goto return_results;
+	}
+	txn = moi->moi_txn;
+
 	/* add opattrs to shadow as well, only missing attrs will actually
 	 * be added; helps compatibility with older OL versions */
 	rs->sr_err = slap_add_opattrs( op, &rs->sr_text, textbuf, textlen, 1 );
@@ -119,20 +132,6 @@ txnReturn:
 	}
 
 	subentry = is_entry_subentry( op->ora_e );
-
-	/* begin transaction */
-	rs->sr_err = mdb_opinfo_get( op, mdb, 0, &moi );
-	rs->sr_text = NULL;
-	if( rs->sr_err != 0 ) {
-		Debug( LDAP_DEBUG_TRACE,
-			LDAP_XSTRING(mdb_add) ": txn_begin failed: %s (%d)\n",
-			mdb_strerror(rs->sr_err), rs->sr_err, 0 );
-		rs->sr_err = LDAP_OTHER;
-		rs->sr_text = "internal error";
-		goto return_results;
-	}
-
-	txn = moi->moi_txn;
 
 	/*
 	 * Get the parent dn and see if the corresponding entry exists.
@@ -154,7 +153,7 @@ txnReturn:
 	}
 
 	/* get entry or parent */
-	rs->sr_err = mdb_dn2entry( op, txn, mcd, &op->ora_e->e_nname, &p, 1 );
+	rs->sr_err = mdb_dn2entry( op, txn, mcd, &op->ora_e->e_nname, &p, NULL, 1 );
 	switch( rs->sr_err ) {
 	case 0:
 		rs->sr_err = LDAP_ALREADY_EXISTS;
@@ -339,7 +338,7 @@ txnReturn:
 	op->ora_e->e_id = eid;
 
 	/* dn2id index */
-	rs->sr_err = mdb_dn2id_add( op, mcd, mcd, pid, op->ora_e );
+	rs->sr_err = mdb_dn2id_add( op, mcd, mcd, pid, 1, 1, op->ora_e );
 	mdb_cursor_close( mcd );
 	if ( rs->sr_err != 0 ) {
 		Debug( LDAP_DEBUG_TRACE,
@@ -412,7 +411,7 @@ txnReturn:
 		txn = NULL;
 		if ( rs->sr_err != 0 ) {
 			rs->sr_text = "txn_commit failed";
-			Debug( LDAP_DEBUG_TRACE,
+			Debug( LDAP_DEBUG_ANY,
 				LDAP_XSTRING(mdb_add) ": %s : %s (%d)\n",
 				rs->sr_text, mdb_strerror(rs->sr_err), rs->sr_err );
 			rs->sr_err = LDAP_OTHER;
@@ -439,6 +438,8 @@ return_results:
 		if ( opinfo.moi_oe.oe_key ) {
 			LDAP_SLIST_REMOVE( &op->o_extra, &opinfo.moi_oe, OpExtra, oe_next );
 		}
+	} else {
+		moi->moi_ref--;
 	}
 
 	if( success == LDAP_SUCCESS ) {

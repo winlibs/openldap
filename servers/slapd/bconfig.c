@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2005-2012 The OpenLDAP Foundation.
+ * Copyright 2005-2015 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -399,13 +399,13 @@ static ConfigTable config_back_cf_table[] = {
 	{ "index_substr_if_maxlen", "max", 2, 2, 0, ARG_UINT|ARG_NONZERO|ARG_MAGIC|CFG_SSTR_IF_MAX,
 		&config_generic, "( OLcfgGlAt:21 NAME 'olcIndexSubstrIfMaxLen' "
 			"SYNTAX OMsInteger SINGLE-VALUE )", NULL, NULL },
-	{ "index_substr_any_len", "len", 2, 2, 0, ARG_INT|ARG_NONZERO,
+	{ "index_substr_any_len", "len", 2, 2, 0, ARG_UINT|ARG_NONZERO,
 		&index_substr_any_len, "( OLcfgGlAt:22 NAME 'olcIndexSubstrAnyLen' "
 			"SYNTAX OMsInteger SINGLE-VALUE )", NULL, NULL },
-	{ "index_substr_any_step", "step", 2, 2, 0, ARG_INT|ARG_NONZERO,
+	{ "index_substr_any_step", "step", 2, 2, 0, ARG_UINT|ARG_NONZERO,
 		&index_substr_any_step, "( OLcfgGlAt:23 NAME 'olcIndexSubstrAnyStep' "
 			"SYNTAX OMsInteger SINGLE-VALUE )", NULL, NULL },
-	{ "index_intlen", "len", 2, 2, 0, ARG_INT|ARG_MAGIC|CFG_IX_INTLEN,
+	{ "index_intlen", "len", 2, 2, 0, ARG_UINT|ARG_MAGIC|CFG_IX_INTLEN,
 		&config_generic, "( OLcfgGlAt:84 NAME 'olcIndexIntLen' "
 			"SYNTAX OMsInteger SINGLE-VALUE )", NULL, NULL },
 	{ "lastmod", "on|off", 2, 2, 0, ARG_DB|ARG_ON_OFF|ARG_MAGIC|CFG_LASTMOD,
@@ -807,7 +807,7 @@ static ConfigOCs cf_ocs[] = {
 		 "olcDisallows $ olcGentleHUP $ olcIdleTimeout $ "
 		 "olcIndexSubstrIfMaxLen $ olcIndexSubstrIfMinLen $ "
 		 "olcIndexSubstrAnyLen $ olcIndexSubstrAnyStep $ olcIndexIntLen $ "
-		 "olcLocalSSF $ olcLogFile $ olcLogLevel $ "
+		 "olcListenerThreads $ olcLocalSSF $ olcLogFile $ olcLogLevel $ "
 		 "olcPasswordCryptSaltFormat $ olcPasswordHash $ olcPidFile $ "
 		 "olcPluginLogFile $ olcReadOnly $ olcReferral $ "
 		 "olcReplogFile $ olcRequires $ olcRestrict $ olcReverseLookup $ "
@@ -820,7 +820,7 @@ static ConfigOCs cf_ocs[] = {
 		 "olcTLSCACertificatePath $ olcTLSCertificateFile $ "
 		 "olcTLSCertificateKeyFile $ olcTLSCipherSuite $ olcTLSCRLCheck $ "
 		 "olcTLSRandFile $ olcTLSVerifyClient $ olcTLSDHParamFile $ "
-		 "olcTLSCRLFile $ olcToolThreads $ olcWriteTimeout $ "
+		 "olcTLSCRLFile $ olcTLSProtocolMin $ olcToolThreads $ olcWriteTimeout $ "
 		 "olcObjectIdentifier $ olcAttributeTypes $ olcObjectClasses $ "
 		 "olcDitContentRules $ olcLdapSyntaxes ) )", Cft_Global },
 	{ "( OLcfgGlOc:2 "
@@ -2957,9 +2957,9 @@ config_suffix(ConfigArgs *c)
 	if(tbe == c->be) {
 		Debug( LDAP_DEBUG_ANY, "%s: suffix already served by this backend!.\n",
 			c->log, 0, 0);
-		return 1;
 		free(pdn.bv_val);
 		free(ndn.bv_val);
+		return 1;
 	} else if(tbe) {
 		BackendDB *b2 = tbe;
 
@@ -3039,7 +3039,7 @@ config_rootpw(ConfigArgs *c) {
 	}
 
 	tbe = select_backend(&c->be->be_rootndn, 0);
-	if(tbe != c->be) {
+	if(tbe != c->be && !SLAP_DBHIDDEN( c->be )) {
 		snprintf( c->cr_msg, sizeof( c->cr_msg ), "<%s> can only be set when rootdn is under suffix",
 			c->argv[0] );
 		Debug(LDAP_DEBUG_ANY, "%s: %s\n",
@@ -3412,6 +3412,11 @@ loglevel2bvarray( int l, BerVarray *bva )
 {
 	if ( loglevel_ops == NULL ) {
 		loglevel_init();
+	}
+
+	if ( l == 0 ) {
+		struct berval bv = BER_BVC("0");
+		return value_add_one( bva, &bv );
 	}
 
 	return mask_to_verbs( loglevel_ops, l, bva );
@@ -3788,6 +3793,7 @@ config_tls_cleanup(ConfigArgs *c) {
 		int opt = 1;
 
 		ldap_pvt_tls_ctx_free( slap_tls_ctx );
+		slap_tls_ctx = NULL;
 
 		/* Force new ctx to be created */
 		rc = ldap_pvt_tls_set_option( slap_tls_ld, LDAP_OPT_X_TLS_NEWCTX, &opt );
@@ -3796,6 +3802,11 @@ config_tls_cleanup(ConfigArgs *c) {
 			ldap_pvt_tls_get_option( slap_tls_ld, LDAP_OPT_X_TLS_CTX, &slap_tls_ctx );
 			/* This is a no-op if it's already loaded */
 			load_extop( &slap_EXOP_START_TLS, 0, starttls_extop );
+		} else {
+			if ( rc == LDAP_NOT_SUPPORTED )
+				rc = LDAP_UNWILLING_TO_PERFORM;
+			else
+				rc = LDAP_OTHER;
 		}
 	}
 	return rc;
@@ -3855,7 +3866,7 @@ config_tls_config(ConfigArgs *c) {
 	}
 	ch_free( c->value_string );
 	c->cleanup = config_tls_cleanup;
-	if ( isdigit( (unsigned char)c->argv[1][0] ) ) {
+	if ( isdigit( (unsigned char)c->argv[1][0] ) && c->type != CFG_TLS_PROTOCOL_MIN ) {
 		if ( lutil_atoi( &i, c->argv[1] ) != 0 ) {
 			Debug(LDAP_DEBUG_ANY, "%s: "
 				"unable to parse %s \"%s\"\n",
@@ -4668,7 +4679,7 @@ check_name_index( CfEntryInfo *parent, ConfigType ce_type, Entry *e,
 	if ( ce_type == Cft_Database )
 		nsibs--;
 
-	if ( index != nsibs ) {
+	if ( index != nsibs || isfrontend ) {
 		if ( gotindex ) {
 			if ( index < nsibs ) {
 				if ( tailindex ) return LDAP_NAMING_VIOLATION;
@@ -5801,8 +5812,11 @@ out:
 		ca->reply = msg;
 	}
 
-	if ( ca->cleanup )
-		ca->cleanup( ca );
+	if ( ca->cleanup ) {
+		i = ca->cleanup( ca );
+		if (rc == LDAP_SUCCESS)
+			rc = i;
+	}
 out_noop:
 	if ( rc == LDAP_SUCCESS ) {
 		attrs_free( save_attrs );
@@ -6543,7 +6557,7 @@ config_build_schema_inc( ConfigArgs *c, CfEntryInfo *ceparent,
 
 	for (; cf; cf=cf->c_sibs, c->depth++) {
 		if ( !cf->c_at_head && !cf->c_cr_head && !cf->c_oc_head &&
-			!cf->c_om_head && !cf->c_syn_head ) continue;
+			!cf->c_om_head && !cf->c_syn_head && !cf->c_kids ) continue;
 		c->value_dn.bv_val = c->log;
 		LUTIL_SLASHPATH( cf->c_file.bv_val );
 		bv.bv_val = strrchr(cf->c_file.bv_val, LDAP_DIRSEP[0]);
@@ -6565,7 +6579,12 @@ config_build_schema_inc( ConfigArgs *c, CfEntryInfo *ceparent,
 			bv.bv_len );
 		c->value_dn.bv_len += bv.bv_len;
 		c->value_dn.bv_val[c->value_dn.bv_len] ='\0';
-		rdnNormalize( 0, NULL, NULL, &c->value_dn, &rdn, NULL );
+		if ( rdnNormalize( 0, NULL, NULL, &c->value_dn, &rdn, NULL )) {
+			Debug( LDAP_DEBUG_ANY,
+				"config_build_schema_inc: invalid schema name \"%s\"\n",
+				bv.bv_val, 0, 0 );
+			return -1;
+		}
 
 		c->ca_private = cf;
 		e = config_build_entry( op, rs, ceparent, c, &rdn,
@@ -7201,22 +7220,6 @@ config_tool_entry_put( BackendDB *be, Entry *e, struct berval *text )
 					return NOID;
 				}
 			} else {
-				if ( !strncmp( e->e_nname.bv_val + 
-					STRLENOF( "olcDatabase" ), "=frontend",
-					STRLENOF( "=frontend" ) ) )
-				{
-					struct berval rdn, pdn, ndn;
-					dnParent( &e->e_nname, &pdn );
-					rdn.bv_val = ca.log;
-					rdn.bv_len = snprintf(rdn.bv_val, sizeof( ca.log ),
-						"%s=" SLAP_X_ORDERED_FMT "%s",
-						cfAd_database->ad_cname.bv_val, -1,
-						frontendDB->bd_info->bi_type );
-					build_new_dn( &ndn, &pdn, &rdn, NULL );
-					ber_memfree( e->e_name.bv_val );
-					e->e_name = ndn;
-					ber_bvreplace( &e->e_nname, &e->e_name );
-				}
 				entry_put_got_frontend++;
 				isFrontend = 1;
 			}

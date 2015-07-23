@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>. 
  *
- * Copyright 2008-2012 The OpenLDAP Foundation.
+ * Copyright 2008-2015 The OpenLDAP Foundation.
  * Portions Copyright 2008 by Howard Chu, Symas Corp.
  * All rights reserved.
  *
@@ -52,7 +52,7 @@ NSSOV_CBPRIV(rpc,
 /* write a single rpc entry to the stream */
 static int write_rpc(nssov_rpc_cbp *cbp,Entry *entry)
 {
-	int32_t tmpint32,tmp2int32,tmp3int32;
+	int32_t tmpint32;
 	int i,numname,dupname,number;
 	struct berval name,*names;
 	Attribute *a;

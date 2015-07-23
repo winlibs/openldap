@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2003-2012 The OpenLDAP Foundation.
+ * Copyright 2003-2015 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -201,7 +201,7 @@ retry:
 
 		} else {
 			/* only touch when activity actually took place... */
-			if ( li->li_idle_timeout && lc ) {
+			if ( li->li_idle_timeout ) {
 				lc->lc_time = op->o_time;
 			}
 
@@ -332,7 +332,7 @@ retry:
 
 		} else {
 			/* only touch when activity actually took place... */
-			if ( li->li_idle_timeout && lc ) {
+			if ( li->li_idle_timeout ) {
 				lc->lc_time = op->o_time;
 			}
 

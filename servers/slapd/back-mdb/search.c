@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2000-2012 The OpenLDAP Foundation.
+ * Copyright 2000-2015 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -31,10 +31,10 @@ static int search_candidates(
 	Operation *op,
 	SlapReply *rs,
 	Entry *e,
-	MDB_txn *txn,
+	IdScopes *isc,
 	MDB_cursor *mci,
 	ID	*ids,
-	ID2L	scopes );
+	ID *stack );
 
 static int parse_paged_cookie( Operation *op, SlapReply *rs );
 
@@ -98,7 +98,7 @@ static Entry * deref_base (
 			break;
 		}
 
-		rs->sr_err = mdb_dn2entry( op, txn, NULL, &ndn, &e, 0 );
+		rs->sr_err = mdb_dn2entry( op, txn, NULL, &ndn, &e, NULL, 0 );
 		if (rs->sr_err) {
 			rs->sr_err = LDAP_ALIAS_PROBLEM;
 			rs->sr_text = "aliasedObject not found";
@@ -130,9 +130,8 @@ static int search_aliases(
 	Operation *op,
 	SlapReply *rs,
 	ID e_id,
-	MDB_txn *txn,
+	IdScopes *isc,
 	MDB_cursor *mci,
-	ID2L scopes,
 	ID *stack )
 {
 	ID *aliases, *curscop, *visited, *newsubs, *oldsubs, *tmp;
@@ -141,7 +140,6 @@ static int search_aliases(
 	struct berval bv_alias = BER_BVC( "alias" );
 	AttributeAssertion aa_alias = ATTRIBUTEASSERTION_INIT;
 	Filter	af;
-	int first = 1;
 
 	aliases = stack;	/* IDL of all aliases in the database */
 	curscop = aliases + MDB_IDL_DB_SIZE;	/* Aliases in the current scope */
@@ -158,7 +156,7 @@ static int search_aliases(
 
 	/* Find all aliases in database */
 	MDB_IDL_ZERO( aliases );
-	rs->sr_err = mdb_filter_candidates( op, txn, &af, aliases,
+	rs->sr_err = mdb_filter_candidates( op, isc->mt, &af, aliases,
 		curscop, visited );
 	if (rs->sr_err != LDAP_SUCCESS || MDB_IDL_IS_ZERO( aliases )) {
 		return rs->sr_err;
@@ -176,7 +174,7 @@ static int search_aliases(
 		/* Set curscop to only the aliases in the current scope. Start with
 		 * all the aliases, then get the intersection with the scope.
 		 */
-		rs->sr_err = mdb_idscope( op, txn, e_id, aliases, curscop );
+		rs->sr_err = mdb_idscope( op, isc->mt, e_id, aliases, curscop );
 
 		/* Dereference all of the aliases in the current scope. */
 		cursora = 0;
@@ -198,7 +196,7 @@ static int search_aliases(
 
 			/* Actually dereference the alias */
 			MDB_IDL_ZERO(tmp);
-			a = deref_base( op, rs, a, &matched, txn,
+			a = deref_base( op, rs, a, &matched, isc->mt,
 				tmp, visited );
 			if (a) {
 				/* If the target was not already in our current scopes,
@@ -207,10 +205,18 @@ static int search_aliases(
 				ID2 mid;
 				mid.mid = a->e_id;
 				mid.mval.mv_data = NULL;
-				if (mdb_id2l_insert(scopes, &mid) == 0) {
+				if (op->ors_scope == LDAP_SCOPE_SUBTREE) {
+					isc->id = a->e_id;
+					/* if ID is a child of any of our current scopes,
+					 * ignore it, it's already included.
+					 */
+					if (mdb_idscopechk(op, isc))
+						goto skip;
+				}
+				if (mdb_id2l_insert(isc->scopes, &mid) == 0) {
 					mdb_idl_insert(newsubs, a->e_id);
 				}
-				mdb_entry_return( op, a );
+skip:			mdb_entry_return( op, a );
 
 			} else if (matched) {
 				/* Alias could not be dereferenced, or it deref'd to
@@ -218,6 +224,7 @@ static int search_aliases(
 				 */
 				mdb_entry_return( op, matched );
 				rs->sr_text = NULL;
+				rs->sr_err = 0;
 			}
 		}
 		/* If this is a OneLevel search, we're done; oldsubs only had one
@@ -312,14 +319,101 @@ static void scope_chunk_ret( Operation *op, ID2 *scopes )
 			(void *)scopes, scope_chunk_free, NULL, NULL );
 }
 
+static void *search_stack( Operation *op );
+
+typedef struct ww_ctx {
+	MDB_txn *txn;
+	MDB_cursor *mcd;	/* if set, save cursor context */
+	ID key;
+	MDB_val data;
+	int flag;
+} ww_ctx;
+
+/* ITS#7904 if we get blocked while writing results to client,
+ * release the current reader txn and reacquire it after we
+ * unblock.
+ * Slight problem - if we're doing a scope-based walk (mdb_dn2id_walk)
+ * to return results, we need to remember the state of the mcd cursor.
+ * If the node that cursor was pointing to gets deleted while we're
+ * blocked, we may be unable to restore the cursor position. In that
+ * case return an LDAP_BUSY error - let the client know this search
+ * couldn't succeed, but might succeed on a retry.
+ */
+static void
+mdb_writewait( Operation *op, slap_callback *sc )
+{
+	ww_ctx *ww = sc->sc_private;
+	if ( !ww->flag ) {
+		if ( ww->mcd ) {
+			MDB_val key, data;
+			mdb_cursor_get( ww->mcd, &key, &data, MDB_GET_CURRENT );
+			memcpy( &ww->key, key.mv_data, sizeof(ID) );
+			ww->data.mv_size = data.mv_size;
+			ww->data.mv_data = op->o_tmpalloc( data.mv_size, op->o_tmpmemctx );
+			memcpy(ww->data.mv_data, data.mv_data, data.mv_size);
+		}
+		mdb_txn_reset( ww->txn );
+		ww->flag = 1;
+	}
+}
+
+static int
+mdb_waitfixup( Operation *op, ww_ctx *ww, MDB_cursor *mci, MDB_cursor *mcd, ID2 *scopes )
+{
+	int rc = 0;
+	ww->flag = 0;
+	mdb_txn_renew( ww->txn );
+	mdb_cursor_renew( ww->txn, mci );
+	mdb_cursor_renew( ww->txn, mcd );
+
+	if ( scopes[0].mid > 1 ) {
+		MDB_val key;
+		int i;
+		key.mv_size = sizeof(ID);
+		for ( i=1; i<scopes[0].mid; i++ ) {
+			if ( !scopes[i].mval.mv_data )
+				continue;
+			key.mv_data = &scopes[i].mid;
+			mdb_cursor_get( mcd, &key, &scopes[i].mval, MDB_SET );
+		}
+	}
+
+	if ( ww->mcd ) {
+		MDB_val key, data;
+
+		key.mv_size = sizeof(ID);
+		key.mv_data = &ww->key;
+		data = ww->data;
+		rc = mdb_cursor_get( mcd, &key, &data, MDB_GET_BOTH );
+		if ( rc == MDB_NOTFOUND ) {
+			data = ww->data;
+			rc = mdb_cursor_get( mcd, &key, &data, MDB_GET_BOTH_RANGE );
+			/* the loop will skip this node using NEXT_DUP but we want it
+			 * sent, so go back one space first
+			 */
+			if ( rc == MDB_SUCCESS )
+				mdb_cursor_get( mcd, &key, &data, MDB_PREV_DUP );
+			else
+				rc = LDAP_BUSY;
+		} else if ( rc ) {
+			rc = LDAP_OTHER;
+		}
+		op->o_tmpfree( ww->data.mv_data, op->o_tmpmemctx );
+		ww->data.mv_data = NULL;
+	}
+	return rc;
+}
+
 int
 mdb_search( Operation *op, SlapReply *rs )
 {
 	struct mdb_info *mdb = (struct mdb_info *) op->o_bd->be_private;
-	ID		id, cursor;
+	ID		id, cursor, nsubs, ncand, cscope;
 	ID		lastid = NOID;
 	ID		candidates[MDB_IDL_UM_SIZE];
+	ID		iscopes[MDB_IDL_DB_SIZE];
 	ID2		*scopes;
+	void	*stack;
 	Entry		*e = NULL, *base = NULL;
 	Entry		*matched = NULL;
 	AttributeName	*attrs;
@@ -328,7 +422,9 @@ mdb_search( Operation *op, SlapReply *rs )
 	int		manageDSAit;
 	int		tentries = 0;
 	IdScopes	isc;
-	MDB_cursor	*mci;
+	MDB_cursor	*mci, *mcd;
+	ww_ctx wwctx;
+	slap_callback cb = { 0 };
 
 	mdb_op_info	opinfo = {{{0}}}, *moi = &opinfo;
 	MDB_txn			*ltid = NULL;
@@ -355,17 +451,27 @@ mdb_search( Operation *op, SlapReply *rs )
 		return rs->sr_err;
 	}
 
+	rs->sr_err = mdb_cursor_open( ltid, mdb->mi_dn2id, &mcd );
+	if ( rs->sr_err ) {
+		mdb_cursor_close( mci );
+		send_ldap_error( op, rs, LDAP_OTHER, "internal error" );
+		return rs->sr_err;
+	}
+
 	scopes = scope_chunk_get( op );
+	stack = search_stack( op );
 	isc.mt = ltid;
-	isc.mc = NULL;
+	isc.mc = mcd;
 	isc.scopes = scopes;
+	isc.oscope = op->ors_scope;
+	isc.sctmp = stack;
 
 	if ( op->ors_deref & LDAP_DEREF_FINDING ) {
 		MDB_IDL_ZERO(candidates);
 	}
 dn2entry_retry:
 	/* get entry with reader lock */
-	rs->sr_err = mdb_dn2entry( op, ltid, NULL, &op->o_req_ndn, &e, 1 );
+	rs->sr_err = mdb_dn2entry( op, ltid, mcd, &op->o_req_ndn, &e, &nsubs, 1 );
 
 	switch(rs->sr_err) {
 	case MDB_NOTFOUND:
@@ -528,14 +634,42 @@ dn2entry_retry:
 	/* select candidates */
 	if ( op->oq_search.rs_scope == LDAP_SCOPE_BASE ) {
 		rs->sr_err = base_candidate( op->o_bd, base, candidates );
-
+		scopes[0].mid = 0;
+		ncand = 1;
 	} else {
+		if ( op->ors_scope == LDAP_SCOPE_ONELEVEL ) {
+			size_t nkids;
+			MDB_val key, data;
+			key.mv_data = &base->e_id;
+			key.mv_size = sizeof( ID );
+			mdb_cursor_get( mcd, &key, &data, MDB_SET );
+			mdb_cursor_count( mcd, &nkids );
+			nsubs = nkids - 1;
+		} else if ( !base->e_id ) {
+			/* we don't maintain nsubs for entryID 0.
+			 * just grab entry count from id2entry stat
+			 */
+			MDB_stat ms;
+			mdb_stat( ltid, mdb->mi_id2entry, &ms );
+			nsubs = ms.ms_entries;
+		}
 		MDB_IDL_ZERO( candidates );
 		scopes[0].mid = 1;
 		scopes[1].mid = base->e_id;
 		scopes[1].mval.mv_data = NULL;
 		rs->sr_err = search_candidates( op, rs, base,
-			ltid, mci, candidates, scopes );
+			&isc, mci, candidates, stack );
+		ncand = MDB_IDL_N( candidates );
+		if ( !base->e_id || ncand == NOID ) {
+			/* grab entry count from id2entry stat
+			 */
+			MDB_stat ms;
+			mdb_stat( ltid, mdb->mi_id2entry, &ms );
+			if ( !base->e_id )
+				nsubs = ms.ms_entries;
+			if ( ncand == NOID )
+				ncand = ms.ms_entries;
+		}
 	}
 
 	/* start cursor at beginning of candidates.
@@ -553,7 +687,7 @@ dn2entry_retry:
 	/* if not root and candidates exceed to-be-checked entries, abort */
 	if ( op->ors_limit	/* isroot == FALSE */ &&
 		op->ors_limit->lms_s_unchecked != -1 &&
-		MDB_IDL_N(candidates) > (unsigned) op->ors_limit->lms_s_unchecked )
+		ncand > (unsigned) op->ors_limit->lms_s_unchecked )
 	{
 		rs->sr_err = LDAP_ADMINLIMIT_EXCEEDED;
 		send_ldap_result( op, rs );
@@ -564,7 +698,18 @@ dn2entry_retry:
 	if ( op->ors_limit == NULL	/* isroot == TRUE */ ||
 		!op->ors_limit->lms_s_pr_hide )
 	{
-		tentries = MDB_IDL_N(candidates);
+		tentries = ncand;
+	}
+
+	wwctx.flag = 0;
+	/* If we're running in our own read txn */
+	if (  moi == &opinfo ) {
+		cb.sc_writewait = mdb_writewait;
+		cb.sc_private = &wwctx;
+		wwctx.txn = ltid;
+		wwctx.mcd = NULL;
+		cb.sc_next = op->o_callback;
+		op->o_callback = &cb;
 	}
 
 	if ( get_pagedresults( op ) > SLAP_CONTROL_IGNORED ) {
@@ -596,11 +741,41 @@ dn2entry_retry:
 		}
 		if ( id == (ID)ps->ps_cookie )
 			id = mdb_idl_next( candidates, &cursor );
+		nsubs = ncand;	/* always bypass scope'd search */
 		goto loop_begin;
 	}
+	if ( nsubs < ncand ) {
+		int rc;
+		/* Do scope-based search */
 
-	for ( id = mdb_idl_first( candidates, &cursor );
-		  id != NOID ; id = mdb_idl_next( candidates, &cursor ) )
+		/* if any alias scopes were set, save them */
+		if (scopes[0].mid > 1) {
+			cursor = 1;
+			for (cscope = 1; cscope <= scopes[0].mid; cscope++) {
+				/* Ignore the original base */
+				if (scopes[cscope].mid == base->e_id)
+					continue;
+				iscopes[cursor++] = scopes[cscope].mid;
+			}
+			iscopes[0] = scopes[0].mid - 1;
+		} else {
+			iscopes[0] = 0;
+		}
+
+		wwctx.mcd = mcd;
+		isc.id = base->e_id;
+		isc.numrdns = 0;
+		rc = mdb_dn2id_walk( op, &isc );
+		if ( rc )
+			id = NOID;
+		else
+			id = isc.id;
+		cscope = 0;
+	} else {
+		id = mdb_idl_first( candidates, &cursor );
+	}
+
+	while (id != NOID)
 	{
 		int scopeok;
 		MDB_val edata;
@@ -634,6 +809,72 @@ loop_begin:
 			goto done;
 		}
 
+
+		if ( nsubs < ncand ) {
+			unsigned i;
+			/* Is this entry in the candidate list? */
+			scopeok = 0;
+			if (MDB_IDL_IS_RANGE( candidates )) {
+				if ( id >= MDB_IDL_RANGE_FIRST( candidates ) &&
+					id <= MDB_IDL_RANGE_LAST( candidates ))
+					scopeok = 1;
+			} else {
+				i = mdb_idl_search( candidates, id );
+				if (i <= candidates[0] && candidates[i] == id )
+					scopeok = 1;
+			}
+			if ( scopeok )
+				goto scopeok;
+			goto loop_continue;
+		}
+
+		/* Does this candidate actually satisfy the search scope?
+		 */
+		scopeok = 0;
+		isc.numrdns = 0;
+		switch( op->ors_scope ) {
+		case LDAP_SCOPE_BASE:
+			/* This is always true, yes? */
+			if ( id == base->e_id ) scopeok = 1;
+			break;
+
+#ifdef LDAP_SCOPE_CHILDREN
+		case LDAP_SCOPE_CHILDREN:
+			if ( id == base->e_id ) break;
+			/* Fall-thru */
+#endif
+		case LDAP_SCOPE_SUBTREE:
+			if ( id == base->e_id ) {
+				scopeok = 1;
+				break;
+			}
+			/* Fall-thru */
+		case LDAP_SCOPE_ONELEVEL:
+			if ( id == base->e_id ) break;
+			isc.id = id;
+			isc.nscope = 0;
+			rs->sr_err = mdb_idscopes( op, &isc );
+			if ( rs->sr_err == MDB_SUCCESS ) {
+				if ( isc.nscope )
+					scopeok = 1;
+			} else {
+				if ( rs->sr_err == MDB_NOTFOUND )
+					goto notfound;
+			}
+			break;
+		}
+
+		/* Not in scope, ignore it */
+		if ( !scopeok )
+		{
+			Debug( LDAP_DEBUG_TRACE,
+				LDAP_XSTRING(mdb_search)
+				": %ld scope not okay\n",
+				(long) id, 0, 0 );
+			goto loop_continue;
+		}
+
+scopeok:
 		if ( id == base->e_id ) {
 			e = base;
 		} else {
@@ -641,6 +882,10 @@ loop_begin:
 			/* get the entry */
 			rs->sr_err = mdb_id2edata( op, mci, id, &edata );
 			if ( rs->sr_err == MDB_NOTFOUND ) {
+notfound:
+				if( nsubs < ncand )
+					goto loop_continue;
+
 				if( !MDB_IDL_IS_RANGE(candidates) ) {
 					/* only complain for non-range IDLs */
 					Debug( LDAP_DEBUG_TRACE,
@@ -669,47 +914,8 @@ loop_begin:
 				send_ldap_result( op, rs );
 				goto done;
 			}
-		}
 
-		/* Does this candidate actually satisfy the search scope?
-		 */
-		scopeok = 0;
-		isc.numrdns = 0;
-		switch( op->ors_scope ) {
-		case LDAP_SCOPE_BASE:
-			/* This is always true, yes? */
-			if ( id == base->e_id ) scopeok = 1;
-			break;
-
-#ifdef LDAP_SCOPE_CHILDREN
-		case LDAP_SCOPE_CHILDREN:
-			if ( id == base->e_id ) break;
-			/* Fall-thru */
-#endif
-		case LDAP_SCOPE_SUBTREE:
-			if ( id == base->e_id ) {
-				scopeok = 1;
-				break;
-			}
-			/* Fall-thru */
-		case LDAP_SCOPE_ONELEVEL:
-			isc.id = id;
-			if ( mdb_idscopes( op, &isc ) == MDB_SUCCESS ) scopeok = 1;
-			break;
-		}
-
-		/* Not in scope, ignore it */
-		if ( !scopeok )
-		{
-			Debug( LDAP_DEBUG_TRACE,
-				LDAP_XSTRING(mdb_search)
-				": %ld scope not okay\n",
-				(long) id, 0, 0 );
-			goto loop_continue;
-		}
-
-		if ( id != base->e_id ) {
-			rs->sr_err = mdb_entry_decode( op, &edata, &e );
+			rs->sr_err = mdb_entry_decode( op, ltid, &edata, &e );
 			if ( rs->sr_err ) {
 				rs->sr_err = LDAP_OTHER;
 				rs->sr_text = "internal error in mdb_entry_decode";
@@ -746,8 +952,7 @@ loop_begin:
 			 * deref it when finding, return it.
 			 */
 			if ( is_entry_alias(e) &&
-				((op->ors_deref & LDAP_DEREF_FINDING) ||
-					!bvmatch(&e->e_nname, &op->o_req_ndn)))
+				((op->ors_deref & LDAP_DEREF_FINDING) || e != base ))
 			{
 				goto loop_continue;
 			}
@@ -761,8 +966,9 @@ loop_begin:
 			struct berval pdn, pndn;
 			char *d, *n;
 			int i;
+
 			/* child of base, just append RDNs to base->e_name */
-			if ( isc.nscope == 1 ) {
+			if ( nsubs < ncand || isc.scopes[isc.nscope].mid == base->e_id ) {
 				pdn = base->e_name;
 				pndn = base->e_nname;
 			} else {
@@ -778,14 +984,28 @@ loop_begin:
 			e->e_nname.bv_val = op->o_tmpalloc(e->e_nname.bv_len + 1, op->o_tmpmemctx);
 			d = e->e_name.bv_val;
 			n = e->e_nname.bv_val;
-			for (i=0; i<isc.numrdns; i++) {
-				memcpy(d, isc.rdns[i].bv_val, isc.rdns[i].bv_len);
-				d += isc.rdns[i].bv_len;
-				*d++ = ',';
-				memcpy(n, isc.nrdns[i].bv_val, isc.nrdns[i].bv_len);
-				n += isc.nrdns[i].bv_len;
-				*n++ = ',';
+			if (nsubs < ncand) {
+				/* RDNs are in top-down order */
+				for (i=isc.numrdns-1; i>=0; i--) {
+					memcpy(d, isc.rdns[i].bv_val, isc.rdns[i].bv_len);
+					d += isc.rdns[i].bv_len;
+					*d++ = ',';
+					memcpy(n, isc.nrdns[i].bv_val, isc.nrdns[i].bv_len);
+					n += isc.nrdns[i].bv_len;
+					*n++ = ',';
+				}
+			} else {
+				/* RDNs are in bottom-up order */
+				for (i=0; i<isc.numrdns; i++) {
+					memcpy(d, isc.rdns[i].bv_val, isc.rdns[i].bv_len);
+					d += isc.rdns[i].bv_len;
+					*d++ = ',';
+					memcpy(n, isc.nrdns[i].bv_val, isc.nrdns[i].bv_len);
+					n += isc.nrdns[i].bv_len;
+					*n++ = ',';
+				}
 			}
+
 			if (pdn.bv_len) {
 				memcpy(d, pdn.bv_val, pdn.bv_len+1);
 				memcpy(n, pndn.bv_val, pndn.bv_len+1);
@@ -795,7 +1015,7 @@ loop_begin:
 				e->e_name.bv_len--;
 				e->e_nname.bv_len--;
 			}
-			if (isc.nscope != 1) {
+			if (pndn.bv_val != base->e_nname.bv_val) {
 				op->o_tmpfree(pndn.bv_val, op->o_tmpmemctx);
 				op->o_tmpfree(pdn.bv_val, op->o_tmpmemctx);
 			}
@@ -819,13 +1039,22 @@ loop_begin:
 
 			send_search_reference( op, rs );
 
-			mdb_entry_return( op, e );
+			if (e != base)
+				mdb_entry_return( op, e );
 			rs->sr_entry = NULL;
 			e = NULL;
 
 			ber_bvarray_free( rs->sr_ref );
 			ber_bvarray_free( erefs );
 			rs->sr_ref = NULL;
+
+			if ( wwctx.flag ) {
+				rs->sr_err = mdb_waitfixup( op, &wwctx, mci, mcd, scopes );
+				if ( rs->sr_err ) {
+					send_ldap_result( op, rs );
+					goto done;
+				}
+			}
 
 			goto loop_continue;
 		}
@@ -866,6 +1095,9 @@ loop_begin:
 					break;
 				default:		/* entry not sent */
 					break;
+				case LDAP_BUSY:
+					send_ldap_result( op, rs );
+					goto done;
 				case LDAP_UNAVAILABLE:
 				case LDAP_SIZELIMIT_EXCEEDED:
 					if ( rs->sr_err == LDAP_SIZELIMIT_EXCEEDED ) {
@@ -877,6 +1109,13 @@ loop_begin:
 						rs->sr_err = LDAP_OTHER;
 					}
 					goto done;
+				}
+				if ( wwctx.flag ) {
+					rs->sr_err = mdb_waitfixup( op, &wwctx, mci, mcd, scopes );
+					if ( rs->sr_err ) {
+						send_ldap_result( op, rs );
+						goto done;
+					}
 				}
 			}
 
@@ -895,6 +1134,37 @@ loop_continue:
 			e = NULL;
 			rs->sr_entry = NULL;
 		}
+
+		if ( nsubs < ncand ) {
+			int rc = mdb_dn2id_walk( op, &isc );
+			if (rc) {
+				id = NOID;
+				/* We got to the end of a subtree. If there are any
+				 * alias scopes left, search them too.
+				 */
+				while (iscopes[0] && cscope < iscopes[0]) {
+					cscope++;
+					isc.id = iscopes[cscope];
+					if ( base )
+						mdb_entry_return( op, base );
+					rs->sr_err = mdb_id2entry(op, mci, isc.id, &base);
+					if ( !rs->sr_err ) {
+						mdb_id2name( op, ltid, &isc.mc, isc.id, &base->e_name, &base->e_nname );
+						isc.numrdns = 0;
+						if (isc.oscope == LDAP_SCOPE_ONELEVEL)
+							isc.oscope = LDAP_SCOPE_BASE;
+						rc = mdb_dn2id_walk( op, &isc );
+						if ( !rc ) {
+							id = isc.id;
+							break;
+						}
+					}
+				}
+			} else
+				id = isc.id;
+		} else {
+			id = mdb_idl_next( candidates, &cursor );
+		}
 	}
 
 nochange:
@@ -911,20 +1181,31 @@ nochange:
 	rs->sr_err = LDAP_SUCCESS;
 
 done:
-	if( isc.mc )
-		mdb_cursor_close( isc.mc );
-	if (mci)
-		mdb_cursor_close( mci );
+	if ( cb.sc_private ) {
+		/* remove our writewait callback */
+		slap_callback **scp = &op->o_callback;
+		while ( *scp ) {
+			if ( *scp == &cb ) {
+				*scp = cb.sc_next;
+				cb.sc_private = NULL;
+				break;
+			}
+		}
+	}
+	mdb_cursor_close( mcd );
+	mdb_cursor_close( mci );
 	if ( moi == &opinfo ) {
 		mdb_txn_reset( moi->moi_txn );
 		LDAP_SLIST_REMOVE( &op->o_extra, &moi->moi_oe, OpExtra, oe_next );
+	} else {
+		moi->moi_ref--;
 	}
 	if( rs->sr_v2ref ) {
 		ber_bvarray_free( rs->sr_v2ref );
 		rs->sr_v2ref = NULL;
 	}
 	if (base)
-		mdb_entry_return( op,base);
+		mdb_entry_return( op, base );
 	scope_chunk_ret( op, scopes );
 
 	return rs->sr_err;
@@ -1013,15 +1294,14 @@ static int search_candidates(
 	Operation *op,
 	SlapReply *rs,
 	Entry *e,
-	MDB_txn *txn,
+	IdScopes *isc,
 	MDB_cursor *mci,
 	ID	*ids,
-	ID2L	scopes )
+	ID *stack )
 {
 	struct mdb_info *mdb = (struct mdb_info *) op->o_bd->be_private;
 	int rc, depth = 1;
 	Filter		*f, rf, xf, nf, sf;
-	ID		*stack;
 	AttributeAssertion aa_ref = ATTRIBUTEASSERTION_INIT;
 	AttributeAssertion aa_subentry = ATTRIBUTEASSERTION_INIT;
 
@@ -1076,18 +1356,16 @@ static int search_candidates(
 	/* Allocate IDL stack, plus 1 more for former tmp */
 	if ( depth+1 > mdb->mi_search_stack_depth ) {
 		stack = ch_malloc( (depth + 1) * MDB_IDL_UM_SIZE * sizeof( ID ) );
-	} else {
-		stack = search_stack( op );
 	}
 
 	if( op->ors_deref & LDAP_DEREF_SEARCHING ) {
-		rc = search_aliases( op, rs, e->e_id, txn, mci, scopes, stack );
+		rc = search_aliases( op, rs, e->e_id, isc, mci, stack );
 	} else {
 		rc = LDAP_SUCCESS;
 	}
 
 	if ( rc == LDAP_SUCCESS ) {
-		rc = mdb_filter_candidates( op, txn, f, ids,
+		rc = mdb_filter_candidates( op, isc->mt, f, ids,
 			stack, stack+MDB_IDL_UM_SIZE );
 	}
 

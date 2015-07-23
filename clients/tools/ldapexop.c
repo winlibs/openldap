@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2005-2012 The OpenLDAP Foundation.
+ * Copyright 2005-2015 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -130,7 +130,7 @@ main( int argc, char *argv[] )
 		}
 
 	} else if ( strcasecmp( argv[ 0 ], "passwd" ) == 0 ) {
-		fprintf( stderr, "use ldappasswd(1) instead.\n\n", argv[ 0 ] );
+		fprintf( stderr, "use ldappasswd(1) instead.\n\n" );
 		usage();
 		/* TODO? */
 

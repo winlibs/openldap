@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2012 The OpenLDAP Foundation.
+ * Copyright 1998-2015 The OpenLDAP Foundation.
  * Portions Copyright 2008 Pierangelo Masarati.
  * All rights reserved.
  *
@@ -343,12 +343,9 @@ rdnval_op_rename( Operation *op, SlapReply *rs )
 	struct berval old;
 	int rc;
 
-	dnRdn( &op->o_req_dn, &old );
-	if ( dn_match( &old, &op->orr_newrdn ) ) {
-		dnRdn( &op->o_req_ndn, &old );
-		if ( dn_match( &old, &op->orr_nnewrdn ) ) {
-			return SLAP_CB_CONTINUE;
-		}
+	dnRdn( &op->o_req_ndn, &old );
+	if ( dn_match( &old, &op->orr_nnewrdn ) ) {
+		return SLAP_CB_CONTINUE;
 	}
 
 	rc = rdnval_rdn2vals( op, rs, &op->orr_newrdn, &op->orr_nnewrdn,

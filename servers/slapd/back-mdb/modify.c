@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2000-2012 The OpenLDAP Foundation.
+ * Copyright 2000-2015 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -228,7 +228,9 @@ int mdb_modify_internal(
 
  			mod->sm_op = SLAP_MOD_SOFTDEL;
 
- 			if ( err == LDAP_NO_SUCH_ATTRIBUTE ) {
+			if ( err == LDAP_SUCCESS ) {
+				got_delete = 1;
+			} else if ( err == LDAP_NO_SUCH_ATTRIBUTE ) {
  				err = LDAP_SUCCESS;
  			}
 
@@ -338,6 +340,9 @@ int mdb_modify_internal(
 			if ( a2 ) {
 				/* need to detect which values were deleted */
 				int i, j;
+				/* let add know there were deletes */
+				if ( a2->a_flags & SLAP_ATTR_IXADD )
+					a2->a_flags |= SLAP_ATTR_IXDEL;
 				vals = op->o_tmpalloc( (ap->a_numvals + 1) *
 					sizeof(struct berval), op->o_tmpmemctx );
 				j = 0;
@@ -375,9 +380,53 @@ int mdb_modify_internal(
 	for ( ap = e->e_attrs; ap != NULL; ap = ap->a_next ) {
 		if (ap->a_flags & SLAP_ATTR_IXADD) {
 			ap->a_flags &= ~SLAP_ATTR_IXADD;
-			rc = mdb_index_values( op, tid, ap->a_desc,
-				ap->a_nvals,
-				e->e_id, SLAP_INDEX_ADD_OP );
+			if ( ap->a_flags & SLAP_ATTR_IXDEL ) {
+				/* if any values were deleted, we must readd index
+				 * for all remaining values.
+				 */
+				ap->a_flags &= ~SLAP_ATTR_IXDEL;
+				rc = mdb_index_values( op, tid, ap->a_desc,
+					ap->a_nvals,
+					e->e_id, SLAP_INDEX_ADD_OP );
+			} else {
+				int found = 0;
+				/* if this was only an add, we only need to index
+				 * the added values.
+				 */
+				for ( ml = modlist; ml != NULL; ml = ml->sml_next ) {
+					struct berval *vals;
+					if ( ml->sml_desc != ap->a_desc || !ml->sml_numvals )
+						continue;
+					found = 1;
+					switch( ml->sml_op ) {
+					case LDAP_MOD_ADD:
+					case LDAP_MOD_REPLACE:
+					case LDAP_MOD_INCREMENT:
+					case SLAP_MOD_SOFTADD:
+					case SLAP_MOD_ADD_IF_NOT_PRESENT:
+						if ( ml->sml_op == LDAP_MOD_INCREMENT )
+							vals = ap->a_nvals;
+						else if ( ml->sml_nvalues )
+							vals = ml->sml_nvalues;
+						else
+							vals = ml->sml_values;
+						rc = mdb_index_values( op, tid, ap->a_desc,
+							vals, e->e_id, SLAP_INDEX_ADD_OP );
+						break;
+					}
+					if ( rc )
+						break;
+				}
+				/* This attr was affected by a modify of a subtype, so
+				 * there was no direct match in the modlist. Just readd
+				 * all of its values.
+				 */
+				if ( !found ) {
+					rc = mdb_index_values( op, tid, ap->a_desc,
+						ap->a_nvals,
+						e->e_id, SLAP_INDEX_ADD_OP );
+				}
+			}
 			if ( rc != LDAP_SUCCESS ) {
 				Debug( LDAP_DEBUG_ANY,
 				       "%s: attribute \"%s\" index add failure\n",
@@ -457,14 +506,6 @@ txnReturn:
 
 	ctrls[num_ctrls] = NULL;
 
-	/* Don't touch the opattrs, if this is a contextCSN update
-	 * initiated from updatedn */
-	if ( !be_isupdate(op) || !op->orm_modlist || op->orm_modlist->sml_next ||
-		 op->orm_modlist->sml_desc != slap_schema.si_ad_contextCSN ) {
-
-		slap_mods_opattrs( op, &op->orm_modlist, 1 );
-	}
-
 	/* begin transaction */
 	rs->sr_err = mdb_opinfo_get( op, mdb, 0, &moi );
 	rs->sr_text = NULL;
@@ -476,11 +517,18 @@ txnReturn:
 		rs->sr_text = "internal error";
 		goto return_results;
 	}
-
 	txn = moi->moi_txn;
 
+	/* Don't touch the opattrs, if this is a contextCSN update
+	 * initiated from updatedn */
+	if ( !be_isupdate(op) || !op->orm_modlist || op->orm_modlist->sml_next ||
+		 op->orm_modlist->sml_desc != slap_schema.si_ad_contextCSN ) {
+
+		slap_mods_opattrs( op, &op->orm_modlist, 1 );
+	}
+
 	/* get entry or ancestor */
-	rs->sr_err = mdb_dn2entry( op, txn, NULL, &op->o_req_ndn, &e, 1 );
+	rs->sr_err = mdb_dn2entry( op, txn, NULL, &op->o_req_ndn, &e, NULL, 1 );
 
 	if ( rs->sr_err != 0 ) {
 		Debug( LDAP_DEBUG_TRACE,
@@ -630,7 +678,7 @@ txnReturn:
 	}
 
 	if( rs->sr_err != 0 ) {
-		Debug( LDAP_DEBUG_TRACE,
+		Debug( LDAP_DEBUG_ANY,
 			LDAP_XSTRING(mdb_modify) ": txn_%s failed: %s (%d)\n",
 			op->o_noop ? "abort (no-op)" : "commit",
 			mdb_strerror(rs->sr_err), rs->sr_err );
@@ -672,6 +720,8 @@ done:
 		if ( opinfo.moi_oe.oe_key ) {
 			LDAP_SLIST_REMOVE( &op->o_extra, &opinfo.moi_oe, OpExtra, oe_next );
 		}
+	} else {
+		moi->moi_ref--;
 	}
 
 	if( e != NULL ) {

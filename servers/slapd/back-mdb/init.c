@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2000-2012 The OpenLDAP Foundation.
+ * Copyright 2000-2015 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -176,18 +176,18 @@ mdb_db_open( BackendDB *be, ConfigReply *cr )
 
 	if ( rc ) {
 		Debug( LDAP_DEBUG_ANY,
-			LDAP_XSTRING(mdb_db_open) ": database \"%s\" cannot be opened, err %d. "
+			LDAP_XSTRING(mdb_db_open) ": database \"%s\" cannot be opened: %s (%d). "
 			"Restore from backup!\n",
-			be->be_suffix[0].bv_val, rc, 0 );
+			be->be_suffix[0].bv_val, mdb_strerror(rc), rc );
 		goto fail;
 	}
 
 	rc = mdb_txn_begin( mdb->mi_dbenv, NULL, flags & MDB_RDONLY, &txn );
 	if ( rc ) {
 		Debug( LDAP_DEBUG_ANY,
-			LDAP_XSTRING(mdb_db_open) ": database \"%s\" cannot be opened, err %d. "
+			LDAP_XSTRING(mdb_db_open) ": database \"%s\" cannot be opened: %s (%d). "
 			"Restore from backup!\n",
-			be->be_suffix[0].bv_val, rc, 0 );
+			be->be_suffix[0].bv_val, mdb_strerror(rc), rc );
 		goto fail;
 	}
 
@@ -204,14 +204,14 @@ mdb_db_open( BackendDB *be, ConfigReply *cr )
 				flags |= MDB_CREATE;
 		}
 
-		rc = mdb_open( txn,
+		rc = mdb_dbi_open( txn,
 			mdmi_databases[i].bv_val,
 			flags,
 			&mdb->mi_dbis[i] );
 
 		if ( rc != 0 ) {
 			snprintf( cr->msg, sizeof(cr->msg), "database \"%s\": "
-				"mdb_open(%s/%s) failed: %s (%d).", 
+				"mdb_dbi_open(%s/%s) failed: %s (%d).", 
 				be->be_suffix[0].bv_val, 
 				mdb->mi_dbenv_home, mdmi_databases[i].bv_val,
 				mdb_strerror(rc), rc );
@@ -223,9 +223,40 @@ mdb_db_open( BackendDB *be, ConfigReply *cr )
 
 		if ( i == MDB_ID2ENTRY )
 			mdb_set_compare( txn, mdb->mi_dbis[i], mdb_id_compare );
-		else if ( i == MDB_DN2ID )
+		else if ( i == MDB_DN2ID ) {
+			MDB_cursor *mc;
+			MDB_val key, data;
+			ID id;
 			mdb_set_dupsort( txn, mdb->mi_dbis[i], mdb_dup_compare );
-
+			/* check for old dn2id format */
+			rc = mdb_cursor_open( txn, mdb->mi_dbis[i], &mc );
+			/* first record is always ID 0 */
+			rc = mdb_cursor_get( mc, &key, &data, MDB_FIRST );
+			if ( rc == 0 ) {
+				rc = mdb_cursor_get( mc, &key, &data, MDB_NEXT );
+				if ( rc == 0 ) {
+					int len;
+					unsigned char *ptr;
+					ptr = data.mv_data;
+					len = (ptr[0] & 0x7f) << 8 | ptr[1];
+					if (data.mv_size < 2*len + 4 + 2*sizeof(ID)) {
+						snprintf( cr->msg, sizeof(cr->msg),
+						"database \"%s\": DN index needs upgrade, "
+						"run \"slapindex entryDN\".",
+						be->be_suffix[0].bv_val );
+						Debug( LDAP_DEBUG_ANY,
+							LDAP_XSTRING(mdb_db_open) ": %s\n",
+							cr->msg, 0, 0 );
+						if ( !(slapMode & SLAP_TOOL_READMAIN ))
+							rc = LDAP_OTHER;
+						mdb->mi_flags |= MDB_NEED_UPGRADE;
+					}
+				}
+			}
+			mdb_cursor_close( mc );
+			if ( rc == LDAP_OTHER )
+				goto fail;
+		}
 	}
 
 	rc = mdb_ad_read( mdb, txn );
@@ -234,14 +265,23 @@ mdb_db_open( BackendDB *be, ConfigReply *cr )
 		goto fail;
 	}
 
-	rc = mdb_attr_dbs_open( be, txn, cr );
-	if ( rc ) {
-		mdb_txn_abort( txn );
-		goto fail;
+	/* slapcat doesn't need indexes. avoid a failure if
+	 * a configured index wasn't created yet.
+	 */
+	if ( !(slapMode & SLAP_TOOL_READONLY) ) {
+		rc = mdb_attr_dbs_open( be, txn, cr );
+		if ( rc ) {
+			mdb_txn_abort( txn );
+			goto fail;
+		}
 	}
 
 	rc = mdb_txn_commit(txn);
 	if ( rc != 0 ) {
+		Debug( LDAP_DEBUG_ANY,
+			LDAP_XSTRING(mdb_db_open) ": database %s: "
+			"txn_commit failed: %s (%d)\n",
+			be->be_suffix[0].bv_val, mdb_strerror(rc), rc );
 		goto fail;
 	}
 
@@ -281,7 +321,7 @@ mdb_db_close( BackendDB *be, ConfigReply *cr )
 
 			mdb_attr_dbs_close( mdb );
 			for ( i=0; i<MDB_NDB; i++ )
-				mdb_close( mdb->mi_dbenv, mdb->mi_dbis[i] );
+				mdb_dbi_close( mdb->mi_dbenv, mdb->mi_dbis[i] );
 
 			/* force a sync, but not if we were ReadOnly,
 			 * and not in Quick mode.

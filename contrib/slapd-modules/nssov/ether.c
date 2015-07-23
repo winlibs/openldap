@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2008-2012 The OpenLDAP Foundation.
+ * Copyright 2008-2015 The OpenLDAP Foundation.
  * Copyright 2008 by Howard Chu, Symas Corp.
  * All rights reserved.
  *
@@ -59,13 +59,13 @@ NSSOV_CBPRIV(ether,
 	tmpaddr.ether_addr_octet[3] = ao[3]; \
 	tmpaddr.ether_addr_octet[4] = ao[4]; \
 	tmpaddr.ether_addr_octet[5] = ao[5]; } \
-  WRITE_TYPE(fp,tmpaddr,uint8_t[6]);
+  WRITE(fp,&tmpaddr,sizeof(uint8_t[6]));
 
 static int write_ether(nssov_ether_cbp *cbp,Entry *entry)
 {
 	int32_t tmpint32;
 	struct ether_addr tmpaddr;
-	struct berval tmparr[2], empty;
+	struct berval tmparr[2];
 	struct berval *names,*ethers;
 	Attribute *a;
 	int i,j;
@@ -141,7 +141,7 @@ NSSOV_HANDLE(
 	struct berval filter = {sizeof(fbuf)};
 	filter.bv_val = fbuf;
 	BER_BVZERO(&cbp.name);
-	READ_TYPE(fp,addr,uint8_t[6]);
+	READ(fp,&addr,sizeof(uint8_t[6]));
 	cbp.addr.bv_len = snprintf(cbp.buf,sizeof(cbp.buf), "%x:%x:%x:%x:%x:%x",
 		addr.ether_addr_octet[0],
 		addr.ether_addr_octet[1],

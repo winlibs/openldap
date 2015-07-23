@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2012 The OpenLDAP Foundation.
+ * Copyright 1998-2015 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -45,6 +45,12 @@
 
 #define SASL_VERSION_FULL	((SASL_VERSION_MAJOR << 16) |\
 	(SASL_VERSION_MINOR << 8) | SASL_VERSION_STEP)
+
+#if SASL_VERSION_MINOR >= 0x020119 /* 2.1.25 */
+typedef sasl_callback_ft slap_sasl_cb_ft;
+#else
+typedef int (*slap_sasl_cb_ft)();
+#endif
 
 static sasl_security_properties_t sasl_secprops;
 #elif defined( SLAP_BUILTIN_SASL )
@@ -315,6 +321,12 @@ slap_auxprop_lookup(
 		}
 	}
 
+	/* we don't know anything about this, ignore it */
+	if ( !conn ) {
+		rc == LDAP_SUCCESS;
+		goto done;
+	}
+
 	/* Now see what else needs to be fetched */
 	for( i = 0; sl.list[i].name; i++ ) {
 		const char *name = sl.list[i].name;
@@ -412,6 +424,7 @@ slap_auxprop_lookup(
 			}
 		}
 	}
+done:;
 #if SASL_VERSION_FULL >= 0x020118
 	return rc != LDAP_SUCCESS ? SASL_FAIL : SASL_OK;
 #endif
@@ -1108,8 +1121,8 @@ int slap_sasl_init( void )
 #ifdef HAVE_CYRUS_SASL
 	int rc;
 	static sasl_callback_t server_callbacks[] = {
-		{ SASL_CB_LOG, &slap_sasl_log, NULL },
-		{ SASL_CB_GETOPT, &slap_sasl_getopt, NULL },
+		{ SASL_CB_LOG, (slap_sasl_cb_ft)&slap_sasl_log, NULL },
+		{ SASL_CB_GETOPT, (slap_sasl_cb_ft)&slap_sasl_getopt, NULL },
 		{ SASL_CB_LIST_END, NULL, NULL }
 	};
 #endif
@@ -1253,15 +1266,15 @@ int slap_sasl_open( Connection *conn, int reopen )
 		conn->c_sasl_extra = session_callbacks;
 
 		session_callbacks[cb=0].id = SASL_CB_LOG;
-		session_callbacks[cb].proc = &slap_sasl_log;
+		session_callbacks[cb].proc = (slap_sasl_cb_ft)&slap_sasl_log;
 		session_callbacks[cb++].context = conn;
 
 		session_callbacks[cb].id = SASL_CB_PROXY_POLICY;
-		session_callbacks[cb].proc = &slap_sasl_authorize;
+		session_callbacks[cb].proc = (slap_sasl_cb_ft)&slap_sasl_authorize;
 		session_callbacks[cb++].context = conn;
 
 		session_callbacks[cb].id = SASL_CB_CANON_USER;
-		session_callbacks[cb].proc = &slap_sasl_canonicalize;
+		session_callbacks[cb].proc = (slap_sasl_cb_ft)&slap_sasl_canonicalize;
 		session_callbacks[cb++].context = conn;
 
 		session_callbacks[cb].id = SASL_CB_LIST_END;

@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2000-2012 The OpenLDAP Foundation.
+ * Copyright 2000-2015 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -727,6 +727,10 @@ equality_candidates(
 		}
 		if ( ei ) {
 			bdb_cache_entryinfo_unlock( ei );
+		}
+		if ( rc == DB_NOTFOUND ) {
+			BDB_IDL_ZERO( ids );
+			rc = 0;
 		}
 		return rc;
 	}

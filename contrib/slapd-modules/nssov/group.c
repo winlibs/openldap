@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>. 
  *
- * Copyright 2008-2012 The OpenLDAP Foundation.
+ * Copyright 2008-2015 The OpenLDAP Foundation.
  * Portions Copyright 2008-2009 by Howard Chu, Symas Corp.
  * All rights reserved.
  *
@@ -143,7 +143,7 @@ static int write_group(nssov_group_cbp *cbp,Entry *entry)
 	struct berval *names,*gids,*members;
 	struct berval passwd = {0};
 	Attribute *a;
-	int i,j,nummembers,rc;
+	int i,j,nummembers,rc = 0;
 
 	/* get group name (cn) */
 	if (BER_BVISNULL(&cbp->name))
@@ -251,7 +251,7 @@ static int write_group(nssov_group_cbp *cbp,Entry *entry)
 				WRITE_INT32(cbp->fp,NSLCD_RESULT_BEGIN);
 				WRITE_BERVAL(cbp->fp,&names[i]);
 				WRITE_BERVAL(cbp->fp,&passwd);
-				WRITE_TYPE(cbp->fp,gid,gid_t);
+				WRITE_INT32(cbp->fp,gid);
 				/* write a list of values */
 				WRITE_INT32(cbp->fp,nummembers);
 				if (nummembers)
@@ -299,7 +299,7 @@ NSSOV_HANDLE(
 	char fbuf[1024];
 	struct berval filter = {sizeof(fbuf)};
 	filter.bv_val = fbuf;
-	READ_TYPE(fp,gid,gid_t);
+	READ_INT32(fp,gid);
 	cbp.gidnum.bv_val = cbp.buf;
 	cbp.gidnum.bv_len = snprintf(cbp.buf,sizeof(cbp.buf),"%d",gid);
 	cbp.wantmembers = 1;

@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2003-2012 The OpenLDAP Foundation.
+ * Copyright 2003-2015 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -665,8 +665,14 @@ int overlay_op_walk(
 	if ( rc == SLAP_CB_BYPASS )
 		rc = SLAP_CB_CONTINUE;
 
+	/* if an overlay halted processing, make sure
+	 * any previously set cleanup handlers are run
+	 */
+	if ( rc != SLAP_CB_CONTINUE )
+		goto cleanup;
+
 	func = &oi->oi_orig->bi_op_bind;
-	if ( func[which] && rc == SLAP_CB_CONTINUE ) {
+	if ( func[which] ) {
 		op->o_bd->bd_info = oi->oi_orig;
 		rc = func[which]( op, rs );
 	}
@@ -680,6 +686,7 @@ int overlay_op_walk(
 	 */
 	if ( rc == LDAP_UNWILLING_TO_PERFORM ) {
 		slap_callback *sc_next;
+cleanup:
 		for ( ; op->o_callback && op->o_callback->sc_response !=
 			over_back_response; op->o_callback = sc_next ) {
 			sc_next = op->o_callback->sc_next;
@@ -1214,8 +1221,12 @@ overlay_remove( BackendDB *be, slap_overinst *on, Operation *op )
 	rm_cb->sc_private = (void*) rm_ctx;
 
 	/* Append callback to the end of the list */
-	for ( cb = op->o_callback; cb->sc_next; cb = cb->sc_next );
-	cb->sc_next = rm_cb;
+	if ( !op->o_callback ) {
+		op->o_callback = rm_cb;
+	} else {
+		for ( cb = op->o_callback; cb->sc_next; cb = cb->sc_next );
+		cb->sc_next = rm_cb;
+	}
 }
 #endif /* SLAP_CONFIG_DELETE */
 

@@ -1,5 +1,5 @@
 .TH SLAPD-META 5 "RELEASEDATE" "OpenLDAP LDVERSION"
-.\" Copyright 1998-2012 The OpenLDAP Foundation, All Rights Reserved.
+.\" Copyright 1998-2015 The OpenLDAP Foundation, All Rights Reserved.
 .\" Copying restrictions apply.  See the COPYRIGHT file.
 .\" Copyright 2001, Pierangelo Masarati, All rights reserved. <ando@sys-net.it>
 .\" $OpenLDAP$
@@ -339,6 +339,19 @@ from 1.
 Target <target> must be defined.
 
 .TP
+.B filter <pattern>
+This directive allows specifying a
+.BR regex (5)
+pattern to indicate what search filter terms are actually served by a target.
+
+In a search request, if the search filter matches the \fIpattern\fP
+the target is considered while fulfilling the request; otherwise
+the target is ignored. There may be multiple occurrences of
+the
+.B filter
+directive for each target.
+
+.TP
 .B idassert\-authzFrom <authz-regexp>
 if defined, selects what
 .I local
@@ -367,8 +380,8 @@ for details on the syntax of this field.
 .B [tls_cacert=<file>]
 .B [tls_cacertdir=<path>]
 .B [tls_reqcert=never|allow|try|demand]
-.B [tls_ciphersuite=<ciphers>]
-.B [tls_protocol_min=<version>]
+.B [tls_cipher_suite=<ciphers>]
+.B [tls_protocol_min=<major>[.<minor>]]
 .B [tls_crlcheck=none|peer|all]
 .RS
 Allows to define the parameters of the authentication method that is 
@@ -536,6 +549,25 @@ where <d>, <h>, <m> and <s> are respectively treated as days, hours,
 minutes and seconds.
 If set before any target specification, it affects all targets, unless
 overridden by any per-target directive.
+
+.TP
+.B keepalive  <idle>:<probes>:<interval>
+The
+.B keepalive
+parameter sets the values of \fIidle\fP, \fIprobes\fP, and \fIinterval\fP
+used to check whether a socket is alive;
+.I idle
+is the number of seconds a connection needs to remain idle before TCP
+starts sending keepalive probes;
+.I probes
+is the maximum number of keepalive probes TCP should send before dropping
+the connection;
+.I interval
+is interval in seconds between individual keepalive probes.
+Only some systems support the customization of these values;
+the
+.B keepalive
+parameter is ignored otherwise, and system-wide settings are used.
 
 .TP
 .B map "{attribute|objectclass} [<local name>|*] {<foreign name>|*}"
@@ -784,7 +816,7 @@ Practical configurations may result as a combination of all the
 above scenarios.
 .SH ACLs
 Note on ACLs: at present you may add whatever ACL rule you desire
-to to the Meta (and LDAP) backends.
+to the Meta (and LDAP) backends.
 However, the meaning of an ACL on a proxy may require some
 considerations.
 Two philosophies may be considered:

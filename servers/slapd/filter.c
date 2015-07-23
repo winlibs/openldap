@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2012 The OpenLDAP Foundation.
+ * Copyright 1998-2015 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -1158,14 +1158,10 @@ get_vrFilter( Operation *op, BerElement *ber,
 void
 vrFilter_free( Operation *op, ValuesReturnFilter *vrf )
 {
-	ValuesReturnFilter	*p, *next;
+	ValuesReturnFilter	*next;
 
-	if ( vrf == NULL ) {
-		return;
-	}
-
-	for ( p = vrf; p != NULL; p = next ) {
-		next = p->vrf_next;
+	for ( ; vrf != NULL; vrf = next ) {
+		next = vrf->vrf_next;
 
 		switch ( vrf->vrf_choice & SLAPD_FILTER_MASK ) {
 		case LDAP_FILTER_PRESENT:

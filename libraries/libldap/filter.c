@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2012 The OpenLDAP Foundation.
+ * Copyright 1998-2015 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -77,7 +77,6 @@ static int ldap_is_oid ( const char *str )
 				dot=0;
 
 			} else if ( str[i] == '.' ) {
-				if( dot ) return 0;
 				if( ++dot > 1 ) return 0;
 
 			} else {
@@ -120,7 +119,6 @@ static int ldap_is_desc ( const char *str )
 				dot=0;
 
 			} else if ( str[i] == '.' ) {
-				if( dot ) return 0;
 				if( ++dot > 1 ) return 0;
 
 			} else {
@@ -938,7 +936,7 @@ ldap_put_vrFilter( BerElement *ber, const char *str_in )
 	int rc =0;
 	
 	if ( ber_printf( ber, "{" /*"}"*/ ) == -1 ) {
-		rc = -1;
+		return -1;
 	}
 	
 	rc = put_vrFilter( ber, str_in );

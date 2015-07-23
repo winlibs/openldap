@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>. 
  *
- * Copyright 2008-2012 The OpenLDAP Foundation.
+ * Copyright 2008-2015 The OpenLDAP Foundation.
  * Portions Copyright 2008 by Howard Chu, Symas Corp.
  * All rights reserved.
  *
@@ -112,8 +112,8 @@ NSSOV_CBPRIV(service,
 
 static int write_service(nssov_service_cbp *cbp,Entry *entry)
 {
-	int32_t tmpint32,tmp2int32,tmp3int32;
-	struct berval name,*names,*ports,*protos;
+	int32_t tmpint32;
+	struct berval name,*names,*protos;
 	struct berval tmparr[2];
 	Attribute *a;
 	char *tmp;
@@ -217,7 +217,7 @@ NSSOV_HANDLE(
 	READ_STRING(fp,cbp.pbuf);
 	cbp.prot.bv_len = tmpint32;
 	cbp.prot.bv_val = tmpint32 ? cbp.pbuf : NULL;,
-	Debug(LDAP_DEBUG_TRACE,"nssov_service_byname(%s,%s)\n",cbp.name.bv_val,cbp.prot.bv_val,0);,
+	Debug(LDAP_DEBUG_TRACE,"nssov_service_byname(%s,%s)\n",cbp.name.bv_val,cbp.prot.bv_val ? cbp.prot.bv_val : "",0);,
 	NSLCD_ACTION_SERVICE_BYNAME,
 	mkfilter_service_byname(cbp.mi,&cbp.name,&cbp.prot,&filter)
 )

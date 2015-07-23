@@ -1,5 +1,5 @@
 .TH SLAPD-LDAP 5 "RELEASEDATE" "OpenLDAP LDVERSION"
-.\" Copyright 1998-2012 The OpenLDAP Foundation All Rights Reserved.
+.\" Copyright 1998-2015 The OpenLDAP Foundation All Rights Reserved.
 .\" Copying restrictions apply.  See COPYRIGHT/LICENSE.
 .\" $OpenLDAP$
 .SH NAME
@@ -113,8 +113,8 @@ needs to be created.
 .B [tls_cacert=<file>]
 .B [tls_cacertdir=<path>]
 .B [tls_reqcert=never|allow|try|demand]
-.B [tls_ciphersuite=<ciphers>]
-.B [tls_protocol_min=<version>]
+.B [tls_cipher_suite=<ciphers>]
+.B [tls_protocol_min=<major>[.<minor>]]
 .B [tls_crlcheck=none|peer|all]
 .RS
 Allows to define the parameters of the authentication method that is 
@@ -225,7 +225,7 @@ for details on the syntax of this field.
 .B [tls_cacert=<file>]
 .B [tls_cacertdir=<path>]
 .B [tls_reqcert=never|allow|try|demand]
-.B [tls_ciphersuite=<ciphers>]
+.B [tls_cipher_suite=<ciphers>]
 .B [tls_protocol_min=<version>]
 .B [tls_crlcheck=none|peer|all]
 .RS
@@ -414,6 +414,25 @@ This directive causes a cached connection to be dropped an recreated
 after it has been idle for the specified time.
 
 .TP
+.B keepalive  <idle>:<probes>:<interval>
+The
+.B keepalive
+parameter sets the values of \fIidle\fP, \fIprobes\fP, and \fIinterval\fP
+used to check whether a socket is alive;
+.I idle
+is the number of seconds a connection needs to remain idle before TCP
+starts sending keepalive probes;
+.I probes
+is the maximum number of keepalive probes TCP should send before dropping
+the connection;
+.I interval
+is interval in seconds between individual keepalive probes.
+Only some systems support the customization of these values;
+the
+.B keepalive
+parameter is ignored otherwise, and system-wide settings are used.
+
+.TP
 .B network\-timeout <time>
 Sets the network timeout value after which
 .BR poll (2)/ select (2) 
@@ -440,6 +459,13 @@ By default, the search is propagated after replacing undefined portions
 with
 .BR (!(objectClass=*)) ,
 which corresponds to the empty result set.
+
+.TP
+.B onerr {CONTINUE|stop}
+This directive allows to select the behavior in case an error is returned
+by the remote server during a search.
+The default, \fBcontinue\fP, consists in returning success.
+If the value is set to \fBstop\fP, the error is returned to the client.
 
 .TP
 .B protocol\-version {0,2,3}
@@ -548,7 +574,7 @@ is used.
 .B [tls_cacert=<file>]
 .B [tls_cacertdir=<path>]
 .B [tls_reqcert=never|allow|try|demand]
-.B [tls_ciphersuite=<ciphers>]
+.B [tls_cipher_suite=<ciphers>]
 .B [tls_crlcheck=none|peer|all]
 .RS
 Specify the use of TLS when a regular connection is initialized. The

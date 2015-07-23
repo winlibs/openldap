@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2000-2012 The OpenLDAP Foundation.
+ * Copyright 2000-2015 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -100,6 +100,9 @@ rewrite_session_init(
 		
 	session = calloc( sizeof( struct rewrite_session ), 1 );
 	if ( session == NULL ) {
+#ifdef USE_REWRITE_LDAP_PVT_THREADS
+		ldap_pvt_thread_rdwr_wunlock( &info->li_cookies_mutex );
+#endif /* USE_REWRITE_LDAP_PVT_THREADS */
 		return NULL;
 	}
 	session->ls_cookie = ( void * )cookie;
@@ -108,11 +111,13 @@ rewrite_session_init(
 #ifdef USE_REWRITE_LDAP_PVT_THREADS
 	if ( ldap_pvt_thread_mutex_init( &session->ls_mutex ) ) {
 		free( session );
+		ldap_pvt_thread_rdwr_wunlock( &info->li_cookies_mutex );
 		return NULL;
 	}
 	if ( ldap_pvt_thread_rdwr_init( &session->ls_vars_mutex ) ) {
 		ldap_pvt_thread_mutex_destroy( &session->ls_mutex );
 		free( session );
+		ldap_pvt_thread_rdwr_wunlock( &info->li_cookies_mutex );
 		return NULL;
 	}
 #endif /* USE_REWRITE_LDAP_PVT_THREADS */
@@ -122,7 +127,7 @@ rewrite_session_init(
 	info->li_num_cookies++;
 
 #ifdef USE_REWRITE_LDAP_PVT_THREADS
-        ldap_pvt_thread_rdwr_wunlock( &info->li_cookies_mutex );
+	ldap_pvt_thread_rdwr_wunlock( &info->li_cookies_mutex );
 #endif /* USE_REWRITE_LDAP_PVT_THREADS */
 	
 	if ( rc != 0 ) {
@@ -161,6 +166,7 @@ rewrite_session_find(
 #ifdef USE_REWRITE_LDAP_PVT_THREADS
 	if ( session ) {
 		ldap_pvt_thread_mutex_lock( &session->ls_mutex );
+		session->ls_count++;
 	}
 	ldap_pvt_thread_rdwr_runlock( &info->li_cookies_mutex );
 #endif /* USE_REWRITE_LDAP_PVT_THREADS */
@@ -178,6 +184,7 @@ rewrite_session_return(
 )
 {
 	assert( session != NULL );
+	session->ls_count--;
 	ldap_pvt_thread_mutex_unlock( &session->ls_mutex );
 }
 

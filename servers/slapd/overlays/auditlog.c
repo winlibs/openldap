@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2005-2012 The OpenLDAP Foundation.
+ * Copyright 2005-2015 The OpenLDAP Foundation.
  * Portions copyright 2004-2005 Symas Corporation.
  * All rights reserved.
  *
@@ -200,20 +200,6 @@ auditlog_db_init(
 }
 
 static int
-auditlog_db_close(
-	BackendDB *be,
-	ConfigReply *cr
-)
-{
-	slap_overinst *on = (slap_overinst *)be->bd_info;
-	auditlog_data *ad = on->on_bi.bi_private;
-
-	free( ad->ad_logfile );
-	ad->ad_logfile = NULL;
-	return 0;
-}
-
-static int
 auditlog_db_destroy(
 	BackendDB *be,
 	ConfigReply *cr
@@ -223,6 +209,7 @@ auditlog_db_destroy(
 	auditlog_data *ad = on->on_bi.bi_private;
 
 	ldap_pvt_thread_mutex_destroy( &ad->ad_mutex );
+	free( ad->ad_logfile );
 	free( ad );
 	return 0;
 }
@@ -232,7 +219,6 @@ int auditlog_initialize() {
 
 	auditlog.on_bi.bi_type = "auditlog";
 	auditlog.on_bi.bi_db_init = auditlog_db_init;
-	auditlog.on_bi.bi_db_close = auditlog_db_close;
 	auditlog.on_bi.bi_db_destroy = auditlog_db_destroy;
 	auditlog.on_response = auditlog_response;
 

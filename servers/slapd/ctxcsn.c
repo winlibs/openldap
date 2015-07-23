@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2003-2012 The OpenLDAP Foundation.
+ * Copyright 2003-2015 The OpenLDAP Foundation.
  * Portions Copyright 2003 IBM Corporation.
  * All rights reserved.
  *
@@ -186,7 +186,7 @@ slap_queue_csn(
 	pending = (struct slap_csn_entry *) ch_calloc( 1,
 			sizeof( struct slap_csn_entry ));
 
-	Debug( LDAP_DEBUG_SYNC, "slap_queue_csn: queing %p %s\n", csn->bv_val, csn->bv_val, 0 );
+	Debug( LDAP_DEBUG_SYNC, "slap_queue_csn: queueing %p %s\n", csn->bv_val, csn->bv_val, 0 );
 
 	ldap_pvt_thread_mutex_lock( &be->be_pcl_mutex );
 

@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2000-2012 The OpenLDAP Foundation.
+ * Copyright 2000-2015 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -60,7 +60,7 @@ int mdb_back_init_cf( BackendInfo *bi );
  */
 
 int mdb_dn2entry LDAP_P(( Operation *op, MDB_txn *tid, MDB_cursor *mc,
-	struct berval *dn, Entry **e, int matched ));
+	struct berval *dn, Entry **e, ID *nsubs, int matched ));
 
 /*
  * dn2id.c
@@ -72,6 +72,7 @@ int mdb_dn2id(
 	MDB_cursor *mc,
 	struct berval *ndn,
 	ID *id,
+	ID *nsubs,
 	struct berval *matched,
 	struct berval *nmatched );
 
@@ -80,12 +81,15 @@ int mdb_dn2id_add(
 	MDB_cursor *mcp,
 	MDB_cursor *mcd,
 	ID pid,
+	ID nsubs,
+	int upsub,
 	Entry *e );
 
 int mdb_dn2id_delete(
 	Operation *op,
 	MDB_cursor *mc,
-	ID id );
+	ID id,
+	ID nsubs );
 
 int mdb_dn2id_children(
 	Operation *op,
@@ -131,6 +135,14 @@ int mdb_idscope(
 struct IdScopes;
 
 int mdb_idscopes(
+	Operation *op,
+	struct IdScopes *isc );
+
+int mdb_idscopechk(
+	Operation *op,
+	struct IdScopes *isc );
+
+int mdb_dn2id_walk(
 	Operation *op,
 	struct IdScopes *isc );
 
@@ -185,7 +197,7 @@ int mdb_entry_return( Operation *op, Entry *e );
 BI_entry_release_rw mdb_entry_release;
 BI_entry_get_rw mdb_entry_get;
 
-int mdb_entry_decode( Operation *op, MDB_val *data, Entry **e );
+int mdb_entry_decode( Operation *op, MDB_txn *txn, MDB_val *data, Entry **e );
 
 void mdb_reader_flush( MDB_env *env );
 int mdb_opinfo_get( Operation *op, struct mdb_info *mdb, int rdonly, mdb_op_info **moi );

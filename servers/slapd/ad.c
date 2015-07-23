@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2012 The OpenLDAP Foundation.
+ * Copyright 1998-2015 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -271,6 +271,7 @@ int slap_bv2ad(
 
 				if( rc == 0 && (unsigned)optlen == tags[i].bv_len ) {
 					/* duplicate (ignore) */
+					ntags--;
 					goto done;
 
 				} else if ( rc > 0 ||
@@ -768,7 +769,8 @@ int slap_bv2undef_ad(
 
 		desc->ad_cname.bv_len = bv->bv_len;
 		desc->ad_cname.bv_val = (char *)(desc+1);
-		strcpy(desc->ad_cname.bv_val, bv->bv_val);
+		strncpy(desc->ad_cname.bv_val, bv->bv_val, bv->bv_len);
+		desc->ad_cname.bv_val[bv->bv_len] = '\0';
 
 		/* canonical to upper case */
 		ldap_pvt_str2upper( desc->ad_cname.bv_val );
@@ -844,6 +846,9 @@ undef_promote(
 			tmp->ad_next = NULL;
 			/* ad_cname was contiguous, no leak here */
 			tmp->ad_cname = nat->sat_cname;
+			ldap_pvt_thread_mutex_lock( &ad_index_mutex );
+			tmp->ad_index = ++ad_count;
+			ldap_pvt_thread_mutex_unlock( &ad_index_mutex );
 			*n_ad = tmp;
 			n_ad = &tmp->ad_next;
 		} else {

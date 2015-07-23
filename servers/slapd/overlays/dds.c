@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2005-2012 The OpenLDAP Foundation.
+ * Copyright 2005-2015 The OpenLDAP Foundation.
  * Portions Copyright 2005-2006 SysNet s.n.c.
  * All rights reserved.
  *
@@ -1733,18 +1733,19 @@ dds_db_open(
 	di->di_suffix = be->be_suffix;
 	di->di_nsuffix = be->be_nsuffix;
 
-	/* ... so that count, if required, is accurate */
-	if ( di->di_max_dynamicObjects > 0 ) {
+	/* count the dynamic objects first */
+	rc = dds_count( thrctx, be );
+	if ( rc != LDAP_SUCCESS ) {
+		rc = 1;
+		goto done;
+	}
+
+	/* ... if there are dynamic objects, delete those expired */
+	if ( di->di_num_dynamicObjects > 0 ) {
 		/* force deletion of expired entries... */
 		be->bd_info = (BackendInfo *)on->on_info;
 		rc = dds_expire( thrctx, di );
 		be->bd_info = (BackendInfo *)on;
-		if ( rc != LDAP_SUCCESS ) {
-			rc = 1;
-			goto done;
-		}
-
-		rc = dds_count( thrctx, be );
 		if ( rc != LDAP_SUCCESS ) {
 			rc = 1;
 			goto done;
@@ -1783,6 +1784,7 @@ dds_db_close(
 		}
 		ldap_pvt_runqueue_remove( &slapd_rq, di->di_expire_task );
 		ldap_pvt_thread_mutex_unlock( &slapd_rq.rq_mutex );
+		di->di_expire_task = NULL;
 	}
 
 	(void)entry_info_unregister( dds_entry_info, (void *)di );

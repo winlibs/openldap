@@ -1,5 +1,5 @@
 .TH SLAPD.CONF 5 "RELEASEDATE" "OpenLDAP LDVERSION"
-.\" Copyright 1998-2012 The OpenLDAP Foundation All Rights Reserved.
+.\" Copyright 1998-2015 The OpenLDAP Foundation All Rights Reserved.
 .\" Copying restrictions apply.  See COPYRIGHT/LICENSE.
 .\" $OpenLDAP$
 .SH NAME
@@ -1149,6 +1149,23 @@ from the default, otherwise no certificate exchanges or verification will
 be done. When using GnuTLS these parameters are always generated randomly so
 this directive is ignored.  This directive is ignored when using Mozilla NSS.
 .TP
+.B TLSProtocolMin <major>[.<minor>]
+Specifies minimum SSL/TLS protocol version that will be negotiated.
+If the server doesn't support at least that version,
+the SSL handshake will fail.
+To require TLS 1.x or higher, set this option to 3.(x+1),
+e.g.,
+
+.nf
+	TLSProtocolMin 3.2
+.fi
+
+would require TLS 1.1.
+Specifying a minimum that is higher than that supported by the
+OpenLDAP implementation will result in it requiring the
+highest level that it does support.
+This directive is ignored with GnuTLS.
+.TP
 .B TLSRandFile <filename>
 Specifies the file to obtain random bits from when /dev/[u]random
 is not available.  Generally set to the name of the EGD/PRNGD socket.
@@ -1228,6 +1245,7 @@ should be one of
 .BR hdb ,
 .BR ldap ,
 .BR ldif ,
+.BR mdb ,
 .BR meta ,
 .BR monitor ,
 .BR null ,
@@ -1257,6 +1275,7 @@ should be one of
 .BR hdb ,
 .BR ldap ,
 .BR ldif ,
+.BR mdb ,
 .BR meta ,
 .BR monitor ,
 .BR null ,
@@ -1713,6 +1732,7 @@ the contextCSN is stored in the context entry.
 .B [filter=<filter str>]
 .B [scope=sub|one|base|subord]
 .B [attrs=<attr list>]
+.B [exattrs=<attr list>]
 .B [attrsonly]
 .B [sizelimit=<limit>]
 .B [timelimit=<limit>]
@@ -1734,8 +1754,9 @@ the contextCSN is stored in the context entry.
 .B [tls_cacert=<file>]
 .B [tls_cacertdir=<path>]
 .B [tls_reqcert=never|allow|try|demand]
-.B [tls_ciphersuite=<ciphers>]
+.B [tls_cipher_suite=<ciphers>]
 .B [tls_crlcheck=none|peer|all]
+.B [tls_protocol_min=<major>[.<minor>]]
 .B [suffixmassage=<real DN>]
 .B [logbase=<base DN>]
 .B [logfilter=<filter str>]
@@ -1791,6 +1812,19 @@ a consumer requested limitation on the number of entries that can be returned
 by the LDAP Content Synchronization operation; as such, it is intended
 to implement partial replication based on the size of the replicated database
 and on the time required by the synchronization.
+Note, however, that any provider-side limits for the replication identity
+will be enforced by the provider regardless of the limits requested
+by the LDAP Content Synchronization operation, much like for any other
+search operation.
+.B exattrs
+option may also be used to specify attributes that should be omitted
+from incoming entries.
+The \fBscope\fP defaults to \fBsub\fP, the \fBfilter\fP defaults to
+\fB(objectclass=*)\fP, and there is no default \fBsearchbase\fP. The
+\fBattrs\fP list defaults to \fB"*,+"\fP to return all user and operational
+attributes, and \fBattrsonly\fP and \fBexattrs\fP are unset by default.
+The \fBsizelimit\fP and \fBtimelimit\fP only
+accept "unlimited" and positive integers, and both default to "unlimited".
 Note, however, that any provider-side limits for the replication identity
 will be enforced by the provider regardless of the limits requested
 by the LDAP Content Synchronization operation, much like for any other
@@ -2016,7 +2050,6 @@ default slapd configuration file
 .BR slapd.backends (5),
 .BR slapd.overlays (5),
 .BR slapd.plugin (5),
-.BR slapd.replog (5),
 .BR slapd (8),
 .BR slapacl (8),
 .BR slapadd (8),

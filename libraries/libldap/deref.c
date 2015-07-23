@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2012 The OpenLDAP Foundation.
+ * Copyright 1998-2015 The OpenLDAP Foundation.
  * Portions Copyright 2008 Pierangelo Masarati.
  * All rights reserved.
  *
@@ -120,7 +120,7 @@ ldap_create_deref_control(
 
 	ld->ld_errno = ldap_create_deref_control_value( ld, ds, &value );
 	if ( ld->ld_errno == LDAP_SUCCESS ) {
-		ld->ld_errno = ldap_control_create( LDAP_CONTROL_PAGEDRESULTS,
+		ld->ld_errno = ldap_control_create( LDAP_CONTROL_X_DEREF,
 			iscritical, &value, 0, ctrlp );
 		if ( ld->ld_errno != LDAP_SUCCESS ) {
 			LDAP_FREE( value.bv_val );

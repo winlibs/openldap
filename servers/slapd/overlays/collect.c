@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2003-2012 The OpenLDAP Foundation.
+ * Copyright 2003-2015 The OpenLDAP Foundation.
  * Portions Copyright 2003 Howard Chu.
  * All rights reserved.
  *
@@ -401,8 +401,8 @@ collect_response( Operation *op, SlapReply *rs )
 			 	 * current search result
 			 	 */
 				if ( vals ) {
-					attr_merge( rs->sr_entry, ci->ci_ad[idx], 
-						vals, NULL );
+					attr_merge_normalize( rs->sr_entry, ci->ci_ad[idx],
+						vals, op->o_tmpmemctx );
 					ber_bvarray_free_x( vals, op->o_tmpmemctx );
 				}
 			}

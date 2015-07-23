@@ -15,7 +15,7 @@ and the second one is the path to the keytab file to use for
 authentication, defaulting to whatever your system wide kerberos settings
 default to).
 
-Currently no Makefile is provided. The following commands should work to
+Use Makefile or the following commands should work to
 build it from inside the unpacked slapd sources, provided the required KRB5
 header files and libaries are installed on your system:
 
@@ -25,7 +25,7 @@ header files and libaries are installed on your system:
 ---
 This work is part of OpenLDAP Software <http://www.openldap.org/>.
 
-Copyright 2010-2012 The OpenLDAP Foundation.
+Copyright 2010-2015 The OpenLDAP Foundation.
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted only as authorized by the OpenLDAP

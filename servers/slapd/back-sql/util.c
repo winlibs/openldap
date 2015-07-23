@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1999-2012 The OpenLDAP Foundation.
+ * Copyright 1999-2015 The OpenLDAP Foundation.
  * Portions Copyright 1999 Dmitry Kovalev.
  * Portions Copyright 2002 Pierangelo Masarati.
  * All rights reserved.
@@ -105,6 +105,7 @@ backsql_strcat_x( struct berbuf *dest, void *memctx, ... )
 				Debug( LDAP_DEBUG_ANY, "backsql_strcat(): "
 					"could not reallocate string buffer.\n",
 					0, 0, 0 );
+				va_end( strs );
 				return NULL;
 			}
 			dest->bb_val.bv_val = tmp_dest;
@@ -212,6 +213,7 @@ backsql_strfcat_x( struct berbuf *dest, void *memctx, const char *fmt, ... )
 				Debug( LDAP_DEBUG_ANY, "backsql_strfcat(): "
 					"could not reallocate string buffer.\n",
 					0, 0, 0 );
+				va_end( strs );
 				return NULL;
 			}
 			dest->bb_val.bv_val = tmp_dest;

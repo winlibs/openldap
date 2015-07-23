@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1999-2012 The OpenLDAP Foundation.
+ * Copyright 1999-2015 The OpenLDAP Foundation.
  * Portions Copyright 2001-2003 Pierangelo Masarati.
  * Portions Copyright 1999-2003 Howard Chu.
  * All rights reserved.
@@ -23,6 +23,7 @@
 #include "portable.h"
 
 #include <stdio.h>
+#include <ctype.h>
 
 #include <ac/string.h>
 #include <ac/socket.h>
@@ -30,6 +31,7 @@
 #include "slap.h"
 #include "config.h"
 #include "lutil.h"
+#include "ldif.h"
 #include "../back-ldap/back-ldap.h"
 #include "back-meta.h"
 
@@ -100,6 +102,8 @@ enum {
 	LDAP_BACK_CFG_SUBTREE_IN,
 	LDAP_BACK_CFG_PSEUDOROOTDN,
 	LDAP_BACK_CFG_PSEUDOROOTPW,
+	LDAP_BACK_CFG_KEEPALIVE,
+	LDAP_BACK_CFG_FILTER,
 
 	LDAP_BACK_CFG_LAST
 };
@@ -319,7 +323,7 @@ static ConfigTable metacfg[] = {
 		NULL, NULL },
 
 	{ "subtree-exclude", "pattern", 2, 2, 0,
-		ARG_STRING|ARG_MAGIC|LDAP_BACK_CFG_SUBTREE_EX,
+		ARG_MAGIC|LDAP_BACK_CFG_SUBTREE_EX,
 		meta_back_cf_gen, "( OLcfgDbAt:3.103 "
 			"NAME 'olcDbSubtreeExclude' "
 			"DESC 'DN of subtree to exclude from target' "
@@ -327,7 +331,7 @@ static ConfigTable metacfg[] = {
 			"SYNTAX OMsDirectoryString )",
 		NULL, NULL },
 	{ "subtree-include", "pattern", 2, 2, 0,
-		ARG_STRING|ARG_MAGIC|LDAP_BACK_CFG_SUBTREE_IN,
+		ARG_MAGIC|LDAP_BACK_CFG_SUBTREE_IN,
 		meta_back_cf_gen, "( OLcfgDbAt:3.104 "
 			"NAME 'olcDbSubtreeInclude' "
 			"DESC 'DN of subtree to include in target' "
@@ -407,6 +411,24 @@ static ConfigTable metacfg[] = {
 			"SYNTAX OMsDirectoryString "
 			"SINGLE-VALUE X-ORDERED 'SIBLINGS' )", NULL, NULL },
 
+	{ "keepalive", "keepalive", 2, 2, 0,
+		ARG_MAGIC|LDAP_BACK_CFG_KEEPALIVE,
+		meta_back_cf_gen, "( OLcfgDbAt:3.29 "
+			"NAME 'olcDbKeepalive' "
+			"DESC 'TCP keepalive' "
+			"SYNTAX OMsDirectoryString "
+			"SINGLE-VALUE )",
+		NULL, NULL },
+
+	{ "filter", "pattern", 2, 2, 0,
+		ARG_MAGIC|LDAP_BACK_CFG_FILTER,
+		meta_back_cf_gen, "( OLcfgDbAt:3.112 "
+			"NAME 'olcDbFilter' "
+			"DESC 'Filter regex pattern to include in target' "
+			"EQUALITY caseExactMatch "
+			"SYNTAX OMsDirectoryString )",
+		NULL, NULL },
+
 	{ NULL, NULL, 0, 0, 0, ARG_IGNORED,
 		NULL, NULL, NULL, NULL }
 };
@@ -466,6 +488,8 @@ static ConfigOCs metaocs[] = {
 			"$ olcDbSubtreeExclude "
 			"$ olcDbSubtreeInclude "
 			"$ olcDbTimeout "
+			"$ olcDbKeepalive "
+			"$ olcDbFilter "
 
 			/* defaults may be inherited */
 			COMMON_ATTRS
@@ -716,6 +740,22 @@ meta_subtree_destroy( metasubtree_t *ms )
 	}
 
 	return meta_subtree_free( ms );
+}
+
+static void
+meta_filter_free( metafilter_t *mf )
+{
+	regfree( &mf->mf_regex );
+	ber_memfree( mf->mf_regex_pattern.bv_val );
+	ch_free( mf );
+}
+
+void
+meta_filter_destroy( metafilter_t *mf )
+{
+	if ( mf->mf_next )
+		meta_filter_destroy( mf->mf_next );
+	meta_filter_free( mf );
 }
 
 static struct berval st_styles[] = {
@@ -1079,6 +1119,15 @@ static slap_cf_aux_table timeout_table[] = {
 };
 
 static int
+meta_cf_cleanup( ConfigArgs *c )
+{
+	metainfo_t	*mi = ( metainfo_t * )c->be->be_private;
+	metatarget_t	*mt = c->ca_private;
+
+	return meta_target_finish( mi, mt, c->log, c->cr_msg, sizeof( c->cr_msg ));
+}
+
+static int
 meta_back_cf_gen( ConfigArgs *c )
 {
 	metainfo_t	*mi = ( metainfo_t * )c->be->be_private;
@@ -1089,9 +1138,7 @@ meta_back_cf_gen( ConfigArgs *c )
 
 	assert( mi != NULL );
 
-	if ( c->op == SLAP_CONFIG_EMIT ) {
-		struct berval bv = BER_BVNULL;
-
+	if ( c->op == SLAP_CONFIG_EMIT || c->op == LDAP_MOD_DELETE ) {
 		if ( !mi )
 			return 1;
 
@@ -1102,6 +1149,10 @@ meta_back_cf_gen( ConfigArgs *c )
 			mt = c->ca_private;
 			mc = &mt->mt_mc;
 		}
+	}
+
+	if ( c->op == SLAP_CONFIG_EMIT ) {
+		struct berval bv = BER_BVNULL;
 
 		switch( c->type ) {
 		/* Base attrs */
@@ -1352,15 +1403,18 @@ meta_back_cf_gen( ConfigArgs *c )
 		/* target attrs */
 		case LDAP_BACK_CFG_URI: {
 			char *p2, *p1 = strchr( mt->mt_uri, ' ' );
-			bv.bv_len = strlen( mt->mt_uri ) + 1 + mt->mt_psuffix.bv_len;
+			bv.bv_len = strlen( mt->mt_uri ) + 3 + mt->mt_psuffix.bv_len;
 			bv.bv_val = ch_malloc( bv.bv_len + 1 );
+			p2 = bv.bv_val;
+			*p2++ = '"';
 			if ( p1 ) {
-				p2 = lutil_strncopy( bv.bv_val, mt->mt_uri, p1 - mt->mt_uri );
+				p2 = lutil_strncopy( p2, mt->mt_uri, p1 - mt->mt_uri );
 			} else {
-				p2 = lutil_strcopy( bv.bv_val, mt->mt_uri );
+				p2 = lutil_strcopy( p2, mt->mt_uri );
 			}
 			*p2++ = '/';
 			p2 = lutil_strcopy( p2, mt->mt_psuffix.bv_val );
+			*p2++ = '"';
 			if ( p1 ) {
 				strcpy( p2, p1 );
 			}
@@ -1578,11 +1632,31 @@ meta_back_cf_gen( ConfigArgs *c )
 			rc = meta_subtree_unparse( c, mt );
 			break;
 
+		case LDAP_BACK_CFG_FILTER:
+			if ( mt->mt_filter == NULL ) {
+				rc = 1;
+			} else {
+				metafilter_t *mf;
+				for ( mf = mt->mt_filter; mf; mf = mf->mf_next )
+					value_add_one( &c->rvalue_vals, &mf->mf_regex_pattern );
+			}
+			break;
+
 		/* replaced by idassert */
 		case LDAP_BACK_CFG_PSEUDOROOTDN:
 		case LDAP_BACK_CFG_PSEUDOROOTPW:
 			rc = 1;
 			break;
+
+		case LDAP_BACK_CFG_KEEPALIVE: {
+				struct berval bv;
+				char buf[AC_LINE_MAX];
+				bv.bv_len = AC_LINE_MAX;
+				bv.bv_val = &buf[0];
+				slap_keepalive_parse(&bv, &mt->mt_tls.sb_keepalive, 0, 0, 1);
+				value_add_one( &c->rvalue_vals, &bv );
+				break;
+			}
 
 		default:
 			rc = 1;
@@ -1639,7 +1713,7 @@ meta_back_cf_gen( ConfigArgs *c )
 
 #ifdef SLAPD_META_CLIENT_PR
 		case LDAP_BACK_CFG_CLIENT_PR:
-			mc->mc_ps == META_CLIENT_PR_DISABLE;
+			mc->mc_ps = META_CLIENT_PR_DISABLE;
 			break;
 #endif /* SLAPD_META_CLIENT_PR */
 
@@ -1660,7 +1734,7 @@ meta_back_cf_gen( ConfigArgs *c )
 			break;
 
 		case LDAP_BACK_CFG_NRETRIES:
-			mc->mc_nretries == META_RETRY_DEFAULT;
+			mc->mc_nretries = META_RETRY_DEFAULT;
 			break;
 
 		case LDAP_BACK_CFG_QUARANTINE:
@@ -1718,7 +1792,7 @@ meta_back_cf_gen( ConfigArgs *c )
 		case LDAP_BACK_CFG_IDASSERT_AUTHZFROM: {
 			BerVarray *bvp;
 
-			bvp = &mt->mt_idassert_authz; break;
+			bvp = &mt->mt_idassert_authz;
 			if ( c->valx < 0 ) {
 				if ( *bvp != NULL ) {
 					ber_bvarray_free( *bvp );
@@ -1796,6 +1870,32 @@ meta_back_cf_gen( ConfigArgs *c )
 				if ( i != c->valx )
 					rc = 1;
 			}
+			break;
+
+		case LDAP_BACK_CFG_FILTER:
+			if ( c->valx < 0 ) {
+				meta_filter_destroy( mt->mt_filter );
+				mt->mt_filter = NULL;
+			} else {
+				metafilter_t *mf, **mprev;
+				for (i=0, mprev = &mt->mt_filter, mf = *mprev; mf; mf = *mprev) {
+					if ( i == c->valx ) {
+						*mprev = mf->mf_next;
+						meta_filter_free( mf );
+						break;
+					}
+					i++;
+					mprev = &mf->mf_next;
+				}
+				if ( i != c->valx )
+					rc = 1;
+			}
+			break;
+
+		case LDAP_BACK_CFG_KEEPALIVE:
+			mt->mt_tls.sb_keepalive.sk_idle = 0;
+			mt->mt_tls.sb_keepalive.sk_probes = 0;
+			mt->mt_tls.sb_keepalive.sk_interval = 0;
 			break;
 
 		default:
@@ -2029,6 +2129,7 @@ meta_back_cf_gen( ConfigArgs *c )
 			return 1;
 		}
 		c->ca_private = mt;
+		c->cleanup = meta_cf_cleanup;
 	} break;
 	case LDAP_BACK_CFG_SUBTREE_EX:
 	case LDAP_BACK_CFG_SUBTREE_IN:
@@ -2038,6 +2139,25 @@ meta_back_cf_gen( ConfigArgs *c )
 			return 1;
 		}
 		break;
+
+	case LDAP_BACK_CFG_FILTER: {
+		metafilter_t *mf, **m2;
+		mf = ch_malloc( sizeof( metafilter_t ));
+		rc = regcomp( &mf->mf_regex, c->argv[1], REG_EXTENDED );
+		if ( rc ) {
+			char regerr[ SLAP_TEXT_BUFLEN ];
+			regerror( rc, &mf->mf_regex, regerr, sizeof(regerr) );
+			snprintf( c->cr_msg, sizeof( c->cr_msg ),
+				"regular expression \"%s\" bad because of %s",
+				c->argv[1], regerr );
+			ch_free( mf );
+			return 1;
+		}
+		ber_str2bv( c->argv[1], 0, 1, &mf->mf_regex_pattern );
+		for ( m2 = &mt->mt_filter; *m2; m2 = &(*m2)->mf_next )
+			;
+		*m2 = mf;
+	} break;
 
 	case LDAP_BACK_CFG_DEFAULT_T:
 	/* default target directive */
@@ -2330,7 +2450,7 @@ meta_back_cf_gen( ConfigArgs *c )
 			return 1;
 		}
 		mc->mc_flags &= ~LDAP_BACK_F_CANCEL_MASK2;
-		mc->mc_flags |= t_f_mode[i].mask;
+		mc->mc_flags |= cancel_mode[i].mask;
 		break;
 
 	case LDAP_BACK_CFG_TIMEOUT:
@@ -2539,6 +2659,7 @@ idassert-authzFrom	"dn:<rootdn>"
 
 			/* re-parse all rewrite rules, up to the one
 			 * that needs to be added */
+			ca.be = c->be;
 			ca.fname = c->fname;
 			ca.lineno = c->lineno;
 			for ( i = 0; i < ix; i++ ) {
@@ -2803,6 +2924,11 @@ map_fail:;
 		}
 		break;
 #endif /* SLAPD_META_CLIENT_PR */
+
+	case LDAP_BACK_CFG_KEEPALIVE:
+		slap_keepalive_parse( ber_bvstrdup(c->argv[1]),
+				 &mt->mt_tls.sb_keepalive, 0, 0, 0);
+		break;
 
 	/* anything else */
 	default:

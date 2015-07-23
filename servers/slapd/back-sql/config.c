@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1999-2012 The OpenLDAP Foundation.
+ * Copyright 1999-2015 The OpenLDAP Foundation.
  * Portions Copyright 1999 Dmitry Kovalev.
  * Portions Copyright 2002 Pierangelo Masarati.
  * Portions Copyright 2004 Mark Adamson.
@@ -89,32 +89,32 @@ static ConfigTable sqlcfg[] = {
 		"( OLcfgDbAt:6.20 NAME 'olcSqlConcatPattern' "
 			"DESC 'Pattern used to concatenate strings' "
 			"SYNTAX OMsDirectoryString SINGLE-VALUE )", NULL, NULL },
-	{ "subtree_cond", "SQL expression", 2, 2, 0, ARG_BERVAL|ARG_OFFSET,
+	{ "subtree_cond", "SQL expression", 2, 0, 0, ARG_BERVAL|ARG_QUOTE|ARG_OFFSET,
 		(void *)offsetof(struct backsql_info, sql_subtree_cond),
 		"( OLcfgDbAt:6.21 NAME 'olcSqlSubtreeCond' "
 			"DESC 'Where-clause template for a subtree search condition' "
 			"SYNTAX OMsDirectoryString SINGLE-VALUE )", NULL, NULL },
-	{ "children_cond", "SQL expression", 2, 2, 0, ARG_BERVAL|ARG_OFFSET,
+	{ "children_cond", "SQL expression", 2, 0, 0, ARG_BERVAL|ARG_QUOTE|ARG_OFFSET,
 		(void *)offsetof(struct backsql_info, sql_children_cond),
 		"( OLcfgDbAt:6.22 NAME 'olcSqlChildrenCond' "
 			"DESC 'Where-clause template for a children search condition' "
 			"SYNTAX OMsDirectoryString SINGLE-VALUE )", NULL, NULL },
-	{ "dn_match_cond", "SQL expression", 2, 2, 0, ARG_BERVAL|ARG_OFFSET,
+	{ "dn_match_cond", "SQL expression", 2, 0, 0, ARG_BERVAL|ARG_QUOTE|ARG_OFFSET,
 		(void *)offsetof(struct backsql_info, sql_dn_match_cond),
 		"( OLcfgDbAt:6.23 NAME 'olcSqlDnMatchCond' "
 			"DESC 'Where-clause template for a DN match search condition' "
 			"SYNTAX OMsDirectoryString SINGLE-VALUE )", NULL, NULL },
-	{ "oc_query", "SQL expression", 2, 2, 0, ARG_STRING|ARG_OFFSET,
+	{ "oc_query", "SQL expression", 2, 0, 0, ARG_STRING|ARG_QUOTE|ARG_OFFSET,
 		(void *)offsetof(struct backsql_info, sql_oc_query),
 		"( OLcfgDbAt:6.24 NAME 'olcSqlOcQuery' "
 			"DESC 'Query used to collect objectClass mapping data' "
 			"SYNTAX OMsDirectoryString SINGLE-VALUE )", NULL, NULL },
-	{ "at_query", "SQL expression", 2, 2, 0, ARG_STRING|ARG_OFFSET,
+	{ "at_query", "SQL expression", 2, 0, 0, ARG_STRING|ARG_QUOTE|ARG_OFFSET,
 		(void *)offsetof(struct backsql_info, sql_at_query),
 		"( OLcfgDbAt:6.25 NAME 'olcSqlAtQuery' "
 			"DESC 'Query used to collect attributeType mapping data' "
 			"SYNTAX OMsDirectoryString SINGLE-VALUE )", NULL, NULL },
-	{ "insentry_stmt", "SQL expression", 2, 2, 0, ARG_STRING|ARG_OFFSET,
+	{ "insentry_stmt", "SQL expression", 2, 0, 0, ARG_STRING|ARG_QUOTE|ARG_OFFSET,
 		(void *)offsetof(struct backsql_info, sql_insentry_stmt),
 		"( OLcfgDbAt:6.26 NAME 'olcSqlInsEntryStmt' "
 			"DESC 'Statement used to insert a new entry' "
@@ -139,17 +139,17 @@ static ConfigTable sqlcfg[] = {
 		"( OLcfgDbAt:6.30 NAME 'olcSqlStrcastFunc' "
 			"DESC 'Function that converts a value to a string' "
 			"SYNTAX OMsDirectoryString SINGLE-VALUE )", NULL, NULL },
-	{ "delentry_stmt", "SQL expression", 2, 2, 0, ARG_STRING|ARG_OFFSET,
+	{ "delentry_stmt", "SQL expression", 2, 0, 0, ARG_STRING|ARG_QUOTE|ARG_OFFSET,
 		(void *)offsetof(struct backsql_info, sql_delentry_stmt),
 		"( OLcfgDbAt:6.31 NAME 'olcSqlDelEntryStmt' "
 			"DESC 'Statement used to delete an existing entry' "
 			"SYNTAX OMsDirectoryString SINGLE-VALUE )", NULL, NULL },
-	{ "renentry_stmt", "SQL expression", 2, 2, 0, ARG_STRING|ARG_OFFSET,
+	{ "renentry_stmt", "SQL expression", 2, 0, 0, ARG_STRING|ARG_QUOTE|ARG_OFFSET,
 		(void *)offsetof(struct backsql_info, sql_renentry_stmt),
 		"( OLcfgDbAt:6.32 NAME 'olcSqlRenEntryStmt' "
 			"DESC 'Statement used to rename an entry' "
 			"SYNTAX OMsDirectoryString SINGLE-VALUE )", NULL, NULL },
-	{ "delobjclasses_stmt", "SQL expression", 2, 2, 0, ARG_STRING|ARG_OFFSET,
+	{ "delobjclasses_stmt", "SQL expression", 2, 0, 0, ARG_STRING|ARG_QUOTE|ARG_OFFSET,
 		(void *)offsetof(struct backsql_info, sql_delobjclasses_stmt),
 		"( OLcfgDbAt:6.33 NAME 'olcSqlDelObjclassesStmt' "
 			"DESC 'Statement used to delete the ID of an entry' "
@@ -210,7 +210,7 @@ static ConfigTable sqlcfg[] = {
 			"DESC 'Quoting char of the aliasing keyword' "
 			"SYNTAX OMsDirectoryString SINGLE-VALUE )", NULL, NULL },
 	{ "autocommit", "yes|no", 2, 2, 0,
-		ARG_ON_OFF|ARG_MAGIC|SQL_AUTOCOMMIT, (void *)sql_cf_gen,
+		ARG_ON_OFF|ARG_MAGIC|BSQL_AUTOCOMMIT, (void *)sql_cf_gen,
 		"( OLcfgDbAt:6.45 NAME 'olcSqlAutocommit' "
 			"SYNTAX OMsBoolean SINGLE-VALUE )", NULL, NULL },
 	{ NULL, NULL, 0, 0, 0, ARG_IGNORED,
@@ -425,19 +425,19 @@ sql_cf_gen( ConfigArgs *c )
 		if ( c->value_int )
 			bi->sql_flags |= BSQLF_FETCH_ALL_ATTRS;
 		else
-			bi->sql_flags &= BSQLF_FETCH_ALL_ATTRS;
+			bi->sql_flags &= ~BSQLF_FETCH_ALL_ATTRS;
 		break;
 	case BSQL_CHECK_SCHEMA:
 		if ( c->value_int )
 			bi->sql_flags |= BSQLF_CHECK_SCHEMA;
 		else
-			bi->sql_flags &= BSQLF_CHECK_SCHEMA;
+			bi->sql_flags &= ~BSQLF_CHECK_SCHEMA;
 		break;
 	case BSQL_AUTOCOMMIT:
 		if ( c->value_int )
 			bi->sql_flags |= BSQLF_AUTOCOMMIT_ON;
 		else
-			bi->sql_flags &= BSQLF_AUTOCOMMIT_ON;
+			bi->sql_flags &= ~BSQLF_AUTOCOMMIT_ON;
 		break;
 	case BSQL_BASE_OBJECT:
 		if ( c->be->be_nsuffix == NULL ) {
@@ -539,7 +539,8 @@ read_baseObject(
 {
 	backsql_info 	*bi = (backsql_info *)be->be_private;
 	LDIFFP		*fp;
-	int		rc = 0, lineno = 0, lmax = 0, ldifrc;
+	int		rc = 0, lmax = 0, ldifrc;
+	unsigned long	lineno = 0;
 	char		*buf = NULL;
 
 	assert( fname != NULL );
@@ -571,7 +572,7 @@ read_baseObject(
 
 		if( e == NULL ) {
 			fprintf( stderr, "back-sql baseObject: "
-					"could not parse entry (line=%d)\n",
+					"could not parse entry (line=%lu)\n",
 					lineno );
 			rc = LDAP_OTHER;
 			break;
@@ -581,7 +582,7 @@ read_baseObject(
 		if ( !be_issuffix( be, &e->e_nname ) ) {
 			fprintf( stderr,
 				"back-sql: invalid baseObject - "
-				"dn=\"%s\" (line=%d)\n",
+				"dn=\"%s\" (line=%lu)\n",
 				e->e_name.bv_val, lineno );
 			entry_free( e );
 			rc = LDAP_OTHER;

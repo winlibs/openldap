@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2000-2012 The OpenLDAP Foundation.
+ * Copyright 2000-2015 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -505,9 +505,17 @@ mdb_idl_insert_keys(
 			if ( id < lo || id > hi ) {
 				/* position on lo */
 				rc = mdb_cursor_get( cursor, &key, &data, MDB_NEXT_DUP );
+				if ( rc != 0 ) {
+					err = "c_get lo";
+					goto fail;
+				}
 				if ( id > hi ) {
 					/* position on hi */
 					rc = mdb_cursor_get( cursor, &key, &data, MDB_NEXT_DUP );
+					if ( rc != 0 ) {
+						err = "c_get hi";
+						goto fail;
+					}
 				}
 				data.mv_size = sizeof(ID);
 				data.mv_data = &id;
@@ -707,8 +715,8 @@ mdb_idl_intersection(
 	 * turn it into a range.
 	 */
 	if ( MDB_IDL_IS_RANGE( b )
-		&& MDB_IDL_RANGE_FIRST( b ) <= MDB_IDL_RANGE_FIRST( a )
-		&& MDB_IDL_RANGE_LAST( b ) >= MDB_IDL_RANGE_LAST( a ) ) {
+		&& MDB_IDL_RANGE_FIRST( b ) <= MDB_IDL_FIRST( a )
+		&& MDB_IDL_RANGE_LAST( b ) >= MDB_IDL_LLAST( a ) ) {
 		if (idmax - idmin + 1 == a[0])
 		{
 			a[0] = NOID;
@@ -1066,7 +1074,7 @@ mdb_idl_sort( ID *ids, ID *tmp )
 			ids[l+1] = ids[j];
 			ids[j] = a;
 			jstack += 2;
-			if (ir-i+1 >= j-1) {
+			if (ir-i+1 >= j-l) {
 				istack[jstack] = ir;
 				istack[jstack-1] = i;
 				ir = j-1;

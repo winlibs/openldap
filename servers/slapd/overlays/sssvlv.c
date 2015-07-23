@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2009-2012 The OpenLDAP Foundation.
+ * Copyright 2009-2015 The OpenLDAP Foundation.
  * Portions copyright 2009 Symas Corporation.
  * All rights reserved.
  *
@@ -397,7 +397,19 @@ static void free_sort_op( Connection *conn, sort_op *so )
 {
 	int sess_id;
 	if ( so->so_tree ) {
-		tavl_free( so->so_tree, ch_free );
+		if ( so->so_paged > SLAP_CONTROL_IGNORED ) {
+			Avlnode *cur_node, *next_node;
+			cur_node = so->so_tree;
+			while ( cur_node ) {
+				next_node = tavl_next( cur_node, TAVL_DIR_RIGHT );
+				ch_free( cur_node->avl_data );
+				ber_memfree( cur_node );
+
+				cur_node = next_node;
+			}
+		} else {
+			tavl_free( so->so_tree, ch_free );
+		}
 		so->so_tree = NULL;
 	}
 
@@ -618,6 +630,8 @@ static void send_page( Operation *op, SlapReply *rs, sort_op *so )
 
 	/* Set the first entry to send for the next page */
 	so->so_tree = next_node;
+	if ( next_node )
+		next_node->avl_left = NULL;
 
 	op->o_bd = be;
 }
@@ -1254,7 +1268,7 @@ static ConfigTable sssvlv_cfg[] = {
 		"( OLcfgOvAt:21.2 NAME 'olcSssVlvMaxKeys' "
 			"DESC 'Maximum number of Keys in a Sort request' "
 			"SYNTAX OMsInteger SINGLE-VALUE )", NULL, NULL },
-	{ "sssvlv-maxpercon", "num",
+	{ "sssvlv-maxperconn", "num",
 		2, 2, 0, ARG_INT|ARG_OFFSET,
 			(void *)offsetof(sssvlv_info, svi_max_percon),
 		"( OLcfgOvAt:21.3 NAME 'olcSssVlvMaxPerConn' "
@@ -1268,7 +1282,7 @@ static ConfigOCs sssvlv_ocs[] = {
 		"NAME 'olcSssVlvConfig' "
 		"DESC 'SSS VLV configuration' "
 		"SUP olcOverlayConfig "
-		"MAY ( olcSssVlvMax $ olcSssVlvMaxKeys ) )",
+		"MAY ( olcSssVlvMax $ olcSssVlvMaxKeys $ olcSssVlvMaxPerConn ) )",
 		Cft_Overlay, sssvlv_cfg, NULL, NULL },
 	{ NULL, 0, NULL }
 };

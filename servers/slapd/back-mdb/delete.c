@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2000-2012 The OpenLDAP Foundation.
+ * Copyright 2000-2015 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -90,16 +90,6 @@ txnReturn:
 
 	ctrls[num_ctrls] = 0;
 
-	/* allocate CSN */
-	if ( BER_BVISNULL( &op->o_csn ) ) {
-		struct berval csn;
-		char csnbuf[LDAP_PVT_CSNSTR_BUFSIZE];
-
-		csn.bv_val = csnbuf;
-		csn.bv_len = sizeof(csnbuf);
-		slap_get_csn( op, &csn, 1 );
-	}
-
 	/* begin transaction */
 	rs->sr_err = mdb_opinfo_get( op, mdb, 0, &moi );
 	rs->sr_text = NULL;
@@ -111,8 +101,17 @@ txnReturn:
 		rs->sr_text = "internal error";
 		goto return_results;
 	}
-
 	txn = moi->moi_txn;
+
+	/* allocate CSN */
+	if ( BER_BVISNULL( &op->o_csn ) ) {
+		struct berval csn;
+		char csnbuf[LDAP_PVT_CSNSTR_BUFSIZE];
+
+		csn.bv_val = csnbuf;
+		csn.bv_len = sizeof(csnbuf);
+		slap_get_csn( op, &csn, 1 );
+	}
 
 	if ( !be_issuffix( op->o_bd, &op->o_req_ndn ) ) {
 		dnParent( &op->o_req_ndn, &pdn );
@@ -125,7 +124,7 @@ txnReturn:
 		goto return_results;
 	}
 	/* get parent */
-	rs->sr_err = mdb_dn2entry( op, txn, mc, &pdn, &p, 1 );
+	rs->sr_err = mdb_dn2entry( op, txn, mc, &pdn, &p, NULL, 1 );
 	switch( rs->sr_err ) {
 	case 0:
 	case MDB_NOTFOUND:
@@ -168,7 +167,7 @@ txnReturn:
 	}
 
 	/* get entry */
-	rs->sr_err = mdb_dn2entry( op, txn, mc, &op->o_req_ndn, &e, 0 );
+	rs->sr_err = mdb_dn2entry( op, txn, mc, &op->o_req_ndn, &e, NULL, 0 );
 	switch( rs->sr_err ) {
 	case MDB_NOTFOUND:
 		e = p;
@@ -333,7 +332,7 @@ txnReturn:
 	}
 
 	/* delete from dn2id */
-	rs->sr_err = mdb_dn2id_delete( op, mc, e->e_id );
+	rs->sr_err = mdb_dn2id_delete( op, mc, e->e_id, 1 );
 	mdb_cursor_close( mc );
 	if ( rs->sr_err != 0 ) {
 		Debug(LDAP_DEBUG_TRACE,
@@ -419,7 +418,7 @@ txnReturn:
 	}
 
 	if( rs->sr_err != 0 ) {
-		Debug( LDAP_DEBUG_TRACE,
+		Debug( LDAP_DEBUG_ANY,
 			LDAP_XSTRING(mdb_delete) ": txn_%s failed: %s (%d)\n",
 			op->o_noop ? "abort (no-op)" : "commit",
 			mdb_strerror(rs->sr_err), rs->sr_err );
@@ -458,6 +457,8 @@ return_results:
 		if ( opinfo.moi_oe.oe_key ) {
 			LDAP_SLIST_REMOVE( &op->o_extra, &opinfo.moi_oe, OpExtra, oe_next );
 		}
+	} else {
+		moi->moi_ref--;
 	}
 
 	send_ldap_result( op, rs );

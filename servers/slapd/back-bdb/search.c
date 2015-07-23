@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2000-2012 The OpenLDAP Foundation.
+ * Copyright 2000-2015 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -1038,6 +1038,9 @@ id_retry:
 					break;
 				default:		/* entry not sent */
 					break;
+				case LDAP_BUSY:
+					send_ldap_result( op, rs );
+					goto done;
 				case LDAP_UNAVAILABLE:
 				case LDAP_SIZELIMIT_EXCEEDED:
 					if ( rs->sr_err == LDAP_SIZELIMIT_EXCEEDED ) {

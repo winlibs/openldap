@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>. 
  *
- * Copyright 2008-2012 The OpenLDAP Foundation.
+ * Copyright 2008-2015 The OpenLDAP Foundation.
  * Portions Copyright 2008 by Howard Chu, Symas Corp.
  * All rights reserved.
  *
@@ -15,7 +15,7 @@
  * <http://www.OpenLDAP.org/license.html>.
  */
 /*
-/* ACKNOWLEDGEMENTS:
+ * ACKNOWLEDGEMENTS:
  * This code references portions of the nss-ldapd package
  * written by Arthur de Jong. The nss-ldapd code was forked
  * from the nss-ldap library written by Luke Howard.
@@ -50,7 +50,7 @@ NSSOV_CBPRIV(protocol,
 
 static int write_protocol(nssov_protocol_cbp *cbp,Entry *entry)
 {
-	int32_t tmpint32,tmp2int32,tmp3int32;
+	int32_t tmpint32;
 	int i,numname,dupname,proto;
 	struct berval name,*names;
 	Attribute *a;

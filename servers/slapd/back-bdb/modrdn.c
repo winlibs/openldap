@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2000-2012 The OpenLDAP Foundation.
+ * Copyright 2000-2015 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -162,6 +162,8 @@ retry:	/* transaction retry */
 		rs->sr_text = "internal error";
 		goto return_results;
 	}
+	Debug( LDAP_DEBUG_TRACE, LDAP_XSTRING(bdb_modrdn) ": txn1 id: %x\n",
+		ltid->id(ltid), 0, 0 );
 
 	opinfo.boi_oe.oe_key = bdb;
 	opinfo.boi_txn = ltid;
@@ -601,6 +603,8 @@ retry:	/* transaction retry */
 		rs->sr_text = "internal error";
 		goto return_results;
 	}
+	Debug( LDAP_DEBUG_TRACE, LDAP_XSTRING(bdb_modrdn) ": txn2 id: %x\n",
+		lt2->id(lt2), 0, 0 );
 
 	/* delete old DN */
 	rs->sr_err = bdb_dn2id_delete( op, lt2, eip, e );

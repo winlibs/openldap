@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2012 The OpenLDAP Foundation.
+ * Copyright 1998-2015 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -815,6 +815,7 @@ entry_naming_check(
 				"value of naming attribute '%s' in unsupported BER form",
 				ava->la_attr.bv_val );
 			rc = LDAP_NAMING_VIOLATION;
+			break;
 		}
 
 		rc = slap_bv2ad( &ava->la_attr, &desc, &errtext );

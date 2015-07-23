@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2012 The OpenLDAP Foundation.
+ * Copyright 1998-2015 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -160,7 +160,7 @@ static struct slap_control control_defs[] = {
 		parseDomainScope, LDAP_SLIST_ENTRY_INITIALIZER(next) },
 	{ LDAP_CONTROL_DONTUSECOPY,
  		(int)offsetof(struct slap_control_ids, sc_dontUseCopy),
-		SLAP_CTRL_GLOBAL|SLAP_CTRL_INTROGATE|SLAP_CTRL_HIDE,
+		SLAP_CTRL_GLOBAL|SLAP_CTRL_INTROGATE,
 		NULL, NULL,
 		parseDontUseCopy, LDAP_SLIST_ENTRY_INITIALIZER(next) },
 	{ LDAP_CONTROL_X_PERMISSIVE_MODIFY,
@@ -304,6 +304,7 @@ register_supported_control2(const char *controloid,
 	if ( sc == NULL ) {
 		sc = (struct slap_control *)SLAP_MALLOC( sizeof( *sc ) );
 		if ( sc == NULL ) {
+			ber_bvarray_free( extendedopsbv );
 			return LDAP_NO_MEMORY;
 		}
 
@@ -564,6 +565,29 @@ void slap_free_ctrls(
 	LDAPControl **ctrls )
 {
 	int i;
+
+	if( ctrls == op->o_ctrls ) {
+		if( op->o_assertion != NULL ) {
+			filter_free_x( op, op->o_assertion, 1 );
+			op->o_assertion = NULL;
+		}
+		if( op->o_vrFilter != NULL) {
+			vrFilter_free( op, op->o_vrFilter );
+			op->o_vrFilter = NULL;
+		}
+		if( op->o_preread_attrs != NULL ) {
+			op->o_tmpfree( op->o_preread_attrs, op->o_tmpmemctx );
+			op->o_preread_attrs = NULL;
+		}
+		if( op->o_postread_attrs != NULL ) {
+			op->o_tmpfree( op->o_postread_attrs, op->o_tmpmemctx );
+			op->o_postread_attrs = NULL;
+		}
+		if( op->o_pagedresults_state != NULL ) {
+			op->o_tmpfree( op->o_pagedresults_state, op->o_tmpmemctx );
+			op->o_pagedresults_state = NULL;
+		}
+	}
 
 	for (i=0; ctrls[i]; i++) {
 		op->o_tmpfree(ctrls[i], op->o_tmpmemctx );

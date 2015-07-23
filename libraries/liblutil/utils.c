@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2012 The OpenLDAP Foundation.
+ * Copyright 1998-2015 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -437,8 +437,9 @@ struct dirent *readdir(DIR *dir)
 }
 int closedir(DIR *dir)
 {
-	FindClose(dir->dir);
+	(void) FindClose(dir->dir);
 	ber_memfree(dir);
+	return 0;
 }
 #endif
 

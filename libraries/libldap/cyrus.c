@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2012 The OpenLDAP Foundation.
+ * Copyright 1998-2015 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -39,10 +39,6 @@
 
 #ifndef INT_MAX
 #define	INT_MAX	2147483647	/* 32 bit signed max */
-#endif
-
-#ifdef LDAP_R_COMPILE
-ldap_pvt_thread_mutex_t ldap_int_sasl_mutex;
 #endif
 
 #ifdef HAVE_SASL_SASL_H
@@ -549,8 +545,11 @@ ldap_int_sasl_bind(
 		ctx = ld->ld_defconn->lconn_sasl_authctx;
 
 		rc = ldap_parse_sasl_bind_result( ld, result, &scred, 0 );
-		if ( rc != LDAP_SUCCESS )
+		if ( rc != LDAP_SUCCESS ) {
+			if ( scred )
+				ber_bvfree( scred );
 			goto done;
+		}
 
 		rc = ldap_result2error( ld, result, 0 );
 		if ( rc != LDAP_SUCCESS && rc != LDAP_SASL_BIND_IN_PROGRESS ) {
@@ -566,8 +565,11 @@ ldap_int_sasl_bind(
 		}
 
 		mech = *rmech;
-		if ( rc == LDAP_SUCCESS && mech == NULL )
+		if ( rc == LDAP_SUCCESS && mech == NULL ) {
+			if ( scred )
+				ber_bvfree( scred );
 			goto success;
+		}
 
 		do {
 			if( ! scred ) {
@@ -1147,6 +1149,7 @@ void *ldap_pvt_sasl_mutex_new(void)
 	if ( ldap_pvt_thread_mutex_init( mutex ) == 0 ) {
 		return mutex;
 	}
+	LDAP_FREE( mutex );
 #ifndef LDAP_DEBUG_R_SASL
 	assert( 0 );
 #endif /* !LDAP_DEBUG_R_SASL */

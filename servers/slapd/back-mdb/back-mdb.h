@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2000-2012 The OpenLDAP Foundation.
+ * Copyright 2000-2015 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -19,11 +19,11 @@
 
 #include <portable.h>
 #include "slap.h"
-#include "mdb.h"
+#include "lmdb.h"
 
 LDAP_BEGIN_DECL
 
-#define MDB_TOOL_IDL_CACHING	1
+#undef MDB_TOOL_IDL_CACHING	/* currently broken */
 
 #define DN_BASE_PREFIX		SLAP_INDEX_EQUALITY_PREFIX
 #define DN_ONE_PREFIX	 	'%'
@@ -96,6 +96,7 @@ struct mdb_info {
 #define	MDB_OPEN_INDEX	0x02
 #define	MDB_DEL_INDEX	0x08
 #define	MDB_RE_OPEN		0x10
+#define	MDB_NEED_UPGRADE	0x20
 
 	int mi_numads;
 

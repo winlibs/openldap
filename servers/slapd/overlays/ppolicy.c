@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2004-2012 The OpenLDAP Foundation.
+ * Copyright 2004-2015 The OpenLDAP Foundation.
  * Portions Copyright 2004-2005 Howard Chu, Symas Corporation.
  * Portions Copyright 2004 Hewlett-Packard Company.
  * All rights reserved.
@@ -378,6 +378,7 @@ create_passcontrol( Operation *op, int exptime, int grace, LDAPPasswordPolicyErr
 	BerElement *ber = (BerElement *) &berbuf, *b2 = (BerElement *) &bb2;
 	LDAPControl c = { 0 }, *cp;
 	struct berval bv;
+	int rc;
 
 	BER_BVZERO( &c.ldctl_value );
 
@@ -387,15 +388,23 @@ create_passcontrol( Operation *op, int exptime, int grace, LDAPPasswordPolicyErr
 	if ( exptime >= 0 ) {
 		ber_init2( b2, NULL, LBER_USE_DER );
 		ber_printf( b2, "ti", PPOLICY_EXPIRE, exptime );
-		ber_flatten2( b2, &bv, 1 );
+		rc = ber_flatten2( b2, &bv, 1 );
 		(void)ber_free_buf(b2);
+		if (rc == -1) {
+			cp = NULL;
+			goto fail;
+		}
 		ber_printf( ber, "tO", PPOLICY_WARNING, &bv );
 		ch_free( bv.bv_val );
 	} else if ( grace > 0 ) {
 		ber_init2( b2, NULL, LBER_USE_DER );
 		ber_printf( b2, "ti", PPOLICY_GRACE, grace );
-		ber_flatten2( b2, &bv, 1 );
+		rc = ber_flatten2( b2, &bv, 1 );
 		(void)ber_free_buf(b2);
+		if (rc == -1) {
+			cp = NULL;
+			goto fail;
+		}
 		ber_printf( ber, "tO", PPOLICY_WARNING, &bv );
 		ch_free( bv.bv_val );
 	}
@@ -414,6 +423,7 @@ create_passcontrol( Operation *op, int exptime, int grace, LDAPPasswordPolicyErr
 	cp->ldctl_value.bv_val = (char *)&cp[1];
 	cp->ldctl_value.bv_len = c.ldctl_value.bv_len;
 	AC_MEMCPY( cp->ldctl_value.bv_val, c.ldctl_value.bv_val, c.ldctl_value.bv_len );
+fail:
 	(void)ber_free_buf(ber);
 	
 	return cp;
@@ -907,8 +917,11 @@ ppolicy_bind_response( Operation *op, SlapReply *rs )
 	int ngut = -1, warn = -1, age, rc;
 	Attribute *a;
 	time_t now, pwtime = (time_t)-1;
+	struct lutil_tm now_tm;
+	struct lutil_timet now_usec;
 	char nowstr[ LDAP_LUTIL_GENTIME_BUFSIZE ];
-	struct berval timestamp;
+	char nowstr_usec[ LDAP_LUTIL_GENTIME_BUFSIZE+8 ];
+	struct berval timestamp, timestamp_usec;
 	BackendInfo *bi = op->o_bd->bd_info;
 	Entry *e;
 
@@ -925,10 +938,19 @@ ppolicy_bind_response( Operation *op, SlapReply *rs )
 		return SLAP_CB_CONTINUE;
 	}
 
-	now = slap_get_time(); /* stored for later consideration */
+	ldap_pvt_gettime(&now_tm); /* stored for later consideration */
+	lutil_tm2time(&now_tm, &now_usec);
+	now = now_usec.tt_sec;
 	timestamp.bv_val = nowstr;
 	timestamp.bv_len = sizeof(nowstr);
 	slap_timestamp( &now, &timestamp );
+
+	/* Separate timestamp for pwdFailureTime with microsecond granularity */
+	strcpy(nowstr_usec, nowstr);
+	timestamp_usec.bv_val = nowstr_usec;
+	timestamp_usec.bv_len = timestamp.bv_len;
+	snprintf( timestamp_usec.bv_val + timestamp_usec.bv_len-1, sizeof(".123456Z"), ".%06dZ", now_usec.tt_usec );
+	timestamp_usec.bv_len += STRLENOF(".123456");
 
 	if ( rs->sr_err == LDAP_INVALID_CREDENTIALS ) {
 		int i = 0, fc = 0;
@@ -942,8 +964,8 @@ ppolicy_bind_response( Operation *op, SlapReply *rs )
 		m->sml_values = ch_calloc( sizeof(struct berval), 2 );
 		m->sml_nvalues = ch_calloc( sizeof(struct berval), 2 );
 
-		ber_dupbv( &m->sml_values[0], &timestamp );
-		ber_dupbv( &m->sml_nvalues[0], &timestamp );
+		ber_dupbv( &m->sml_values[0], &timestamp_usec );
+		ber_dupbv( &m->sml_nvalues[0], &timestamp_usec );
 		m->sml_next = mod;
 		mod = m;
 
@@ -1257,7 +1279,7 @@ ppolicy_bind( Operation *op, SlapReply *rs )
 static int
 ppolicy_connection_destroy( BackendDB *bd, Connection *conn )
 {
-	if ( !BER_BVISEMPTY( &pwcons[conn->c_conn_idx].dn )) {
+	if ( pwcons && !BER_BVISEMPTY( &pwcons[conn->c_conn_idx].dn )) {
 		ch_free( pwcons[conn->c_conn_idx].dn.bv_val );
 		BER_BVZERO( &pwcons[conn->c_conn_idx].dn );
 	}
@@ -2289,6 +2311,8 @@ ppolicy_db_init(
 		pwcons++;
 	}
 
+	ov_count++;
+
 	return 0;
 }
 
@@ -2298,12 +2322,24 @@ ppolicy_db_open(
 	ConfigReply *cr
 )
 {
-	ov_count++;
 	return overlay_register_control( be, LDAP_CONTROL_PASSWORDPOLICYREQUEST );
 }
 
 static int
-ppolicy_close(
+ppolicy_db_close(
+	BackendDB *be,
+	ConfigReply *cr
+)
+{
+#ifdef SLAP_CONFIG_DELETE
+	overlay_unregister_control( be, LDAP_CONTROL_PASSWORDPOLICYREQUEST );
+#endif /* SLAP_CONFIG_DELETE */
+
+	return 0;
+}
+
+static int
+ppolicy_db_destroy(
 	BackendDB *be,
 	ConfigReply *cr
 )
@@ -2311,20 +2347,17 @@ ppolicy_close(
 	slap_overinst *on = (slap_overinst *) be->bd_info;
 	pp_info *pi = on->on_bi.bi_private;
 
-#ifdef SLAP_CONFIG_DELETE
-	overlay_unregister_control( be, LDAP_CONTROL_PASSWORDPOLICYREQUEST );
-#endif /* SLAP_CONFIG_DELETE */
-
-	/* Perhaps backover should provide bi_destroy hooks... */
-	ov_count--;
-	if ( ov_count <=0 && pwcons ) {
-		pwcons--;
-		free( pwcons );
-		pwcons = NULL;
-	}
+	on->on_bi.bi_private = NULL;
 	free( pi->def_policy.bv_val );
 	free( pi );
 
+	ov_count--;
+	if ( ov_count <=0 && pwcons ) {
+		pw_conn *pwc = pwcons;
+		pwcons = NULL;
+		pwc--;
+		ch_free( pwc );
+	}
 	return 0;
 }
 
@@ -2366,7 +2399,8 @@ int ppolicy_initialize()
 	ppolicy.on_bi.bi_type = "ppolicy";
 	ppolicy.on_bi.bi_db_init = ppolicy_db_init;
 	ppolicy.on_bi.bi_db_open = ppolicy_db_open;
-	ppolicy.on_bi.bi_db_close = ppolicy_close;
+	ppolicy.on_bi.bi_db_close = ppolicy_db_close;
+	ppolicy.on_bi.bi_db_destroy = ppolicy_db_destroy;
 
 	ppolicy.on_bi.bi_op_add = ppolicy_add;
 	ppolicy.on_bi.bi_op_bind = ppolicy_bind;

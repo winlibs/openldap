@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2012 The OpenLDAP Foundation.
+ * Copyright 1998-2015 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -49,6 +49,14 @@
 #include "lutil.h"
 #include "lutil_ldap.h"
 #include "config.h"
+
+#ifdef _WIN32
+#define	LUTIL_ATOULX	lutil_atoullx
+#define	Z	"I"
+#else
+#define	LUTIL_ATOULX	lutil_atoulx
+#define	Z	"z"
+#endif
 
 #define ARGS_STEP	512
 
@@ -267,7 +275,7 @@ int config_check_vals(ConfigTable *Conf, ConfigArgs *c, int check_only ) {
 				break;
 			case ARG_ULONG:
 				assert( c->argc == 2 );
-				if ( lutil_atoulx( &ularg, c->argv[1], 0 ) != 0 ) {
+				if ( LUTIL_ATOULX( &ularg, c->argv[1], 0 ) != 0 ) {
 					snprintf( c->cr_msg, sizeof( c->cr_msg ),
 						"<%s> unable to parse \"%s\" as unsigned long",
 						c->argv[0], c->argv[1] );
@@ -379,7 +387,7 @@ int config_set_vals(ConfigTable *Conf, ConfigArgs *c) {
 			case ARG_INT: 		*(int*)ptr = c->value_int;			break;
 			case ARG_UINT: 		*(unsigned*)ptr = c->value_uint;			break;
 			case ARG_LONG:  	*(long*)ptr = c->value_long;			break;
-			case ARG_ULONG:  	*(unsigned long*)ptr = c->value_ulong;			break;
+			case ARG_ULONG:  	*(size_t*)ptr = c->value_ulong;			break;
 			case ARG_BER_LEN_T: 	*(ber_len_t*)ptr = c->value_ber_t;			break;
 			case ARG_STRING: {
 				char *cc = *(char**)ptr;
@@ -471,7 +479,7 @@ config_get_vals(ConfigTable *cf, ConfigArgs *c)
 		case ARG_INT:	c->value_int = *(int *)ptr; break;
 		case ARG_UINT:	c->value_uint = *(unsigned *)ptr; break;
 		case ARG_LONG:	c->value_long = *(long *)ptr; break;
-		case ARG_ULONG:	c->value_ulong = *(unsigned long *)ptr; break;
+		case ARG_ULONG:	c->value_ulong = *(size_t *)ptr; break;
 		case ARG_BER_LEN_T:	c->value_ber_t = *(ber_len_t *)ptr; break;
 		case ARG_STRING:
 			if ( *(char **)ptr )
@@ -490,7 +498,7 @@ config_get_vals(ConfigTable *cf, ConfigArgs *c)
 		case ARG_INT: bv.bv_len = snprintf(bv.bv_val, sizeof( c->log ), "%d", c->value_int); break;
 		case ARG_UINT: bv.bv_len = snprintf(bv.bv_val, sizeof( c->log ), "%u", c->value_uint); break;
 		case ARG_LONG: bv.bv_len = snprintf(bv.bv_val, sizeof( c->log ), "%ld", c->value_long); break;
-		case ARG_ULONG: bv.bv_len = snprintf(bv.bv_val, sizeof( c->log ), "%lu", c->value_ulong); break;
+		case ARG_ULONG: bv.bv_len = snprintf(bv.bv_val, sizeof( c->log ), "%" Z "u", c->value_ulong); break;
 		case ARG_BER_LEN_T: bv.bv_len = snprintf(bv.bv_val, sizeof( c->log ), "%ld", c->value_ber_t); break;
 		case ARG_ON_OFF: bv.bv_len = snprintf(bv.bv_val, sizeof( c->log ), "%s",
 			c->value_int ? "TRUE" : "FALSE"); break;
@@ -1283,7 +1291,7 @@ static slap_verbmasks versionkey[] = {
 	{ BER_BVNULL, 0 }
 };
 
-static int 
+int
 slap_keepalive_parse(
 	struct berval *val,
 	void *bc,
@@ -1345,9 +1353,8 @@ slap_keepalive_parse(
 			s = ++next;
 		}
 
-		if ( s == '\0' ) {
+		if ( *s == '\0' ) {
 			sk2.sk_interval = 0;
-			s++;
 
 		} else {
 			sk2.sk_interval = strtol( s, &next, 10 );
@@ -1926,6 +1933,29 @@ int bindconf_tls_set( slap_bindconf *bc, LDAP *ld )
 #endif
 
 /*
+ * set connection keepalive options
+ */
+void
+slap_client_keepalive(LDAP *ld, slap_keepalive *sk)
+{
+	if (!sk) return;
+
+	if ( sk->sk_idle ) {
+		ldap_set_option( ld, LDAP_OPT_X_KEEPALIVE_IDLE, &sk->sk_idle );
+	}
+
+	if ( sk->sk_probes ) {
+		ldap_set_option( ld, LDAP_OPT_X_KEEPALIVE_PROBES, &sk->sk_probes );
+	}
+
+	if ( sk->sk_interval ) {
+		ldap_set_option( ld, LDAP_OPT_X_KEEPALIVE_INTERVAL, &sk->sk_interval );
+	}
+
+	return;
+}
+
+/*
  * connect to a client using the bindconf data
  * note: should move "version" into bindconf...
  */
@@ -1963,17 +1993,8 @@ slap_client_connect( LDAP **ldp, slap_bindconf *sb )
 		ldap_set_option( ld, LDAP_OPT_NETWORK_TIMEOUT, &tv );
 	}
 
-	if ( sb->sb_keepalive.sk_idle ) {
-		ldap_set_option( ld, LDAP_OPT_X_KEEPALIVE_IDLE, &sb->sb_keepalive.sk_idle );
-	}
-
-	if ( sb->sb_keepalive.sk_probes ) {
-		ldap_set_option( ld, LDAP_OPT_X_KEEPALIVE_PROBES, &sb->sb_keepalive.sk_probes );
-	}
-
-	if ( sb->sb_keepalive.sk_interval ) {
-		ldap_set_option( ld, LDAP_OPT_X_KEEPALIVE_INTERVAL, &sb->sb_keepalive.sk_interval );
-	}
+	/* setting network keepalive options */
+	slap_client_keepalive(ld, &sb->sb_keepalive);
 
 #ifdef HAVE_TLS
 	if ( sb->sb_tls_do_init ) {
@@ -1989,7 +2010,7 @@ slap_client_connect( LDAP **ldp, slap_bindconf *sb )
 			"slap_client_connect: "
 			"URI=%s TLS context initialization failed (%d)\n",
 			sb->sb_uri.bv_val, rc, 0 );
-		return rc;
+		goto done;
 	}
 #endif
 

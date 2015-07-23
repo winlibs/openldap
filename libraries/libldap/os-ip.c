@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2012 The OpenLDAP Foundation.
+ * Copyright 1998-2015 The OpenLDAP Foundation.
  * Portions Copyright 1999 Lars Uffmann.
  * All rights reserved.
  *
@@ -276,7 +276,8 @@ int
 ldap_int_poll(
 	LDAP *ld,
 	ber_socket_t s,
-	struct timeval *tvp )
+	struct timeval *tvp,
+	int wr )
 {
 	int		rc;
 		
@@ -288,9 +289,10 @@ ldap_int_poll(
 	{
 		struct pollfd fd;
 		int timeout = INFTIM;
+		short event = wr ? POLL_WRITE : POLL_READ;
 
 		fd.fd = s;
-		fd.events = POLL_WRITE;
+		fd.events = event;
 
 		if ( tvp != NULL ) {
 			timeout = TV2MILLISEC( tvp );
@@ -310,7 +312,7 @@ ldap_int_poll(
 			return -2;
 		}
 
-		if ( fd.revents & POLL_WRITE ) {
+		if ( fd.revents & event ) {
 			if ( ldap_pvt_is_socket_ready( ld, s ) == -1 ) {
 				return -1;
 			}
@@ -420,8 +422,8 @@ ldap_pvt_connect(LDAP *ld, ber_socket_t s,
 	if (LDAP_IS_UDP(ld)) {
 		if (ld->ld_options.ldo_peer)
 			ldap_memfree(ld->ld_options.ldo_peer);
-		ld->ld_options.ldo_peer=ldap_memalloc(sizeof(struct sockaddr));
-		AC_MEMCPY(ld->ld_options.ldo_peer,sin,sizeof(struct sockaddr));
+		ld->ld_options.ldo_peer=ldap_memcalloc(1, sizeof(struct sockaddr_storage));
+		AC_MEMCPY(ld->ld_options.ldo_peer,sin,addrlen);
 		return ( 0 );
 	}
 #endif
@@ -436,13 +438,21 @@ ldap_pvt_connect(LDAP *ld, ber_socket_t s,
 	if ( opt_tv && ldap_pvt_ndelay_on(ld, s) == -1 )
 		return ( -1 );
 
-	if ( connect(s, sin, addrlen) != AC_SOCKET_ERROR ) {
-		if ( opt_tv && ldap_pvt_ndelay_off(ld, s) == -1 )
-			return ( -1 );
-		return ( 0 );
-	}
+	do{
+		osip_debug(ld, "attempting to connect: \n", 0, 0, 0);
+		if ( connect(s, sin, addrlen) != AC_SOCKET_ERROR ) {
+			osip_debug(ld, "connect success\n", 0, 0, 0);
 
-	err = sock_errno();
+			if ( opt_tv && ldap_pvt_ndelay_off(ld, s) == -1 )
+				return ( -1 );
+			return ( 0 );
+		}
+		err = sock_errno();
+		osip_debug(ld, "connect errno: %d\n", err, 0, 0);
+
+	} while(err == EINTR &&
+		LDAP_BOOL_GET( &ld->ld_options, LDAP_BOOL_RESTART ));
+
 	if ( err != EINPROGRESS && err != EWOULDBLOCK ) {
 		return ( -1 );
 	}
@@ -452,7 +462,7 @@ ldap_pvt_connect(LDAP *ld, ber_socket_t s,
 		return ( -2 );
 	}
 
-	rc = ldap_int_poll( ld, s, opt_tv );
+	rc = ldap_int_poll( ld, s, opt_tv, 1 );
 
 	osip_debug(ld, "ldap_pvt_connect: %d\n", rc, 0, 0);
 

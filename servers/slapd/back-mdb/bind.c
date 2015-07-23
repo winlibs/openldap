@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2000-2012 The OpenLDAP Foundation.
+ * Copyright 2000-2015 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -67,7 +67,7 @@ mdb_bind( Operation *op, SlapReply *rs )
 	rtxn = moi->moi_txn;
 
 	/* get entry with reader lock */
-	rs->sr_err = mdb_dn2entry( op, rtxn, NULL, &op->o_req_ndn, &e, 0 );
+	rs->sr_err = mdb_dn2entry( op, rtxn, NULL, &op->o_req_ndn, &e, NULL, 0 );
 
 	switch(rs->sr_err) {
 	case MDB_NOTFOUND:
@@ -138,6 +138,8 @@ done:
 	if ( moi == &opinfo ) {
 		mdb_txn_reset( moi->moi_txn );
 		LDAP_SLIST_REMOVE( &op->o_extra, &moi->moi_oe, OpExtra, oe_next );
+	} else {
+		moi->moi_ref--;
 	}
 	/* free entry and reader lock */
 	if( e != NULL ) {

@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2004-2012 The OpenLDAP Foundation.
+ * Copyright 2004-2015 The OpenLDAP Foundation.
  * Portions Copyright 2004 Hewlett-Packard Company.
  * Portions Copyright 2004 Howard Chu, Symas Corp.
  * All rights reserved.
@@ -133,6 +133,11 @@ ldap_parse_passwordpolicy_control(
 	assert( ld != NULL );
 	assert( LDAP_VALID( ld ) );
 	assert( ctrl != NULL );
+
+	if ( !ctrl->ldctl_value.bv_val ) {
+		ld->ld_errno = LDAP_DECODING_ERROR;
+		return(ld->ld_errno);
+	}
 
 	/* Create a BerElement from the berval returned in the control. */
 	ber = ber_init(&ctrl->ldctl_value);

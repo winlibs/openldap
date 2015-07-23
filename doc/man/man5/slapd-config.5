@@ -1,5 +1,5 @@
 .TH SLAPD-CONFIG 5 "RELEASEDATE" "OpenLDAP LDVERSION"
-.\" Copyright 1998-2012 The OpenLDAP Foundation All Rights Reserved.
+.\" Copyright 1998-2015 The OpenLDAP Foundation All Rights Reserved.
 .\" Copying restrictions apply.  See COPYRIGHT/LICENSE.
 .\" $OpenLDAP$
 .SH NAME
@@ -445,20 +445,6 @@ upon StartTLS operation receipt.
 .B tls_authc
 disallows the StartTLS operation if authenticated (see also
 .BR tls_2_anon ).
-.TP
-.B olcExtraAttrs: <attr>
-Lists what attributes need to be added to search requests.
-Local storage backends return the entire entry to the frontend.
-The frontend takes care of only returning the requested attributes
-that are allowed by ACLs.
-However, features like access checking and so may need specific
-attributes that are not automatically returned by remote storage
-backends, like proxy backends and so on.
-.B <attr>
-is an attribute that is needed for internal purposes
-and thus always needs to be collected, even when not explicitly
-requested by clients.
-This attribute is multi-valued.
 .TP
 .B olcGentleHUP: { TRUE | FALSE }
 A SIGHUP signal will only cause a 'gentle' shutdown-attempt:
@@ -932,6 +918,23 @@ from the default, otherwise no certificate exchanges or verification will
 be done. When using GnuTLS or Mozilla NSS these parameters are always generated randomly
 so this directive is ignored.
 .TP
+.B olcTLSProtocolMin: <major>[.<minor>]
+Specifies minimum SSL/TLS protocol version that will be negotiated.
+If the server doesn't support at least that version,
+the SSL handshake will fail.
+To require TLS 1.x or higher, set this option to 3.(x+1),
+e.g.,
+
+.nf
+	olcTLSProtocolMin: 3.2
+.fi
+
+would require TLS 1.1.
+Specifying a minimum that is higher than that supported by the
+OpenLDAP implementation will result in it requiring the
+highest level that it does support.
+This directive is ignored with GnuTLS.
+.TP
 .B olcTLSRandFile: <filename>
 Specifies the file to obtain random bits from when /dev/[u]random
 is not available.  Generally set to the name of the EGD/PRNGD socket.
@@ -1102,7 +1105,8 @@ value "oid.xx" will be used.
 
 .SH GENERAL BACKEND OPTIONS
 Options in these entries only apply to the configuration of a single
-type of backend. All backends may support this class of options.
+type of backend. All backends may support this class of options, but
+currently none do.
 The entry must be named
 .B olcBackend=<databasetype>,cn=config
 and must have the olcBackendConfig objectClass.
@@ -1114,8 +1118,10 @@ should be one of
 .BR hdb ,
 .BR ldap ,
 .BR ldif ,
+.BR mdb ,
 .BR meta ,
 .BR monitor ,
+.BR ndb ,
 .BR null ,
 .BR passwd ,
 .BR perl ,
@@ -1123,7 +1129,8 @@ should be one of
 .BR shell ,
 or
 .BR sql .
-At present, no backend implements any options of this type.
+At present, no backend implements any options of this type, so this
+entry should not be used.
 
 .SH DATABASE OPTIONS
 Database options are set in entries named
@@ -1171,6 +1178,20 @@ Specify a default search base to use when client submits a
 non-base search request with an empty base DN.
 Base scoped search requests with an empty base DN are not affected.
 This setting is only allowed in the frontend entry.
+.TP
+.B olcExtraAttrs: <attr>
+Lists what attributes need to be added to search requests.
+Local storage backends return the entire entry to the frontend.
+The frontend takes care of only returning the requested attributes
+that are allowed by ACLs.
+However, features like access checking and so may need specific
+attributes that are not automatically returned by remote storage
+backends, like proxy backends and so on.
+.B <attr>
+is an attribute that is needed for internal purposes
+and thus always needs to be collected, even when not explicitly
+requested by clients.
+This attribute is multi-valued.
 .TP
 .B olcPasswordHash: <hash> [<hash>...]
 This option configures one or more hashes to be used in generation of user
@@ -1753,8 +1774,9 @@ FALSE, meaning the contextCSN is stored in the context entry.
 .B [tls_cacert=<file>]
 .B [tls_cacertdir=<path>]
 .B [tls_reqcert=never|allow|try|demand]
-.B [tls_ciphersuite=<ciphers>]
+.B [tls_cipher_suite=<ciphers>]
 .B [tls_crlcheck=none|peer|all]
+.B [tls_protocol_min=<major>[.<minor>]]
 .B [suffixmassage=<real DN>]
 .B [logbase=<base DN>]
 .B [logfilter=<filter str>]
@@ -2082,7 +2104,6 @@ default slapd configuration directory
 .BR slapd.conf (5),
 .BR slapd.overlays (5),
 .BR slapd.plugin (5),
-.BR slapd.replog (5),
 .BR slapd (8),
 .BR slapacl (8),
 .BR slapadd (8),

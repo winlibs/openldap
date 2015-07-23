@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2003-2012 The OpenLDAP Foundation.
+ * Copyright 2003-2015 The OpenLDAP Foundation.
  * Portions Copyright 2003 IBM Corporation.
  * All rights reserved.
  *
@@ -368,6 +368,22 @@ slap_parse_sync_cookie(
 			slap_sort_csn_sids( cookie->ctxcsn, cookie->sids, cookie->numcsns, memctx );
 	}
 	return 0;
+}
+
+/* count the numcsns and regenerate the list of SIDs in a recomposed cookie */
+void
+slap_reparse_sync_cookie(
+	struct sync_cookie *cookie,
+	void *memctx )
+{
+	if ( cookie->ctxcsn ) {
+		for (; !BER_BVISNULL( &cookie->ctxcsn[cookie->numcsns] ); cookie->numcsns++);
+	}
+	if ( cookie->numcsns ) {
+		cookie->sids = slap_parse_csn_sids( cookie->ctxcsn, cookie->numcsns, NULL );
+		if ( cookie->numcsns > 1 )
+			slap_sort_csn_sids( cookie->ctxcsn, cookie->sids, cookie->numcsns, memctx );
+	}
 }
 
 int

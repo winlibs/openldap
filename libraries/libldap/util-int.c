@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2012 The OpenLDAP Foundation.
+ * Copyright 1998-2015 The OpenLDAP Foundation.
  * Portions Copyright 1998 A. Hartgers.
  * All rights reserved.
  *
@@ -612,9 +612,6 @@ void ldap_int_utils_init( void )
 
 	ldap_pvt_thread_mutex_init( &ldap_int_gettime_mutex );
 
-#ifdef HAVE_CYRUS_SASL
-	ldap_pvt_thread_mutex_init( &ldap_int_sasl_mutex );
-#endif
 #ifdef HAVE_GSSAPI
 	ldap_pvt_thread_mutex_init( &ldap_int_gssapi_mutex );
 #endif

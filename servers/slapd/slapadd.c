@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2012 The OpenLDAP Foundation.
+ * Copyright 1998-2015 The OpenLDAP Foundation.
  * Portions Copyright 1998-2003 Kurt D. Zeilenga.
  * Portions Copyright 2003 IBM Corporation.
  * All rights reserved.
@@ -40,18 +40,34 @@
 
 #include "slapcommon.h"
 
+#ifdef _WIN32
+# ifdef __WIN64__
+# define ftello(fp)	_ftelli64(fp)
+# else
+/* Ideally we would use _ftelli64 but that was only available
+ * starting in MSVCR80.DLL. The approach used here is inaccurate
+ * because returning the underlying file handle's file pointer
+ * doesn't take the stdio buffer offset into account. But, it
+ * works with all versions of MSVCRT.
+ */
+# define ftello(fp)	_telli64(fileno(fp))
+# endif
+#endif
+
+extern int slap_DN_strict;	/* dn.c */
+
 static char csnbuf[ LDAP_PVT_CSNSTR_BUFSIZE ];
 
 typedef struct Erec {
 	Entry *e;
-	int lineno;
-	int nextline;
+	unsigned long lineno;
+	unsigned long nextline;
 } Erec;
 
 typedef struct Trec {
 	Entry *e;
-	int lineno;
-	int nextline;
+	unsigned long lineno;
+	unsigned long nextline;
 	int rc;
 	int ready;
 } Trec;
@@ -96,19 +112,27 @@ again:
 	{
 		BackendDB *bd;
 		Entry *e;
+		int prev_DN_strict;
 
 		if ( erec->lineno < jumpline )
 			goto again;
 
+		if ( !dbnum ) {
+			prev_DN_strict = slap_DN_strict;
+			slap_DN_strict = 0;
+		}
 		e = str2entry2( buf, checkvals );
+		if ( !dbnum ) {
+			slap_DN_strict = prev_DN_strict;
+		}
 
 		if ( enable_meter )
 			lutil_meter_update( &meter,
-					 ftell( ldiffp->fp ),
+					 ftello( ldiffp->fp ),
 					 0);
 
 		if( e == NULL ) {
-			fprintf( stderr, "%s: could not parse entry (line=%d)\n",
+			fprintf( stderr, "%s: could not parse entry (line=%lu)\n",
 				progname, erec->lineno );
 			return -2;
 		}
@@ -117,7 +141,7 @@ again:
 		if( BER_BVISEMPTY( &e->e_nname ) &&
 			!BER_BVISEMPTY( be->be_nsuffix ))
 		{
-			fprintf( stderr, "%s: line %d: "
+			fprintf( stderr, "%s: line %lu: "
 				"cannot add entry with empty dn=\"%s\"",
 				progname, erec->lineno, e->e_dn );
 			bd = select_backend( &e->e_nname, nosubordinates );
@@ -144,7 +168,7 @@ again:
 		/* check backend */
 		bd = select_backend( &e->e_nname, nosubordinates );
 		if ( bd != be ) {
-			fprintf( stderr, "%s: line %d: "
+			fprintf( stderr, "%s: line %lu: "
 				"database #%d (%s) not configured to hold \"%s\"",
 				progname, erec->lineno,
 				dbnum,
@@ -432,7 +456,7 @@ slapadd( int argc, char **argv )
 			id = be->be_entry_put( be, erec.e, &bvtext );
 			if( id == NOID ) {
 				fprintf( stderr, "%s: could not add entry dn=\"%s\" "
-								 "(line=%d): %s\n", progname, erec.e->e_dn,
+								 "(line=%lu): %s\n", progname, erec.e->e_dn,
 								 erec.lineno, bvtext.bv_val );
 				rc = EXIT_FAILURE;
 				if( continuemode ) {
@@ -473,7 +497,7 @@ slapadd( int argc, char **argv )
 	bvtext.bv_val[0] = '\0';
 
 	if ( enable_meter ) {
-		lutil_meter_update( &meter, ftell( ldiffp->fp ), 1);
+		lutil_meter_update( &meter, ftello( ldiffp->fp ), 1);
 		lutil_meter_close( &meter );
 	}
 

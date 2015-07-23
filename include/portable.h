@@ -852,7 +852,7 @@
 /* #undef LDAP_SYSLOG */
 
 /* Version */
-#define LDAP_VENDOR_VERSION 20433
+#define LDAP_VENDOR_VERSION 20441
 
 /* Major */
 #define LDAP_VENDOR_VERSION_MAJOR 2
@@ -861,7 +861,7 @@
 #define LDAP_VENDOR_VERSION_MINOR 4
 
 /* Patch */
-#define LDAP_VENDOR_VERSION_PATCH 33
+#define LDAP_VENDOR_VERSION_PATCH 41
 
 /* define if memcmp is not 8-bit clean or is otherwise broken */
 /* #undef NEED_MEMCMP_REPLACEMENT */
@@ -1111,7 +1111,9 @@
 /* #undef size_t */
 
 /* define to snprintf routine */
+#if !defined(_MSC_VER) || _MSC_VER < 1900
 #define snprintf _snprintf
+#endif
 
 /* Define to `int' if <sys/socket.h> does not define. */
 /* #define socklen_t int*/

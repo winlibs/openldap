@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1999-2012 The OpenLDAP Foundation.
+ * Copyright 1999-2015 The OpenLDAP Foundation.
  * Portions Copyright 1999 John C. Quillan.
  * Portions Copyright 2002 myinternet Limited.
  * All rights reserved.
@@ -89,7 +89,7 @@ perl_back_search(
 						rs->sr_flags = 0;
 						rs->sr_attrs = NULL;
 						rs->sr_entry = NULL;
-						if ( rs->sr_err == LDAP_SIZELIMIT_EXCEEDED ) {
+						if ( rs->sr_err == LDAP_SIZELIMIT_EXCEEDED || rs->sr_err == LDAP_BUSY ) {
 							goto done;
 						}
 					}

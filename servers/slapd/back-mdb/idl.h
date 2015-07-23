@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2000-2012 The OpenLDAP Foundation.
+ * Copyright 2000-2015 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -62,6 +62,7 @@
 #define MDB_IDL_ALL( ids ) MDB_IDL_RANGE( ids, 1, NOID )
 
 #define MDB_IDL_FIRST( ids )	( (ids)[1] )
+#define MDB_IDL_LLAST( ids )	( (ids)[(ids)[0]] )
 #define MDB_IDL_LAST( ids )		( MDB_IDL_IS_RANGE(ids) \
 	? (ids)[2] : (ids)[(ids)[0]] )
 
@@ -87,8 +88,10 @@ typedef struct IdScopes {
 	MDB_cursor *mc;
 	ID id;
 	ID2L scopes;
+	ID2L sctmp;
 	int numrdns;
 	int nscope;
+	int oscope;
 	struct berval rdns[MAXRDNS];
 	struct berval nrdns[MAXRDNS];
 } IdScopes;

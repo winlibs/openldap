@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2000-2012 The OpenLDAP Foundation.
+ * Copyright 2000-2015 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -210,6 +210,31 @@ mdb_filter_candidates(
 			(unsigned long) f->f_choice, 0, 0 );
 		/* Must not return NULL, otherwise extended filters break */
 		MDB_IDL_ALL( ids );
+	}
+	if ( ids[2] == NOID && MDB_IDL_IS_RANGE( ids )) {
+		struct mdb_info *mdb = (struct mdb_info *) op->o_bd->be_private;
+		ID last;
+
+		if ( mdb->mi_nextid ) {
+			last = mdb->mi_nextid;
+		} else {
+			MDB_cursor *mc;
+			MDB_val key;
+
+			last = 0;
+			rc = mdb_cursor_open( rtxn, mdb->mi_id2entry, &mc );
+			if ( !rc ) {
+				rc = mdb_cursor_get( mc, &key, NULL, MDB_LAST );
+				if ( !rc )
+					memcpy( &last, key.mv_data, sizeof( last ));
+				mdb_cursor_close( mc );
+			}
+		}
+		if ( last ) {
+			ids[2] = last;
+		} else {
+			MDB_IDL_ZERO( ids );
+		}
 	}
 
 out:
@@ -489,7 +514,7 @@ ext_candidates(
 		MDB_IDL_ZERO( ids );
 		if ( mra->ma_rule == slap_schema.si_mr_distinguishedNameMatch ) {
 base:
-			rc = mdb_dn2id( op, rtxn, NULL, &mra->ma_value, &id, NULL, NULL );
+			rc = mdb_dn2id( op, rtxn, NULL, &mra->ma_value, &id, NULL, NULL, NULL );
 			if ( rc == MDB_SUCCESS ) {
 				mdb_idl_insert( ids, id );
 			}
@@ -690,11 +715,15 @@ equality_candidates(
 
 	if ( ava->aa_desc == slap_schema.si_ad_entryDN ) {
 		ID id;
-		rc = mdb_dn2id( op, rtxn, NULL, &ava->aa_value, &id, NULL, NULL );
+		rc = mdb_dn2id( op, rtxn, NULL, &ava->aa_value, &id, NULL, NULL, NULL );
 		if ( rc == LDAP_SUCCESS ) {
 			/* exactly one ID can match */
 			ids[0] = 1;
 			ids[1] = id;
+		}
+		if ( rc == MDB_NOTFOUND ) {
+			MDB_IDL_ZERO( ids );
+			rc = 0;
 		}
 		return rc;
 	}

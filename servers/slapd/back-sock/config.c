@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2007-2012 The OpenLDAP Foundation.
+ * Copyright 2007-2015 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -357,12 +357,14 @@ sock_over_db_init(
 {
 	slap_overinst	*on = (slap_overinst *)be->bd_info;
 	void *private = be->be_private;
+	void *cf_ocs = be->be_cf_ocs;
 	int rc;
 
 	be->be_private = NULL;
 	rc = sock_back_db_init( be, cr );
 	on->on_bi.bi_private = be->be_private;
 	be->be_private = private;
+	be->be_cf_ocs = cf_ocs;
 	return rc;
 }
 

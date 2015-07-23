@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2012 The OpenLDAP Foundation.
+ * Copyright 1998-2015 The OpenLDAP Foundation.
  * Portions Copyright 2008 Pierangelo Masarati.
  * All rights reserved.
  *
@@ -139,6 +139,7 @@ typedef struct deref_cb_t {
 
 static int			deref_cid;
 static slap_overinst 		deref;
+static int ov_count;
 
 static int
 deref_parseCtrl (
@@ -182,7 +183,8 @@ deref_parseCtrl (
 		ber_len_t cnt = sizeof(struct berval);
 		ber_len_t off = 0;
 
-		if ( ber_scanf( ber, "{m{M}}", &derefAttr, &attributes, &cnt, off ) == LBER_ERROR )
+		if ( ber_scanf( ber, "{m{M}}", &derefAttr, &attributes, &cnt, off ) == LBER_ERROR
+			|| !cnt )
 		{
 			rs->sr_text = "Dereference control: derefSpec decoding error";
 			rs->sr_err = LDAP_PROTOCOL_ERROR;
@@ -516,22 +518,57 @@ deref_op_search( Operation *op, SlapReply *rs )
 	return SLAP_CB_CONTINUE;
 }
 
+static int
+deref_db_init( BackendDB *be, ConfigReply *cr)
+{
+	if ( ov_count == 0 ) {
+		int rc;
+
+		rc = register_supported_control2( LDAP_CONTROL_X_DEREF,
+			SLAP_CTRL_SEARCH,
+			NULL,
+			deref_parseCtrl,
+			1, /* replace */
+			&deref_cid );
+		if ( rc != LDAP_SUCCESS ) {
+			Debug( LDAP_DEBUG_ANY,
+				"deref_init: Failed to register control (%d)\n",
+				rc, 0, 0 );
+			return rc;
+		}
+	}
+	ov_count++;
+	return LDAP_SUCCESS;
+}
+
+static int
+deref_db_open( BackendDB *be, ConfigReply *cr)
+{
+	return overlay_register_control( be, LDAP_CONTROL_X_DEREF );
+}
+
+#ifdef SLAP_CONFIG_DELETE
+static int
+deref_db_destroy( BackendDB *be, ConfigReply *cr)
+{
+	ov_count--;
+	overlay_unregister_control( be, LDAP_CONTROL_X_DEREF );
+	if ( ov_count == 0 ) {
+		unregister_supported_control( LDAP_CONTROL_X_DEREF );
+	}
+	return 0;
+}
+#endif /* SLAP_CONFIG_DELETE */
+
 int
 deref_initialize(void)
 {
-	int rc;
-
-	rc = register_supported_control( LDAP_CONTROL_X_DEREF,
-		SLAP_CTRL_SEARCH, NULL,
-		deref_parseCtrl, &deref_cid );
-	if ( rc != LDAP_SUCCESS ) {
-		Debug( LDAP_DEBUG_ANY,
-			"deref_init: Failed to register control (%d)\n",
-			rc, 0, 0 );
-		return -1;
-	}
-
 	deref.on_bi.bi_type = "deref";
+	deref.on_bi.bi_db_init = deref_db_init;
+	deref.on_bi.bi_db_open = deref_db_open;
+#ifdef SLAP_CONFIG_DELETE
+	deref.on_bi.bi_db_destroy = deref_db_destroy;
+#endif /* SLAP_CONFIG_DELETE */
 	deref.on_bi.bi_op_search = deref_op_search;
 
 	return overlay_register( &deref );

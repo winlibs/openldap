@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2012 The OpenLDAP Foundation.
+ * Copyright 1998-2015 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -273,7 +273,7 @@ wait4msg(
 #ifdef HAVE_GETTIMEOFDAY
 		gettimeofday( &start_time_tv, NULL );
 #else /* ! HAVE_GETTIMEOFDAY */
-		time( &start_time_tv.tv_sec );
+		start_time_tv.tv_sec = time( NULL );
 		start_time_tv.tv_usec = 0;
 #endif /* ! HAVE_GETTIMEOFDAY */
 	}
@@ -387,7 +387,7 @@ wait4msg(
 #ifdef HAVE_GETTIMEOFDAY
 			gettimeofday( &curr_time_tv, NULL );
 #else /* ! HAVE_GETTIMEOFDAY */
-			time( &curr_time_tv.tv_sec );
+			curr_time_tv.tv_sec = time( NULL );
 			curr_time_tv.tv_usec = 0;
 #endif /* ! HAVE_GETTIMEOFDAY */
 
@@ -482,8 +482,8 @@ retry:
 	sock_errset(0);
 #ifdef LDAP_CONNECTIONLESS
 	if ( LDAP_IS_UDP(ld) ) {
-		struct sockaddr from;
-		ber_int_sb_read( lc->lconn_sb, &from, sizeof(struct sockaddr) );
+		struct sockaddr_storage from;
+		ber_int_sb_read( lc->lconn_sb, &from, sizeof(struct sockaddr_storage) );
 		if ( ld->ld_options.ldo_version == LDAP_VERSION2 ) isv2 = 1;
 	}
 nextresp3:

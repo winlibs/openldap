@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2000-2012 The OpenLDAP Foundation.
+ * Copyright 2000-2015 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -46,7 +46,7 @@ mdb_modrdn( Operation	*op, SlapReply *rs )
 
 	int		manageDSAit = get_manageDSAit( op );
 
-	ID nid;
+	ID nid, nsubs;
 	LDAPControl **preread_ctrl = NULL;
 	LDAPControl **postread_ctrl = NULL;
 	LDAPControl *ctrls[SLAP_MAX_RESPONSE_CONTROLS];
@@ -103,8 +103,6 @@ txnReturn:
 
 	ctrls[num_ctrls] = NULL;
 
-	slap_mods_opattrs( op, &op->orr_modlist, 1 );
-
 	/* begin transaction */
 	rs->sr_err = mdb_opinfo_get( op, mdb, 0, &moi );
 	rs->sr_text = NULL;
@@ -116,8 +114,9 @@ txnReturn:
 		rs->sr_text = "internal error";
 		goto return_results;
 	}
-
 	txn = moi->moi_txn;
+
+	slap_mods_opattrs( op, &op->orr_modlist, 1 );
 
 	if ( be_issuffix( op->o_bd, &op->o_req_ndn ) ) {
 #ifdef MDB_MULTIPLE_SUFFIXES
@@ -146,7 +145,7 @@ txnReturn:
 		rs->sr_text = "DN cursor_open failed";
 		goto return_results;
 	}
-	rs->sr_err = mdb_dn2entry( op, txn, mc, &p_ndn, &p, 0 );
+	rs->sr_err = mdb_dn2entry( op, txn, mc, &p_ndn, &p, NULL, 0 );
 	switch( rs->sr_err ) {
 	case MDB_NOTFOUND:
 		Debug( LDAP_DEBUG_TRACE, LDAP_XSTRING(mdb_modrdn)
@@ -200,7 +199,7 @@ txnReturn:
 		p_dn.bv_val, 0, 0 );
 
 	/* get entry */
-	rs->sr_err = mdb_dn2entry( op, txn, mc, &op->o_req_ndn, &e, 0 );
+	rs->sr_err = mdb_dn2entry( op, txn, mc, &op->o_req_ndn, &e, &nsubs, 0 );
 	switch( rs->sr_err ) {
 	case MDB_NOTFOUND:
 		e = p;
@@ -322,7 +321,7 @@ txnReturn:
 				goto return_results;
 			}
 			/* Get Entry with dn=newSuperior. Does newSuperior exist? */
-			rs->sr_err = mdb_dn2entry( op, txn, NULL, np_ndn, &np, 0 );
+			rs->sr_err = mdb_dn2entry( op, txn, NULL, np_ndn, &np, NULL, 0 );
 
 			switch( rs->sr_err ) {
 			case 0:
@@ -384,7 +383,7 @@ txnReturn:
 				rs->sr_err = LDAP_OTHER;
 				goto return_results;
 			}
-			new_parent_dn = &np->e_name;
+			np_dn = &np->e_name;
 
 		} else {
 			np_dn = NULL;
@@ -433,7 +432,7 @@ txnReturn:
 		new_ndn.bv_val, 0, 0 );
 
 	/* Shortcut the search */
-	rs->sr_err = mdb_dn2id ( op, txn, NULL, &new_ndn, &nid, NULL, NULL );
+	rs->sr_err = mdb_dn2id ( op, txn, NULL, &new_ndn, &nid, NULL, NULL, NULL );
 	switch( rs->sr_err ) {
 	case MDB_NOTFOUND:
 		break;
@@ -470,8 +469,11 @@ txnReturn:
 		}
 	}
 
-	/* delete old DN */
-	rs->sr_err = mdb_dn2id_delete( op, mc, e->e_id );
+	/* delete old DN
+	 * If moving to a new parent, must delete current subtree count,
+	 * otherwise leave it unchanged since we'll be adding it right back.
+	 */
+	rs->sr_err = mdb_dn2id_delete( op, mc, e->e_id, np ? nsubs : 0 );
 	if ( rs->sr_err != 0 ) {
 		Debug(LDAP_DEBUG_TRACE,
 			"<=- " LDAP_XSTRING(mdb_modrdn)
@@ -489,7 +491,8 @@ txnReturn:
 	dummy.e_attrs = NULL;
 
 	/* add new DN */
-	rs->sr_err = mdb_dn2id_add( op, mc, mc, np ? np->e_id : p->e_id, &dummy );
+	rs->sr_err = mdb_dn2id_add( op, mc, mc, np ? np->e_id : p->e_id,
+		nsubs, np != NULL, &dummy );
 	if ( rs->sr_err != 0 ) {
 		Debug(LDAP_DEBUG_TRACE,
 			"<=- " LDAP_XSTRING(mdb_modrdn)
@@ -527,23 +530,24 @@ txnReturn:
 	}
 
 	if ( p_ndn.bv_len != 0 ) {
-		parent_is_glue = is_entry_glue(p);
-		rs->sr_err = mdb_dn2id_children( op, txn, p );
-		if ( rs->sr_err != MDB_NOTFOUND ) {
-			switch( rs->sr_err ) {
-			case 0:
-				break;
-			default:
-				Debug(LDAP_DEBUG_ARGS,
-					"<=- " LDAP_XSTRING(mdb_modrdn)
-					": has_children failed: %s (%d)\n",
-					mdb_strerror(rs->sr_err), rs->sr_err, 0 );
-				rs->sr_err = LDAP_OTHER;
-				rs->sr_text = "internal error";
-				goto return_results;
+		if ((parent_is_glue = is_entry_glue(p))) {
+			rs->sr_err = mdb_dn2id_children( op, txn, p );
+			if ( rs->sr_err != MDB_NOTFOUND ) {
+				switch( rs->sr_err ) {
+				case 0:
+					break;
+				default:
+					Debug(LDAP_DEBUG_ARGS,
+						"<=- " LDAP_XSTRING(mdb_modrdn)
+						": has_children failed: %s (%d)\n",
+						mdb_strerror(rs->sr_err), rs->sr_err, 0 );
+					rs->sr_err = LDAP_OTHER;
+					rs->sr_text = "internal error";
+					goto return_results;
+				}
+			} else {
+				parent_is_leaf = 1;
 			}
-		} else {
-			parent_is_leaf = 1;
 		}
 		mdb_entry_return( op, p );
 		p = NULL;
@@ -590,7 +594,7 @@ txnReturn:
 	}
 
 	if( rs->sr_err != LDAP_SUCCESS ) {
-		Debug( LDAP_DEBUG_TRACE,
+		Debug( LDAP_DEBUG_ANY,
 			LDAP_XSTRING(mdb_modrdn) ": %s : %s (%d)\n",
 			rs->sr_text, mdb_strerror(rs->sr_err), rs->sr_err );
 		rs->sr_err = LDAP_OTHER;
@@ -652,6 +656,8 @@ done:
 		if ( opinfo.moi_oe.oe_key ) {
 			LDAP_SLIST_REMOVE( &op->o_extra, &opinfo.moi_oe, OpExtra, oe_next );
 		}
+	} else {
+		moi->moi_ref--;
 	}
 
 	if( preread_ctrl != NULL && (*preread_ctrl) != NULL ) {

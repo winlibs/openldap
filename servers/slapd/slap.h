@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2012 The OpenLDAP Foundation.
+ * Copyright 1998-2015 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -1604,6 +1604,8 @@ LDAP_SLAPD_V (int) slapMode;
 #define SLAP_TOOL_NO_SCHEMA_CHECK	0x1000
 #define SLAP_TOOL_VALUE_CHECK	0x2000
 
+#define SLAP_SERVER_RUNNING	0x8000
+
 #define SB_TLS_DEFAULT		(-1)
 #define SB_TLS_OFF		0
 #define SB_TLS_ON		1
@@ -2365,10 +2367,14 @@ struct BackendInfo {
 
 typedef int (slap_response)( Operation *, SlapReply * );
 
+struct slap_callback;
+typedef void (slap_writewait)( Operation *, struct slap_callback * );
+
 typedef struct slap_callback {
 	struct slap_callback *sc_next;
 	slap_response *sc_response;
 	slap_response *sc_cleanup;
+	slap_writewait *sc_writewait;
 	void *sc_private;
 } slap_callback;
 

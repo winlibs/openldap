@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2012 The OpenLDAP Foundation.
+ * Copyright 1998-2015 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -279,6 +279,22 @@ rs_entry2modifiable( Operation *op, SlapReply *rs, slap_overinst *on )
 	return 1;
 }
 
+/* Check for any callbacks that want to be informed about being blocked
+ * on output. These callbacks are expected to leave the callback list
+ * unmodified. Their result is ignored.
+ */
+static void
+slap_writewait_play(
+	Operation *op )
+{
+	slap_callback	*sc = op->o_callback;
+
+	for ( ; sc; sc = sc->sc_next ) {
+		if ( sc->sc_writewait )
+			sc->sc_writewait( op, sc );
+	}
+}
+
 static long send_ldap_ber(
 	Operation *op,
 	BerElement *ber )
@@ -320,23 +336,7 @@ static long send_ldap_ber(
 	while( 1 ) {
 		int err;
 
-		/* lock the connection */ 
-		if ( ldap_pvt_thread_mutex_trylock( &conn->c_mutex )) {
-			if ( !connection_valid(conn)) {
-				ret = 0;
-				break;
-			}
-			ldap_pvt_thread_mutex_unlock( &conn->c_write1_mutex );
-			ldap_pvt_thread_mutex_lock( &conn->c_write1_mutex );
-			if ( conn->c_writers < 0 ) {
-				ret = 0;
-				break;
-			}
-			continue;
-		}
-
 		if ( ber_flush2( conn->c_sb, ber, LBER_FLUSH_FREE_NEVER ) == 0 ) {
-			ldap_pvt_thread_mutex_unlock( &conn->c_mutex );
 			ret = bytes;
 			break;
 		}
@@ -356,6 +356,7 @@ static long send_ldap_ber(
 			conn->c_writers--;
 			conn->c_writing = 0;
 			ldap_pvt_thread_mutex_unlock( &conn->c_write1_mutex );
+			ldap_pvt_thread_mutex_lock( &conn->c_mutex );
 			connection_closing( conn, "connection lost on write" );
 
 			ldap_pvt_thread_mutex_unlock( &conn->c_mutex );
@@ -363,12 +364,12 @@ static long send_ldap_ber(
 		}
 
 		/* wait for socket to be write-ready */
+		slap_writewait_play( op );
 		ldap_pvt_thread_mutex_lock( &conn->c_write2_mutex );
 		conn->c_writewaiter = 1;
 		slapd_set_write( conn->c_sd, 2 );
 
 		ldap_pvt_thread_mutex_unlock( &conn->c_write1_mutex );
-		ldap_pvt_thread_mutex_unlock( &conn->c_mutex );
 		ldap_pvt_thread_pool_idle( &connection_pool );
 		ldap_pvt_thread_cond_wait( &conn->c_write2_cv, &conn->c_write2_mutex );
 		conn->c_writewaiter = 0;
