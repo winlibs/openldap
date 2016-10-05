@@ -2,7 +2,7 @@
 /* syncprov.c - syncrepl provider */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2004-2015 The OpenLDAP Foundation.
+ * Copyright 2004-2016 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -1917,10 +1917,13 @@ syncprov_op_response( Operation *op, SlapReply *rs )
 			} else {
 			ldap_pvt_thread_rdwr_wunlock( &si->si_csn_rwlock );
 			}
+			if ( csn_changed )
+				si->si_numops++;
 			goto leave;
 		}
 
-		si->si_numops++;
+		if ( csn_changed )
+			si->si_numops++;
 		if ( si->si_chkops || si->si_chktime ) {
 			/* Never checkpoint adding the context entry,
 			 * it will deadlock
@@ -2521,7 +2524,6 @@ syncprov_op_search( Operation *op, SlapReply *rs )
 		}
 		sop = ch_malloc( sizeof( syncops ));
 		*sop = so;
-		ldap_pvt_thread_mutex_init( &sop->s_mutex );
 		sop->s_rid = srs->sr_state.rid;
 		sop->s_sid = srs->sr_state.sid;
 		/* set refcount=2 to prevent being freed out from under us
@@ -2546,13 +2548,21 @@ syncprov_op_search( Operation *op, SlapReply *rs )
 				ldap_pvt_thread_yield();
 			ldap_pvt_thread_mutex_lock( &si->si_ops_mutex );
 		}
+		if ( op->o_abandon ) {
+			ldap_pvt_thread_mutex_unlock( &si->si_ops_mutex );
+			ch_free( sop );
+			return SLAPD_ABANDON;
+		}
+		ldap_pvt_thread_mutex_init( &sop->s_mutex );
 		sop->s_next = si->si_ops;
 		sop->s_si = si;
 		si->si_ops = sop;
 		ldap_pvt_thread_mutex_unlock( &si->si_ops_mutex );
 	}
 
-	/* snapshot the ctxcsn */
+	/* snapshot the ctxcsn
+	 * Note: this must not be done before the psearch setup. (ITS#8365)
+	 */
 	ldap_pvt_thread_rdwr_rlock( &si->si_csn_rwlock );
 	numcsns = si->si_numcsns;
 	if ( numcsns ) {
@@ -2566,17 +2576,19 @@ syncprov_op_search( Operation *op, SlapReply *rs )
 	}
 	dirty = si->si_dirty;
 	ldap_pvt_thread_rdwr_runlock( &si->si_csn_rwlock );
-	
+
 	/* If we have a cookie, handle the PRESENT lookups */
 	if ( srs->sr_state.ctxcsn ) {
 		sessionlog *sl;
 		int i, j;
 
-		/* If we don't have any CSN of our own yet, pretend nothing
-		 * has changed.
+		/* If we don't have any CSN of our own yet, bail out.
 		 */
-		if ( !numcsns )
-			goto no_change;
+		if ( !numcsns ) {
+			rs->sr_err = LDAP_UNWILLING_TO_PERFORM;
+			rs->sr_text = "consumer has state info but provider doesn't!";
+			goto bailout;
+		}
 
 		if ( !si->si_nopres )
 			do_present = SS_PRESENT;
@@ -2666,7 +2678,7 @@ bailout:
 		/* If nothing has changed, shortcut it */
 		if ( !changed && !dirty ) {
 			do_present = 0;
-no_change:		if ( !(op->o_sync_mode & SLAP_SYNC_PERSIST) ) {
+no_change:	if ( !(op->o_sync_mode & SLAP_SYNC_PERSIST) ) {
 				LDAPControl	*ctrls[2];
 
 				ctrls[0] = NULL;
@@ -2753,6 +2765,9 @@ no_change:		if ( !(op->o_sync_mode & SLAP_SYNC_PERSIST) ) {
 			}
 		}
 	} else {
+		/* The consumer knows nothing, we know nothing. OK. */
+		if (!numcsns)
+			goto no_change;
 		/* No consumer state, assume something has changed */
 		changed = SS_CHANGED;
 	}
@@ -3157,7 +3172,7 @@ syncprov_db_open(
 		char csnbuf[ LDAP_PVT_CSNSTR_BUFSIZE ];
 		struct berval csn;
 
-		if ( SLAP_SYNC_SHADOW( op->o_bd )) {
+		if ( slap_serverID || SLAP_SYNC_SHADOW( op->o_bd )) {
 		/* If we're also a consumer, then don't generate anything.
 		 * Wait for our provider to send it to us, or for a local
 		 * modify if we have multimaster.

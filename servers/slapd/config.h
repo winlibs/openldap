@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2015 The OpenLDAP Foundation.
+ * Copyright 1998-2016 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -196,6 +196,7 @@ int config_add_vals(ConfigTable *ct, ConfigArgs *c);
 void init_config_argv( ConfigArgs *c );
 int init_config_attrs(ConfigTable *ct);
 int init_config_ocs( ConfigOCs *ocs );
+void config_parse_ldif( ConfigArgs *c );
 int config_parse_vals(ConfigTable *ct, ConfigArgs *c, int valx);
 int config_parse_add(ConfigTable *ct, ConfigArgs *c, int valx);
 int read_config_file(const char *fname, int depth, ConfigArgs *cf,

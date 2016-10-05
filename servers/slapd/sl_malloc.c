@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2003-2015 The OpenLDAP Foundation.
+ * Copyright 2003-2016 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -279,16 +279,17 @@ slap_sl_mem_create(
 }
 
 /*
- * Separate memory context from thread context.  Future users must
+ * Assign memory context to thread context. Use NULL to detach
+ * current memory context from thread. Future users must
  * know the context, since ch_free/slap_sl_context() cannot find it.
  */
 void
-slap_sl_mem_detach(
+slap_sl_mem_setctx(
 	void *thrctx,
 	void *memctx
 )
 {
-	SET_MEMCTX(thrctx, NULL, 0);
+	SET_MEMCTX(thrctx, memctx, slap_sl_mem_destroy);
 }
 
 void *

@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2000-2015 The OpenLDAP Foundation.
+ * Copyright 2000-2016 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -143,6 +143,10 @@ int mdb_idscopechk(
 	struct IdScopes *isc );
 
 int mdb_dn2id_walk(
+	Operation *op,
+	struct IdScopes *isc );
+
+void mdb_dn2id_wrestore(
 	Operation *op,
 	struct IdScopes *isc );
 

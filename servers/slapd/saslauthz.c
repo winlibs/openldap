@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2015 The OpenLDAP Foundation.
+ * Copyright 1998-2016 The OpenLDAP Foundation.
  * Portions Copyright 2000 Mark Adamson, Carnegie Mellon.
  * All rights reserved.
  *
@@ -1226,7 +1226,10 @@ is_dn:		bv.bv_len = uri->bv_len - (bv.bv_val - uri->bv_val);
 
 done:
 	if( rc != LDAP_SUCCESS ) {
-		if( *filter ) filter_free_x( op, *filter, 1 );
+		if( *filter ) {
+			filter_free_x( op, *filter, 1 );
+			*filter = NULL;
+		}
 		BER_BVZERO( base );
 		BER_BVZERO( fstr );
 	} else {

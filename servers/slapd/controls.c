@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2015 The OpenLDAP Foundation.
+ * Copyright 1998-2016 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -1392,6 +1392,7 @@ static int parseAssert (
 		}
 		if( op->o_assertion != NULL ) {
 			filter_free_x( op, op->o_assertion, 1 );
+			op->o_assertion = NULL;
 		}
 		return rs->sr_err;
 	}

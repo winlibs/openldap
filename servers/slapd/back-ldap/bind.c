@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1999-2015 The OpenLDAP Foundation.
+ * Copyright 1999-2016 The OpenLDAP Foundation.
  * Portions Copyright 2000-2003 Pierangelo Masarati.
  * Portions Copyright 1999-2003 Howard Chu.
  * All rights reserved.
@@ -273,6 +273,8 @@ retry:;
 		if ( ldap_back_retry( &lc, op, rs, LDAP_BACK_BIND_SERR ) ) {
 			goto retry;
 		}
+		if ( !lc )
+			return( rc );
 	}
 
 	ldap_pvt_thread_mutex_lock( &li->li_counter_mutex );

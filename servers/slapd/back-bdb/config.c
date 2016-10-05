@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2000-2015 The OpenLDAP Foundation.
+ * Copyright 2000-2016 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -163,8 +163,8 @@ static ConfigOCs bdbocs[] = {
 #endif
 		"SUP olcDatabaseConfig "
 		"MUST olcDbDirectory "
-		"MAY ( olcDbCacheSize $ olcDbCheckpoint $ olcDbConfig $ "
-		"olcDbCryptFile $ olcDbCryptKey $ "
+		"MAY ( olcDbCacheSize $ olcDbCheckpoint $ olcDbChecksum $ "
+		"olcDbConfig $ olcDbCryptFile $ olcDbCryptKey $ "
 		"olcDbNoSync $ olcDbDirtyRead $ olcDbIDLcacheSize $ "
 		"olcDbIndex $ olcDbLinearIndex $ olcDbLockDetect $ "
 		"olcDbMode $ olcDbSearchStack $ olcDbShmKey $ "

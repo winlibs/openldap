@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2000-2015 The OpenLDAP Foundation.
+ * Copyright 2000-2016 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -327,6 +327,7 @@ typedef struct ww_ctx {
 	ID key;
 	MDB_val data;
 	int flag;
+	int nentries;
 } ww_ctx;
 
 /* ITS#7904 if we get blocked while writing results to client,
@@ -340,48 +341,47 @@ typedef struct ww_ctx {
  * couldn't succeed, but might succeed on a retry.
  */
 static void
+mdb_rtxn_snap( Operation *op, ww_ctx *ww )
+{
+	/* save cursor position and release read txn */
+	if ( ww->mcd ) {
+		MDB_val key, data;
+		mdb_cursor_get( ww->mcd, &key, &data, MDB_GET_CURRENT );
+		memcpy( &ww->key, key.mv_data, sizeof(ID) );
+		ww->data.mv_size = data.mv_size;
+		ww->data.mv_data = op->o_tmpalloc( data.mv_size, op->o_tmpmemctx );
+		memcpy(ww->data.mv_data, data.mv_data, data.mv_size);
+	}
+	mdb_txn_reset( ww->txn );
+	ww->flag = 1;
+}
+
+static void
 mdb_writewait( Operation *op, slap_callback *sc )
 {
 	ww_ctx *ww = sc->sc_private;
 	if ( !ww->flag ) {
-		if ( ww->mcd ) {
-			MDB_val key, data;
-			mdb_cursor_get( ww->mcd, &key, &data, MDB_GET_CURRENT );
-			memcpy( &ww->key, key.mv_data, sizeof(ID) );
-			ww->data.mv_size = data.mv_size;
-			ww->data.mv_data = op->o_tmpalloc( data.mv_size, op->o_tmpmemctx );
-			memcpy(ww->data.mv_data, data.mv_data, data.mv_size);
-		}
-		mdb_txn_reset( ww->txn );
-		ww->flag = 1;
+		mdb_rtxn_snap( op, ww );
 	}
 }
 
 static int
-mdb_waitfixup( Operation *op, ww_ctx *ww, MDB_cursor *mci, MDB_cursor *mcd, ID2 *scopes )
+mdb_waitfixup( Operation *op, ww_ctx *ww, MDB_cursor *mci, MDB_cursor *mcd, IdScopes *isc )
 {
+	MDB_val key;
 	int rc = 0;
 	ww->flag = 0;
 	mdb_txn_renew( ww->txn );
 	mdb_cursor_renew( ww->txn, mci );
 	mdb_cursor_renew( ww->txn, mcd );
 
-	if ( scopes[0].mid > 1 ) {
-		MDB_val key;
-		int i;
-		key.mv_size = sizeof(ID);
-		for ( i=1; i<scopes[0].mid; i++ ) {
-			if ( !scopes[i].mval.mv_data )
-				continue;
-			key.mv_data = &scopes[i].mid;
-			mdb_cursor_get( mcd, &key, &scopes[i].mval, MDB_SET );
-		}
-	}
+	key.mv_size = sizeof(ID);
+	if ( ww->mcd ) {	/* scope-based search using dn2id_walk */
+		MDB_val data;
 
-	if ( ww->mcd ) {
-		MDB_val key, data;
+		if ( isc->numrdns )
+			mdb_dn2id_wrestore( op, isc );
 
-		key.mv_size = sizeof(ID);
 		key.mv_data = &ww->key;
 		data = ww->data;
 		rc = mdb_cursor_get( mcd, &key, &data, MDB_GET_BOTH );
@@ -400,6 +400,14 @@ mdb_waitfixup( Operation *op, ww_ctx *ww, MDB_cursor *mci, MDB_cursor *mcd, ID2 
 		}
 		op->o_tmpfree( ww->data.mv_data, op->o_tmpmemctx );
 		ww->data.mv_data = NULL;
+	} else if ( isc->scopes[0].mid > 1 ) {	/* candidate-based search */
+		int i;
+		for ( i=1; i<isc->scopes[0].mid; i++ ) {
+			if ( !isc->scopes[i].mval.mv_data )
+				continue;
+			key.mv_data = &isc->scopes[i].mid;
+			mdb_cursor_get( mcd, &key, &isc->scopes[i].mval, MDB_SET );
+		}
 	}
 	return rc;
 }
@@ -1048,14 +1056,6 @@ notfound:
 			ber_bvarray_free( erefs );
 			rs->sr_ref = NULL;
 
-			if ( wwctx.flag ) {
-				rs->sr_err = mdb_waitfixup( op, &wwctx, mci, mcd, scopes );
-				if ( rs->sr_err ) {
-					send_ldap_result( op, rs );
-					goto done;
-				}
-			}
-
 			goto loop_continue;
 		}
 
@@ -1110,13 +1110,6 @@ notfound:
 					}
 					goto done;
 				}
-				if ( wwctx.flag ) {
-					rs->sr_err = mdb_waitfixup( op, &wwctx, mci, mcd, scopes );
-					if ( rs->sr_err ) {
-						send_ldap_result( op, rs );
-						goto done;
-					}
-				}
 			}
 
 		} else {
@@ -1127,6 +1120,21 @@ notfound:
 		}
 
 loop_continue:
+		if ( moi == &opinfo && !wwctx.flag && mdb->mi_rtxn_size ) {
+			wwctx.nentries++;
+			if ( wwctx.nentries >= mdb->mi_rtxn_size ) {
+				wwctx.nentries = 0;
+				mdb_rtxn_snap( op, &wwctx );
+			}
+		}
+		if ( wwctx.flag ) {
+			rs->sr_err = mdb_waitfixup( op, &wwctx, mci, mcd, &isc );
+			if ( rs->sr_err ) {
+				send_ldap_result( op, rs );
+				goto done;
+			}
+		}
+
 		if( e != NULL ) {
 			if ( e != base )
 				mdb_entry_return( op, e );

@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2004-2015 The OpenLDAP Foundation.
+ * Copyright 2004-2016 The OpenLDAP Foundation.
  * Portions Copyright 2004 Pierangelo Masarati.
  * All rights reserved.
  *
@@ -32,7 +32,7 @@ static ConfigDriver relay_back_cf;
 
 static ConfigTable relaycfg[] = {
 	{ "relay", "relay", 2, 2, 0,
-		ARG_MAGIC|ARG_DN,
+		ARG_MAGIC|ARG_DN|ARG_QUOTE,
 		relay_back_cf, "( OLcfgDbAt:5.1 "
 			"NAME 'olcRelay' "
 			"DESC 'Relay DN' "

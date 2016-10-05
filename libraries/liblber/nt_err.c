@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2015 The OpenLDAP Foundation.
+ * Copyright 1998-2016 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -23,7 +23,7 @@
 
 #define LBER_RETSTR( x ) case x: return #x;
 
-LBER_F( char * ) ber_pvt_wsa_err2string( int err )
+char *ber_pvt_wsa_err2string( int err )
 {
 	switch( err ) {
 		LBER_RETSTR( WSAEINTR )

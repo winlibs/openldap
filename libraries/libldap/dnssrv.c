@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2015 The OpenLDAP Foundation.
+ * Copyright 1998-2016 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -399,7 +399,7 @@ add_size:;
         if(cur>0){
             hostlist[cur++]=' ';
         }
-        cur += sprintf(&hostlist[cur], "%s:%hd", hostent_head[i].hostname, hostent_head[i].port);
+        cur += sprintf(&hostlist[cur], "%s:%hu", hostent_head[i].hostname, hostent_head[i].port);
     }
     }
 

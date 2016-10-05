@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2005-2015 The OpenLDAP Foundation.
+ * Copyright 2005-2016 The OpenLDAP Foundation.
  * Portions Copyright 2005-2006 SysNet s.n.c.
  * All rights reserved.
  *
@@ -1738,18 +1738,6 @@ dds_db_open(
 	if ( rc != LDAP_SUCCESS ) {
 		rc = 1;
 		goto done;
-	}
-
-	/* ... if there are dynamic objects, delete those expired */
-	if ( di->di_num_dynamicObjects > 0 ) {
-		/* force deletion of expired entries... */
-		be->bd_info = (BackendInfo *)on->on_info;
-		rc = dds_expire( thrctx, di );
-		be->bd_info = (BackendInfo *)on;
-		if ( rc != LDAP_SUCCESS ) {
-			rc = 1;
-			goto done;
-		}
 	}
 
 	/* start expire task */

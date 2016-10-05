@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2015 The OpenLDAP Foundation.
+ * Copyright 1998-2016 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -1839,7 +1839,7 @@ LDAP_SLAPD_V (BerMemoryFunctions) slap_sl_mfuncs;
 LDAP_SLAPD_F (void) slap_sl_mem_init LDAP_P(( void ));
 LDAP_SLAPD_F (void *) slap_sl_mem_create LDAP_P((
 						ber_len_t size, int stack, void *ctx, int flag ));
-LDAP_SLAPD_F (void) slap_sl_mem_detach LDAP_P(( void *ctx, void *memctx ));
+LDAP_SLAPD_F (void) slap_sl_mem_setctx LDAP_P(( void *ctx, void *memctx ));
 LDAP_SLAPD_F (void) slap_sl_mem_destroy LDAP_P(( void *key, void *data ));
 LDAP_SLAPD_F (void *) slap_sl_context LDAP_P(( void *ptr ));
 

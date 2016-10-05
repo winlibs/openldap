@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2003-2015 The OpenLDAP Foundation.
+ * Copyright 2003-2016 The OpenLDAP Foundation.
  * Portions Copyright 2003 by IBM Corporation.
  * Portions Copyright 2003-2008 by Howard Chu, Symas Corporation.
  * All rights reserved.
@@ -2749,6 +2749,9 @@ presentlist_find(
 #ifdef HASHUUID
 	Avlnode **a2 = (Avlnode **)av;
 	unsigned short s;
+
+	if (!av)
+		return NULL;
 
 	memcpy(&s, val->bv_val, 2);
 	return avl_find( a2[s], val->bv_val+2, syncuuid_cmp );
@@ -5623,7 +5626,7 @@ syncrepl_config( ConfigArgs *c )
 					 * happen when running on the cn=config DB.
 					 */
 					if ( si->si_re ) {
-						if ( ldap_pvt_thread_mutex_trylock( &si->si_mutex )) {
+						if ( si->si_be == c->be || ldap_pvt_thread_mutex_trylock( &si->si_mutex )) {
 							isrunning = 1;
 						} else {
 							/* There is no active thread, but we must still
