@@ -73,3 +73,23 @@ diff -ur ../openldap-2.4.33/libraries/liblber/nt_err.c ./libraries/liblber/nt_er
  {
  	switch( err ) {
  		LBER_RETSTR( WSAEINTR )
+
+--- ../openldap-2.4.44/include/ac/socket.h	2016-02-06 00:57:45.000000000 +0100
++++ ./include/ac/socket.h	2016-10-05 13:06:30.161290800 +0200
+@@ -98,9 +98,15 @@
+ #		define tcp_close( s )		closesocket( s )
+ #	endif
+ 
++#ifndef EWOULDBLOCK
+ #define EWOULDBLOCK WSAEWOULDBLOCK
++#endif
++#ifndef EINPROGRESS
+ #define EINPROGRESS WSAEINPROGRESS
++#endif
++#ifndef ETIMEDOUT
+ #define ETIMEDOUT	WSAETIMEDOUT
++#endif
+ 
+ #undef	sock_errno
+ #undef	sock_errstr
+
