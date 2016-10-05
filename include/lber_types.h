@@ -29,13 +29,21 @@ LDAP_BEGIN_DECL
 #define LBER_INT_T int
 
 /* LBER tags (32 bits or larger) */
+#ifdef _M_X64
+#define LBER_TAG_T __int64
+#else
 #define LBER_TAG_T long
+#endif
 
 /* LBER socket descriptor */
 #define LBER_SOCKET_T int
 
 /* LBER lengths (32 bits or larger) */
+#ifdef _M_X64
+#define LBER_LEN_T __int64
+#else
 #define LBER_LEN_T long
+#endif
 
 /* ------------------------------------------------------------ */
 

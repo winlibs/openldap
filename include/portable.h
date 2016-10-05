@@ -400,7 +400,7 @@
 #define HAVE_OPENSSL_CRL 1
 
 /* Define to 1 if you have the <openssl/crypto.h> header file. */
-/* #undef HAVE_OPENSSL_CRYPTO_H */
+#define HAVE_OPENSSL_CRYPTO_H 1
 
 /* Define to 1 if you have the <openssl/ssl.h> header file. */
 #define HAVE_OPENSSL_SSL_H 1
@@ -460,10 +460,10 @@
 #define HAVE_READ 1
 
 /* Define to 1 if you have the `recv' function. */
-/* #undef HAVE_RECV */
+#define HAVE_RECV 1
 
 /* Define to 1 if you have the `recvfrom' function. */
-/* #undef HAVE_RECVFROM */
+#define HAVE_RECVFROM 1
 
 /* Define to 1 if you have the <regex.h> header file. */
 #define HAVE_REGEX_H 1
@@ -816,13 +816,21 @@
 #define LBER_INT_T int
 
 /* define to large integer type */
+#ifdef _M_X64
+#define LBER_LEN_T __int64
+#else
 #define LBER_LEN_T long
+#endif
 
 /* define to socket descriptor type */
 #define LBER_SOCKET_T int
 
 /* define to large integer type */
+#ifdef _M_X64
+#define LBER_TAG_T __int64
+#else
 #define LBER_TAG_T long
+#endif
 
 /* define to 1 if library is thread safe */
 #define LDAP_API_FEATURE_X_OPENLDAP_THREAD_SAFE 1
@@ -852,7 +860,7 @@
 /* #undef LDAP_SYSLOG */
 
 /* Version */
-#define LDAP_VENDOR_VERSION 20441
+#define LDAP_VENDOR_VERSION 20444
 
 /* Major */
 #define LDAP_VENDOR_VERSION_MAJOR 2
@@ -861,7 +869,7 @@
 #define LDAP_VENDOR_VERSION_MINOR 4
 
 /* Patch */
-#define LDAP_VENDOR_VERSION_PATCH 41
+#define LDAP_VENDOR_VERSION_PATCH 44
 
 /* define if memcmp is not 8-bit clean or is otherwise broken */
 /* #undef NEED_MEMCMP_REPLACEMENT */
@@ -876,7 +884,7 @@
 #define OPENLDAP_PACKAGE "OpenLDAP"
 
 /* Version */
-#define OPENLDAP_VERSION "2.4.33"
+#define OPENLDAP_VERSION "2.4.44"
 
 /* Define to the address where bug reports for this package should be sent. */
 #define PACKAGE_BUGREPORT ""
