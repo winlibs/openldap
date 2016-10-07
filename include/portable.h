@@ -190,7 +190,7 @@
 /* #undef HAVE_GAI_STRERROR */
 
 /* Define to 1 if you have the `getaddrinfo' function. */
-/* #undef HAVE_GETADDRINFO */
+#define HAVE_GETADDRINFO 1
 
 /* Define to 1 if you have the `getdtablesize' function. */
 /* #undef HAVE_GETDTABLESIZE */
@@ -271,7 +271,7 @@
 /* #undef HAVE_INET_NTOA_B */
 
 /* Define to 1 if you have the `inet_ntop' function. */
-/* #undef HAVE_INET_NTOP */
+#define HAVE_INET_NTOP 1
 
 /* Define to 1 if you have the `initgroups' function. */
 /* #undef HAVE_INITGROUPS */
@@ -845,7 +845,7 @@
 /* #undef LDAP_LIBS_DYNAMIC */
 
 /* define to support PF_INET6 */
-/* #undef LDAP_PF_INET6 */
+#define LDAP_PF_INET6 1
 
 /* define to support PF_LOCAL */
 /* #undef LDAP_PF_LOCAL */
