@@ -589,6 +589,7 @@
     <ClCompile Include="..\..\libraries\libldap\compare.c" />
     <ClCompile Include="..\..\libraries\libldap\controls.c" />
     <ClCompile Include="..\..\libraries\libldap\cyrus.c" />
+    <ClCompile Include="..\..\libraries\libldap\dds.c" />
     <ClCompile Include="..\..\libraries\libldap\delete.c" />
     <ClCompile Include="..\..\libraries\libldap\dnssrv.c" />
     <ClCompile Include="..\..\libraries\libldap\error.c" />
