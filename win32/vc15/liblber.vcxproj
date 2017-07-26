@@ -619,15 +619,17 @@
     </Bscmake>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="..\..\libraries\liblber\bprint.c" />
-    <ClCompile Include="..\..\libraries\liblber\debug.c" />
-    <ClCompile Include="..\..\libraries\liblber\decode.c" />
-    <ClCompile Include="..\..\libraries\liblber\encode.c" />
-    <ClCompile Include="..\..\libraries\liblber\io.c" />
-    <ClCompile Include="..\..\libraries\liblber\memory.c" />
-    <ClCompile Include="..\..\libraries\liblber\nt_err.c" />
-    <ClCompile Include="..\..\libraries\liblber\options.c" />
-    <ClCompile Include="..\..\libraries\liblber\sockbuf.c" />
+<ClCompile Include="..\..\libraries\liblber\assert.c" />
+<ClCompile Include="..\..\libraries\liblber\bprint.c" />
+<ClCompile Include="..\..\libraries\liblber\debug.c" />
+<ClCompile Include="..\..\libraries\liblber\decode.c" />
+<ClCompile Include="..\..\libraries\liblber\encode.c" />
+<ClCompile Include="..\..\libraries\liblber\io.c" />
+<ClCompile Include="..\..\libraries\liblber\memory.c" />
+<ClCompile Include="..\..\libraries\liblber\nt_err.c" />
+<ClCompile Include="..\..\libraries\liblber\options.c" />
+<ClCompile Include="..\..\libraries\liblber\sockbuf.c" />
+<ClCompile Include="..\..\libraries\liblber\stdio.c" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\libraries\liblber\lber-int.h" />
