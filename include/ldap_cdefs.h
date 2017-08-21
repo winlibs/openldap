@@ -132,6 +132,9 @@
      (!defined(LDAP_LIBS_DYNAMIC) && defined(SLAPD_IMPORT)))
 #	define LBER_F(type)		extern __declspec(dllimport) type
 #	define LBER_V(type)		extern __declspec(dllimport) type
+#elif defined LBER_DLL_LIB
+#	define LBER_F(type)		__declspec(dllexport) type
+#	define LBER_V(type)		__declspec(dllexport) type
 #else
 #	define LBER_F(type)		extern type
 #	define LBER_V(type)		extern type
@@ -143,6 +146,9 @@
      (!defined(LDAP_LIBS_DYNAMIC) && defined(SLAPD_IMPORT)))
 #	define LDAP_F(type)		extern __declspec(dllimport) type
 #	define LDAP_V(type)		extern __declspec(dllimport) type
+#elif defined (LDAP_EXPORT)
+#	define LDAP_F(type)		__declspec(dllexport) type
+#	define LDAP_V(type)		__declspec(dllexport) type
 #else
 #	define LDAP_F(type)		extern type
 #	define LDAP_V(type)		extern type
