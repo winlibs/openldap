@@ -1179,18 +1179,21 @@ tlso_seed_PRNG( const char *randfile )
 	long total=0;
 	char buffer[MAXPATHLEN];
 
+#ifndef OPENSSL_NO_EGD
 	if (randfile == NULL) {
+#endif
 		/* The seed file is $RANDFILE if defined, otherwise $HOME/.rnd.
 		 * If $HOME is not set or buffer too small to hold the pathname,
 		 * an error occurs.	- From RAND_file_name() man page.
 		 * The fact is that when $HOME is NULL, .rnd is used.
 		 */
 		randfile = RAND_file_name( buffer, sizeof( buffer ) );
-
+#ifndef OPENSSL_NO_EGD
 	} else if (RAND_egd(randfile) > 0) {
 		/* EGD socket */
 		return 0;
 	}
+#endif
 
 	if (randfile == NULL) {
 		Debug( LDAP_DEBUG_ANY,

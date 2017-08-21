@@ -95,3 +95,36 @@ diff -ur ../openldap-2.4.33/libraries/liblber/nt_err.c ./libraries/liblber/nt_er
  
  #undef	sock_errno
  #undef	sock_errstr
+commit 989cf1bb4ce1108cc06940a51d475512f9223540
+Author: Anatol Belski <ab@php.net>
+Date:   Mon Mar 13 13:01:19 2017 +0100
+
+    condition possibly unavailable symbol
+
+diff --git a/libraries/libldap/tls_o.c ./libraries/libldap/tls_o.c
+index 96ef462..d43ea19 100644
+--- ../a/libraries/libldap/tls_o.c
++++ ../libraries/libldap/tls_o.c
+@@ -1179,18 +1179,21 @@ tlso_seed_PRNG( const char *randfile )
+ 	long total=0;
+ 	char buffer[MAXPATHLEN];
+ 
++#ifndef OPENSSL_NO_EGD
+ 	if (randfile == NULL) {
++#endif
+ 		/* The seed file is $RANDFILE if defined, otherwise $HOME/.rnd.
+ 		 * If $HOME is not set or buffer too small to hold the pathname,
+ 		 * an error occurs.	- From RAND_file_name() man page.
+ 		 * The fact is that when $HOME is NULL, .rnd is used.
+ 		 */
+ 		randfile = RAND_file_name( buffer, sizeof( buffer ) );
+-
++#ifndef OPENSSL_NO_EGD
+ 	} else if (RAND_egd(randfile) > 0) {
+ 		/* EGD socket */
+ 		return 0;
+ 	}
++#endif
+ 
+ 	if (randfile == NULL) {
+ 		Debug( LDAP_DEBUG_ANY,
