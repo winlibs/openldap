@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2016 The OpenLDAP Foundation.
+ * Copyright 1998-2017 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -656,6 +656,12 @@ void ldap_int_initialize( struct ldapoptions *gopts, int *dbglvl )
 
 #ifndef HAVE_POLL
 	if ( ldap_int_tblsize == 0 ) ldap_int_ip_init();
+#endif
+
+#ifdef HAVE_CYRUS_SASL
+	if ( ldap_int_sasl_init() != 0 ) {
+		return;
+	}
 #endif
 
 	ldap_int_initialize_global_options(gopts, dbglvl);

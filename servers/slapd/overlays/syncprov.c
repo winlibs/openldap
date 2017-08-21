@@ -2,7 +2,7 @@
 /* syncprov.c - syncrepl provider */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2004-2016 The OpenLDAP Foundation.
+ * Copyright 2004-2017 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -2501,7 +2501,7 @@ syncprov_op_search( Operation *op, SlapReply *rs )
 		syncops so = {0};
 		fbase_cookie fc;
 		opcookie opc;
-		slap_callback sc;
+		slap_callback sc = {0};
 
 		fc.fss = &so;
 		fc.fbase = 0;

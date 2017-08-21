@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2005-2016 The OpenLDAP Foundation.
+ * Copyright 2005-2017 The OpenLDAP Foundation.
  * Portions copyright 2004-2005 Symas Corporation.
  * All rights reserved.
  *
@@ -701,6 +701,7 @@ accesslog_purge( void *ctx, void *arg )
 			}
 			ch_free( pd.ndn[i].bv_val );
 			ch_free( pd.dn[i].bv_val );
+			ldap_pvt_thread_pool_pausecheck( &connection_pool );
 		}
 		ch_free( pd.ndn );
 		ch_free( pd.dn );
@@ -1585,7 +1586,7 @@ static int accesslog_response(Operation *op, SlapReply *rs) {
 
 	case LOG_EN_MODRDN:
 	case LOG_EN_MODIFY:
-		/* count all the mods */
+		/* count all the mods + attributes (ITS#6545) */
 		i = 0;
 		for ( m = op->orm_modlist; m; m = m->sml_next ) {
 			if ( m->sml_values ) {
@@ -1593,6 +1594,9 @@ static int accesslog_response(Operation *op, SlapReply *rs) {
 			} else if ( m->sml_op == LDAP_MOD_DELETE ||
 				m->sml_op == LDAP_MOD_REPLACE )
 			{
+				i++;
+			}
+			if ( m->sml_next && m->sml_desc == m->sml_next->sml_desc ) {
 				i++;
 			}
 		}
@@ -1663,6 +1667,12 @@ static int accesslog_response(Operation *op, SlapReply *rs) {
 					*ptr++ = '=';
 				}
 				*ptr = '\0';
+				i++;
+			}
+			/* ITS#6545: when the same attribute is edited multiple times,
+			 * record the transition */
+			if ( m->sml_next && m->sml_desc == m->sml_next->sml_desc ) {
+				ber_str2bv( ":", STRLENOF(":"), 1, &vals[i] );
 				i++;
 			}
 		}

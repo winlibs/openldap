@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2016 The OpenLDAP Foundation.
+ * Copyright 1998-2017 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -822,7 +822,7 @@ int get_ctrls(
 
 		} else if( c->ldctl_oid == NULL ) {
 			Debug( LDAP_DEBUG_TRACE,
-				"get_ctrls: conn %lu got emtpy OID.\n",
+				"get_ctrls: conn %lu got empty OID.\n",
 				op->o_connid, 0, 0 );
 
 			slap_free_ctrls( op, op->o_ctrls );

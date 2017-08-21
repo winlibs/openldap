@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2011-2016 The OpenLDAP Foundation.
+ * Copyright 2011-2017 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -173,6 +173,14 @@ int mdb_tool_entry_close(
 	if( cursor ) {
 		mdb_cursor_close( cursor );
 		cursor = NULL;
+	}
+	{
+		struct mdb_info *mdb = be->be_private;
+		if ( mdb ) {
+			int i;
+			for (i=0; i<mdb->mi_nattrs; i++)
+				mdb->mi_attrs[i]->ai_cursor = NULL;
+		}
 	}
 	if( mdb_tool_txn ) {
 		int rc;

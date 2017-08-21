@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2016 The OpenLDAP Foundation.
+ * Copyright 1998-2017 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -69,11 +69,11 @@ static const sasl_callback_t client_callbacks[] = {
 	{ SASL_CB_LIST_END, NULL, NULL }
 };
 
+/*
+ * ldap_int_initialize is responsible for calling this only once.
+ */
 int ldap_int_sasl_init( void )
 {
-	/* XXX not threadsafe */
-	static int sasl_initialized = 0;
-
 #ifdef HAVE_SASL_VERSION
 	/* stringify the version number, sasl.h doesn't do it for us */
 #define VSTR0(maj, min, pat)	#maj "." #min "." #pat
@@ -96,9 +96,6 @@ int ldap_int_sasl_init( void )
 	}
 	}
 #endif
-	if ( sasl_initialized ) {
-		return 0;
-	}
 
 /* SASL 2 takes care of its own memory completely internally */
 #if SASL_VERSION_MAJOR < 2 && !defined(CSRIMALLOC)
@@ -118,7 +115,6 @@ int ldap_int_sasl_init( void )
 #endif
 
 	if ( sasl_client_init( NULL ) == SASL_OK ) {
-		sasl_initialized = 1;
 		return 0;
 	}
 
@@ -325,11 +321,6 @@ ldap_int_sasl_open(
 	assert( lc->lconn_sasl_authctx == NULL );
 
 	if ( host == NULL ) {
-		ld->ld_errno = LDAP_LOCAL_ERROR;
-		return ld->ld_errno;
-	}
-
-	if ( ldap_int_sasl_init() ) {
 		ld->ld_errno = LDAP_LOCAL_ERROR;
 		return ld->ld_errno;
 	}
@@ -913,8 +904,6 @@ int
 ldap_int_sasl_get_option( LDAP *ld, int option, void *arg )
 {
 	if ( option == LDAP_OPT_X_SASL_MECHLIST ) {
-		if ( ldap_int_sasl_init() )
-			return -1;
 		*(char ***)arg = (char **)sasl_global_listmech();
 		return 0;
 	}

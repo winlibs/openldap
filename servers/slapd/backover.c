@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2003-2016 The OpenLDAP Foundation.
+ * Copyright 2003-2017 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -1219,6 +1219,7 @@ overlay_remove( BackendDB *be, slap_overinst *on, Operation *op )
 	rm_cb->sc_cleanup = overlay_remove_cb;
 	rm_cb->sc_response = NULL;
 	rm_cb->sc_private = (void*) rm_ctx;
+	rm_cb->sc_writewait = NULL;
 
 	/* Append callback to the end of the list */
 	if ( !op->o_callback ) {

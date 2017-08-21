@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2016 The OpenLDAP Foundation.
+ * Copyright 1998-2017 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -106,6 +106,8 @@ ldap_get_option(
 
 	if( lo->ldo_valid != LDAP_INITIALIZED ) {
 		ldap_int_initialize(lo, NULL);
+		if ( lo->ldo_valid != LDAP_INITIALIZED )
+			return LDAP_LOCAL_ERROR;
 	}
 
 	if(ld != NULL) {
@@ -446,6 +448,8 @@ ldap_set_option(
 
 	if( lo->ldo_valid != LDAP_INITIALIZED ) {
 		ldap_int_initialize(lo, dbglvl);
+		if ( lo->ldo_valid != LDAP_INITIALIZED )
+			return LDAP_LOCAL_ERROR;
 	}
 
 	if(ld != NULL) {

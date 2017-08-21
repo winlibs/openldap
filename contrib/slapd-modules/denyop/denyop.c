@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2004-2016 The OpenLDAP Foundation.
+ * Copyright 2004-2017 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -109,7 +109,7 @@ denyop_func( Operation *op, SlapReply *rs )
 
 static int
 denyop_over_init(
-	BackendDB *be
+	BackendDB *be, ConfigReply *cr
 )
 {
 	slap_overinst		*on = (slap_overinst *) be->bd_info;
@@ -204,7 +204,7 @@ denyop_config(
 
 static int
 denyop_destroy(
-	BackendDB *be
+	BackendDB *be, ConfigReply *cr
 )
 {
 	slap_overinst	*on = (slap_overinst *) be->bd_info;

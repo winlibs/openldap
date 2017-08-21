@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2016 The OpenLDAP Foundation.
+ * Copyright 1998-2017 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -98,18 +98,9 @@
 #		define tcp_close( s )		closesocket( s )
 #	endif
 
-#ifdef EWOULDBLOCK
-#undef EWOULDBLOCK
 #define EWOULDBLOCK WSAEWOULDBLOCK
-#endif
-#ifdef EINPROGRESS
-#undef EINPROGRESS
 #define EINPROGRESS WSAEINPROGRESS
-#endif
-#ifdef ETIMEDOUT
-#undef ETIMEDOUT
 #define ETIMEDOUT	WSAETIMEDOUT
-#endif
 
 #undef	sock_errno
 #undef	sock_errstr
