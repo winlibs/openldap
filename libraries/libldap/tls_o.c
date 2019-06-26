@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2008-2017 The OpenLDAP Foundation.
+ * Copyright 2008-2018 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -43,6 +43,9 @@
 #include <openssl/err.h>
 #include <openssl/rand.h>
 #include <openssl/safestack.h>
+#include <openssl/bn.h>
+#include <openssl/rsa.h>
+#include <openssl/dh.h>
 #elif defined( HAVE_SSL_H )
 #include <ssl.h>
 #endif
@@ -121,7 +124,7 @@ static void tlso_thr_init( void ) {}
  * OpenSSL 1.1 API and later makes the BIO method concrete types internal.
  */
 
-static const BIO_METHOD *
+static BIO_METHOD *
 BIO_meth_new( int type, const char *name )
 {
 	BIO_METHOD *method = LDAP_MALLOC( sizeof(BIO_METHOD) );
@@ -1211,17 +1214,16 @@ tlso_seed_PRNG( const char *randfile )
 	long total=0;
 	char buffer[MAXPATHLEN];
 
-#ifndef OPENSSL_NO_EGD
 	if (randfile == NULL) {
-#endif
 		/* The seed file is $RANDFILE if defined, otherwise $HOME/.rnd.
 		 * If $HOME is not set or buffer too small to hold the pathname,
 		 * an error occurs.	- From RAND_file_name() man page.
 		 * The fact is that when $HOME is NULL, .rnd is used.
 		 */
 		randfile = RAND_file_name( buffer, sizeof( buffer ) );
+	}
 #ifndef OPENSSL_NO_EGD
-	} else if (RAND_egd(randfile) > 0) {
+	else if (RAND_egd(randfile) > 0) {
 		/* EGD socket */
 		return 0;
 	}

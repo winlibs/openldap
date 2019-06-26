@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2017 The OpenLDAP Foundation.
+ * Copyright 1998-2018 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -2429,10 +2429,9 @@ typedef struct PagedResultsState {
 } PagedResultsState;
 
 struct slap_csn_entry {
+	Operation *ce_op;
 	struct berval ce_csn;
 	int ce_sid;
-	unsigned long ce_opid;
-	unsigned long ce_connid;
 #define SLAP_CSN_PENDING	1
 #define SLAP_CSN_COMMIT		2
 	long ce_state;

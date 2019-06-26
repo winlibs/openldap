@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2005-2017 The OpenLDAP Foundation.
+ * Copyright 2005-2018 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -4609,7 +4609,11 @@ config_renumber_one( Operation *op, SlapReply *rs, CfEntryInfo *parent,
 	/* Do the equivalent of ModRDN */
 	/* Replace DN / NDN */
 	newrdn.bv_len = ptr1 - newrdn.bv_val;
-	rdnNormalize( 0, NULL, NULL, &newrdn, &nnewrdn, NULL );
+	rc = rdnNormalize( 0, NULL, NULL, &newrdn, &nnewrdn, NULL );
+	if ( rc ) {
+		free( newrdn.bv_val );
+		return LDAP_NAMING_VIOLATION;
+	}
 	rc = config_rename_one( op, rs, e, parent, a, &newrdn, &nnewrdn, use_ldif );
 
 	free( nnewrdn.bv_val );

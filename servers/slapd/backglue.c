@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2001-2017 The OpenLDAP Foundation.
+ * Copyright 2001-2018 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -1312,7 +1312,7 @@ glue_db_init(
 
 	SLAP_DBFLAGS( be ) |= SLAP_DBFLAG_GLUE_INSTANCE;
 
-	if ( ga_list ) {
+	if ( ga_list && ( slapMode & SLAP_SERVER_MODE ) ) {
 		be->bd_info = (BackendInfo *)oi;
 		glue_sub_attach( 1 );
 	}

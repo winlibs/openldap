@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2017 The OpenLDAP Foundation.
+ * Copyright 1998-2018 The OpenLDAP Foundation.
  * Portions Copyright 1998-2003 Kurt D. Zeilenga.
  * Portions Copyright 2003 IBM Corporation.
  * All rights reserved.
@@ -245,7 +245,7 @@ parse_slapopt( int tool, int *mode )
 			break;
 
 		default:
-			Debug( LDAP_DEBUG_ANY, "value-check meaningless for tool.\n", 0, 0, 0 );
+			Debug( LDAP_DEBUG_ANY, "ldif-wrap meaningless for tool.\n", 0, 0, 0 );
 			break;
 		}
 

@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2005-2017 The OpenLDAP Foundation.
+ * Copyright 2005-2018 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -395,7 +395,6 @@ crc32(const void *vbuf, int len)
 {
 	const unsigned char	*buf = vbuf;
 	ber_uint_t		crc = 0xffffffff;
-	int				i;
 
 	while (len > 7) {
 		CRC8;

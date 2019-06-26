@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2017 The OpenLDAP Foundation.
+ * Copyright 1998-2018 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -323,7 +323,7 @@ slap_auxprop_lookup(
 
 	/* we don't know anything about this, ignore it */
 	if ( !conn ) {
-		rc == LDAP_SUCCESS;
+		rc = LDAP_SUCCESS;
 		goto done;
 	}
 
@@ -1498,11 +1498,16 @@ int slap_sasl_bind( Operation *op, SlapReply *rs )
 	if ( !op->o_conn->c_sasl_bind_in_progress ) {
 		/* If we already authenticated once, must use a new context */
 		if ( op->o_conn->c_sasl_done ) {
-			sasl_ssf_t *ssf = NULL;
+			sasl_ssf_t ssf = 0;
+			sasl_ssf_t *ssfp = NULL;
 			const char *authid = NULL;
-			sasl_getprop( ctx, SASL_SSF_EXTERNAL, (void *)&ssf );
+
+			sasl_getprop( ctx, SASL_SSF_EXTERNAL, (void *)&ssfp );
+			if ( ssfp ) ssf = *ssfp;
+
 			sasl_getprop( ctx, SASL_AUTH_EXTERNAL, (void *)&authid );
 			if ( authid ) authid = ch_strdup( authid );
+
 			if ( ctx != op->o_conn->c_sasl_sockctx ) {
 				sasl_dispose( &ctx );
 			}
@@ -1510,8 +1515,8 @@ int slap_sasl_bind( Operation *op, SlapReply *rs )
 				
 			slap_sasl_open( op->o_conn, 1 );
 			ctx = op->o_conn->c_sasl_authctx;
+			sasl_setprop( ctx, SASL_SSF_EXTERNAL, &ssf );
 			if ( authid ) {
-				sasl_setprop( ctx, SASL_SSF_EXTERNAL, ssf );
 				sasl_setprop( ctx, SASL_AUTH_EXTERNAL, authid );
 				ch_free( (char *)authid );
 			}

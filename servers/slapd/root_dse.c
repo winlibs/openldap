@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1999-2017 The OpenLDAP Foundation.
+ * Copyright 1999-2018 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -252,6 +252,9 @@ fail:
 		if ( be->be_suffix == NULL
 				|| be->be_nsuffix == NULL ) {
 			/* no suffix! */
+			continue;
+		}
+		if ( SLAP_DBHIDDEN( be )) {
 			continue;
 		}
 		if ( SLAP_MONITOR( be )) {

@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2000-2017 The OpenLDAP Foundation.
+ * Copyright 2000-2018 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -711,18 +711,11 @@ mdb_idl_intersection(
 	}
 
 	/* If a range completely covers the list, the result is
-	 * just the list. If idmin to idmax is contiguous, just
-	 * turn it into a range.
+	 * just the list.
 	 */
 	if ( MDB_IDL_IS_RANGE( b )
 		&& MDB_IDL_RANGE_FIRST( b ) <= MDB_IDL_FIRST( a )
 		&& MDB_IDL_RANGE_LAST( b ) >= MDB_IDL_LLAST( a ) ) {
-		if (idmax - idmin + 1 == a[0])
-		{
-			a[0] = NOID;
-			a[1] = idmin;
-			a[2] = idmax;
-		}
 		goto done;
 	}
 
