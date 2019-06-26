@@ -1,6 +1,35 @@
-diff -ur ../openldap-2.4.33/include/ldap_cdefs.h ./include/ldap_cdefs.h
---- ../openldap-2.4.33/include/ldap_cdefs.h	Wed Oct 10 05:18:49 2012
-+++ ./include/ldap_cdefs.h	Mon Feb 10 04:50:33 2014
+ include/ac/socket.h        | 9 +++++++++
+ include/ldap_cdefs.h       | 6 ++++++
+ libraries/liblber/nt_err.c | 2 +-
+ 3 files changed, 16 insertions(+), 1 deletion(-)
+
+diff --git a/include/ac/socket.h b/include/ac/socket.h
+index 417119a..2ddcb65 100644
+--- a/include/ac/socket.h
++++ b/include/ac/socket.h
+@@ -98,9 +98,18 @@
+ #		define tcp_close( s )		closesocket( s )
+ #	endif
+ 
++#ifdef EWOULDBLOCK
++#undef EWOULDBLOCK
+ #define EWOULDBLOCK WSAEWOULDBLOCK
++#endif
++#ifdef EINPROGRESS
++#undef EINPROGRESS
+ #define EINPROGRESS WSAEINPROGRESS
++#endif
++#ifdef ETIMEDOUT
++#undef ETIMEDOUT
+ #define ETIMEDOUT	WSAETIMEDOUT
++#endif
+ 
+ #undef	sock_errno
+ #undef	sock_errstr
+diff --git a/include/ldap_cdefs.h b/include/ldap_cdefs.h
+index 79823d2..ac78a70 100644
+--- a/include/ldap_cdefs.h
++++ b/include/ldap_cdefs.h
 @@ -132,6 +132,9 @@
       (!defined(LDAP_LIBS_DYNAMIC) && defined(SLAPD_IMPORT)))
  #	define LBER_F(type)		extern __declspec(dllimport) type
@@ -21,49 +50,10 @@ diff -ur ../openldap-2.4.33/include/ldap_cdefs.h ./include/ldap_cdefs.h
  #else
  #	define LDAP_F(type)		extern type
  #	define LDAP_V(type)		extern type
-diff -ur ../openldap-2.4.33/include/ldap_config.h ./include/ldap_config.h
---- ../openldap-2.4.33/include/ldap_config.h	Wed Oct 10 05:18:49 2012
-+++ ./include/ldap_config.h	Mon Sep  9 23:45:50 2013
-@@ -45,28 +45,28 @@
- 
- /* directories */
- #ifndef LDAP_BINDIR
--#define LDAP_BINDIR			"%BINDIR%"
-+#define LDAP_BINDIR			""
- #endif
- #ifndef LDAP_SBINDIR
--#define LDAP_SBINDIR		"%SBINDIR%"
-+#define LDAP_SBINDIR		""
- #endif
- #ifndef LDAP_DATADIR
--#define LDAP_DATADIR		"%DATADIR%"
-+#define LDAP_DATADIR		""
- #endif
- #ifndef LDAP_SYSCONFDIR
--#define LDAP_SYSCONFDIR		"%SYSCONFDIR%"
-+#define LDAP_SYSCONFDIR		"c:\\openldap\\sysconf"
- #endif
- #ifndef LDAP_LIBEXECDIR
--#define LDAP_LIBEXECDIR		"%LIBEXECDIR%"
-+#define LDAP_LIBEXECDIR		""
- #endif
- #ifndef LDAP_MODULEDIR
--#define LDAP_MODULEDIR		"%MODULEDIR%"
-+#define LDAP_MODULEDIR         ""
- #endif
- #ifndef LDAP_RUNDIR
--#define LDAP_RUNDIR			"%RUNDIR%"
-+#define LDAP_RUNDIR			""
- #endif
- #ifndef LDAP_LOCALEDIR
--#define LDAP_LOCALEDIR		"%LOCALEDIR%"
-+#define LDAP_LOCALEDIR		""
- #endif
- 
- 
-diff -ur ../openldap-2.4.33/libraries/liblber/nt_err.c ./libraries/liblber/nt_err.c
---- ../openldap-2.4.33/libraries/liblber/nt_err.c	Wed Oct 10 05:18:49 2012
-+++ ./libraries/liblber/nt_err.c	Mon Feb 10 04:52:46 2014
+diff --git a/libraries/liblber/nt_err.c b/libraries/liblber/nt_err.c
+index 08d708e..cf974a3 100644
+--- a/libraries/liblber/nt_err.c
++++ b/libraries/liblber/nt_err.c
 @@ -23,7 +23,7 @@
  
  #define LBER_RETSTR( x ) case x: return #x;
@@ -73,58 +63,3 @@ diff -ur ../openldap-2.4.33/libraries/liblber/nt_err.c ./libraries/liblber/nt_er
  {
  	switch( err ) {
  		LBER_RETSTR( WSAEINTR )
-
---- ../openldap-2.4.44/include/ac/socket.h	2016-02-06 00:57:45.000000000 +0100
-+++ ../include/ac/socket.h	2016-10-07 22:15:55.596292100 +0200
-@@ -98,9 +98,18 @@
- #		define tcp_close( s )		closesocket( s )
- #	endif
- 
-+#ifdef EWOULDBLOCK
-+#undef EWOULDBLOCK
- #define EWOULDBLOCK WSAEWOULDBLOCK
-+#endif
-+#ifdef EINPROGRESS
-+#undef EINPROGRESS
- #define EINPROGRESS WSAEINPROGRESS
-+#endif
-+#ifdef ETIMEDOUT
-+#undef ETIMEDOUT
- #define ETIMEDOUT	WSAETIMEDOUT
-+#endif
- 
- #undef	sock_errno
- #undef	sock_errstr
-commit 989cf1bb4ce1108cc06940a51d475512f9223540
-Author: Anatol Belski <ab@php.net>
-Date:   Mon Mar 13 13:01:19 2017 +0100
-
-    condition possibly unavailable symbol
-
-diff --git a/libraries/libldap/tls_o.c ./libraries/libldap/tls_o.c
-index 96ef462..d43ea19 100644
---- ../a/libraries/libldap/tls_o.c
-+++ ../libraries/libldap/tls_o.c
-@@ -1179,18 +1179,21 @@ tlso_seed_PRNG( const char *randfile )
- 	long total=0;
- 	char buffer[MAXPATHLEN];
- 
-+#ifndef OPENSSL_NO_EGD
- 	if (randfile == NULL) {
-+#endif
- 		/* The seed file is $RANDFILE if defined, otherwise $HOME/.rnd.
- 		 * If $HOME is not set or buffer too small to hold the pathname,
- 		 * an error occurs.	- From RAND_file_name() man page.
- 		 * The fact is that when $HOME is NULL, .rnd is used.
- 		 */
- 		randfile = RAND_file_name( buffer, sizeof( buffer ) );
--
-+#ifndef OPENSSL_NO_EGD
- 	} else if (RAND_egd(randfile) > 0) {
- 		/* EGD socket */
- 		return 0;
- 	}
-+#endif
- 
- 	if (randfile == NULL) {
- 		Debug( LDAP_DEBUG_ANY,
