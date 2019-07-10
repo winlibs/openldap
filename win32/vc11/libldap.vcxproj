@@ -595,6 +595,7 @@
     <ClCompile Include="..\..\libraries\libldap\dnssrv.c" />
     <ClCompile Include="..\..\libraries\libldap\error.c" />
     <ClCompile Include="..\..\libraries\libldap\extended.c" />
+    <ClCompile Include="..\..\libraries\libldap\fetch.c" />
     <ClCompile Include="..\..\libraries\libldap\filter.c" />
     <ClCompile Include="..\..\libraries\libldap\free.c" />
     <ClCompile Include="..\..\libraries\libldap\getattr.c" />
@@ -602,6 +603,7 @@
     <ClCompile Include="..\..\libraries\libldap\getentry.c" />
     <ClCompile Include="..\..\libraries\libldap\getvalues.c" />
     <ClCompile Include="..\..\libraries\libldap\init.c" />
+    <ClCompile Include="..\..\libraries\libldap\ldif.c" />
     <ClCompile Include="..\..\libraries\libldap\messages.c" />
     <ClCompile Include="..\..\libraries\libldap\modify.c" />
     <ClCompile Include="..\..\libraries\libldap\modrdn.c" />
