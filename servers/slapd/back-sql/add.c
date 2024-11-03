@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1999-2018 The OpenLDAP Foundation.
+ * Copyright 1999-2024 The OpenLDAP Foundation.
  * Portions Copyright 1999 Dmitry Kovalev.
  * Portions Copyright 2002 Pierangelo Masarati.
  * Portions Copyright 2004 Mark Adamson.
@@ -35,23 +35,50 @@
 #include <lutil.h>
 #endif /* BACKSQL_SYNCPROV */
 
+const char * processable_op_attrs[] = {
+		"pwdAccountLockedTime",
+		"pwdChangedTime",
+		"pwdFailureTime",
+		"pwdGraceUseTime",
+		"pwdHistory",
+		"pwdPolicySubentry",
+		"pwdReset",
+		"entryUUID"
+};
+
+#define processable_op_attrs_length (sizeof (processable_op_attrs) / sizeof (const char *))
+
+static int indexOf(const char *array[], int array_size, const char * value) {
+	for (int i = 0; i < array_size; ++i) {
+		if(strcmp(array[i], value) == 0) {
+			return i;
+		}
+	}
+	return -1;
+}
+
+static int is_processable_opattr(const char * attr) {
+	return indexOf(processable_op_attrs, processable_op_attrs_length, attr) >= 0;
+}
+
+#define backsql_opattr_skip(ad) \
+	(is_at_operational( (ad)->ad_type ) && (ad) != slap_schema.si_ad_ref )
+
 /*
  * Skip:
  * - null values (e.g. delete modification)
  * - single occurrence of objectClass, because it is already used
  *   to determine how to build the SQL entry
- * - operational attributes
+ * - operational attributes (except those in processable_op_attrs)
  * - empty attributes
  */
-#define backsql_opattr_skip(ad) \
-	(is_at_operational( (ad)->ad_type ) && (ad) != slap_schema.si_ad_ref )
 #define	backsql_attr_skip(ad, vals) \
 	( \
-		( (ad) == slap_schema.si_ad_objectClass \
+		( ( (ad) == slap_schema.si_ad_objectClass \
 				&& (vals) && BER_BVISNULL( &((vals)[ 1 ]) ) ) \
 		|| backsql_opattr_skip( (ad) ) \
 		|| ( (vals) && BER_BVISNULL( &((vals)[ 0 ]) ) ) \
-	)
+	) && !is_processable_opattr( ad->ad_cname.bv_val ) )
 
 int
 backsql_modify_delete_all_values(
@@ -72,7 +99,7 @@ backsql_modify_delete_all_values(
 			"   backsql_modify_delete_all_values(): "
 			"missing attribute value delete procedure "
 			"for attr \"%s\"\n",
-			at->bam_ad->ad_cname.bv_val, 0, 0 );
+			at->bam_ad->ad_cname.bv_val );
 		if ( BACKSQL_FAIL_IF_NO_MAPPING( bi ) ) {
 			rs->sr_text = "SQL-backend error";
 			return rs->sr_err = LDAP_OTHER;
@@ -87,7 +114,7 @@ backsql_modify_delete_all_values(
 			"   backsql_modify_delete_all_values(): "
 			"error preparing attribute value select query "
 			"\"%s\"\n",
-			at->bam_query, 0, 0 );
+			at->bam_query );
 		backsql_PrintErrors( bi->sql_db_env, dbh, 
 				asth, rc );
 
@@ -100,8 +127,7 @@ backsql_modify_delete_all_values(
 		Debug( LDAP_DEBUG_TRACE,
 			"   backsql_modify_delete_all_values(): "
 			"error binding key value parameter "
-			"to attribute value select query\n",
-			0, 0, 0 );
+			"to attribute value select query\n" );
 		backsql_PrintErrors( bi->sql_db_env, dbh, 
 				asth, rc );
 		SQLFreeStmt( asth, SQL_DROP );
@@ -114,8 +140,7 @@ backsql_modify_delete_all_values(
 	if ( !BACKSQL_SUCCESS( rc ) ) {
 		Debug( LDAP_DEBUG_TRACE,
 			"   backsql_modify_delete_all_values(): "
-			"error executing attribute value select query\n",
-			0, 0, 0 );
+			"error executing attribute value select query\n" );
 		backsql_PrintErrors( bi->sql_db_env, dbh, 
 				asth, rc );
 		SQLFreeStmt( asth, SQL_DROP );
@@ -147,7 +172,7 @@ backsql_modify_delete_all_values(
 					"error preparing attribute value "
 					"delete procedure "
 					"\"%s\"\n",
-					at->bam_delete_proc, 0, 0 );
+					at->bam_delete_proc );
 				backsql_PrintErrors( bi->sql_db_env, dbh, 
 						sth, rc );
 
@@ -164,7 +189,7 @@ backsql_modify_delete_all_values(
 					Debug( LDAP_DEBUG_TRACE,
 						"   backsql_modify_delete_all_values(): "
 						"error binding output parameter for %s[%d]\n",
-						at->bam_ad->ad_cname.bv_val, i, 0 );
+						at->bam_ad->ad_cname.bv_val, i );
 					backsql_PrintErrors( bi->sql_db_env, dbh, 
 						sth, rc );
 					SQLFreeStmt( sth, SQL_DROP );
@@ -181,7 +206,7 @@ backsql_modify_delete_all_values(
 				Debug( LDAP_DEBUG_TRACE,
 					"   backsql_modify_delete_all_values(): "
 					"error binding keyval parameter for %s[%d]\n",
-					at->bam_ad->ad_cname.bv_val, i, 0 );
+					at->bam_ad->ad_cname.bv_val, i );
 				backsql_PrintErrors( bi->sql_db_env, dbh, 
 					sth, rc );
 				SQLFreeStmt( sth, SQL_DROP );
@@ -195,7 +220,7 @@ backsql_modify_delete_all_values(
 				"   backsql_modify_delete_all_values() "
 				"arg(%d)=" BACKSQL_IDFMT "\n",
 				pno + 1 + po,
-				BACKSQL_IDARG(e_id->eid_keyval), 0 );
+				BACKSQL_IDARG(e_id->eid_keyval) );
 
 			/*
 			 * check for syntax needed here 
@@ -208,7 +233,7 @@ backsql_modify_delete_all_values(
 				Debug( LDAP_DEBUG_TRACE,
 					"   backsql_modify_delete_all_values(): "
 					"error binding value parameter for %s[%d]\n",
-					at->bam_ad->ad_cname.bv_val, i, 0 );
+					at->bam_ad->ad_cname.bv_val, i );
 				backsql_PrintErrors( bi->sql_db_env, dbh, 
 					sth, rc );
 				SQLFreeStmt( sth, SQL_DROP );
@@ -232,7 +257,7 @@ backsql_modify_delete_all_values(
 					"   backsql_modify_delete_all_values(): "
 					"delete_proc "
 					"execution failed (rc=%d, prc=%d)\n",
-					rc, prc, 0 );
+					rc, prc );
 				if ( prc != LDAP_SUCCESS ) {
 					/* SQL procedure executed fine 
 					 * but returned an error */
@@ -274,7 +299,7 @@ backsql_modify_internal(
 	Modifications	*ml;
 
 	Debug( LDAP_DEBUG_TRACE, "==>backsql_modify_internal(): "
-		"traversing modifications list\n", 0, 0, 0 );
+		"traversing modifications list\n" );
 
 	for ( ml = modlist; ml != NULL; ml = ml->sml_next ) {
 		AttributeDescription	*ad;
@@ -304,6 +329,10 @@ backsql_modify_internal(
 			ad->ad_cname.bv_val, sm_ops[ sm_op ], BACKSQL_OC_NAME( oc ) );
 
 		if ( backsql_attr_skip( ad, sm_values ) ) {
+			Debug( LDAP_DEBUG_TRACE, "   backsql_modify_internal(): "
+				"skipping attribute \"%s\"\n",
+				ad->ad_cname.bv_val, 0, 0 );
+
 			continue;
 		}
 
@@ -312,7 +341,7 @@ backsql_modify_internal(
 			Debug( LDAP_DEBUG_TRACE, "   backsql_modify_internal(): "
 				"attribute \"%s\" is not registered "
 				"in objectClass \"%s\"\n",
-				ad->ad_cname.bv_val, BACKSQL_OC_NAME( oc ), 0 );
+				ad->ad_cname.bv_val, BACKSQL_OC_NAME( oc ) );
 
 			if ( BACKSQL_FAIL_IF_NO_MAPPING( bi ) ) {
 				rs->sr_err = LDAP_UNWILLING_TO_PERFORM;
@@ -328,7 +357,7 @@ backsql_modify_internal(
 		case LDAP_MOD_REPLACE: {
 			Debug( LDAP_DEBUG_TRACE, "   backsql_modify_internal(): "
 				"replacing values for attribute \"%s\"\n",
-				at->bam_ad->ad_cname.bv_val, 0, 0 );
+				at->bam_ad->ad_cname.bv_val );
 
 			if ( at->bam_add_proc == NULL ) {
 				Debug( LDAP_DEBUG_TRACE,
@@ -336,7 +365,7 @@ backsql_modify_internal(
 					"add procedure is not defined "
 					"for attribute \"%s\" "
 					"- unable to perform replacements\n",
-					at->bam_ad->ad_cname.bv_val, 0, 0 );
+					at->bam_ad->ad_cname.bv_val );
 
 				if ( BACKSQL_FAIL_IF_NO_MAPPING( bi ) ) {
 					rs->sr_err = LDAP_UNWILLING_TO_PERFORM;
@@ -354,7 +383,7 @@ backsql_modify_internal(
 						"   backsql_modify_internal(): "
 						"delete procedure is not defined "
 						"for attribute \"%s\"\n",
-						at->bam_ad->ad_cname.bv_val, 0, 0 );
+						at->bam_ad->ad_cname.bv_val );
 
 					rs->sr_err = LDAP_UNWILLING_TO_PERFORM;
 					rs->sr_text = "operation not permitted "
@@ -367,7 +396,7 @@ backsql_modify_internal(
 					"delete procedure is not defined "
 					"for attribute \"%s\" "
 					"- adding only\n",
-					at->bam_ad->ad_cname.bv_val, 0, 0 );
+					at->bam_ad->ad_cname.bv_val );
 
 				goto add_only;
 			}
@@ -396,7 +425,7 @@ add_only:;
 					"   backsql_modify_internal(): "
 					"add procedure is not defined "
 					"for attribute \"%s\"\n",
-					at->bam_ad->ad_cname.bv_val, 0, 0 );
+					at->bam_ad->ad_cname.bv_val );
 
 				if ( BACKSQL_FAIL_IF_NO_MAPPING( bi ) ) {
 					rs->sr_err = LDAP_UNWILLING_TO_PERFORM;
@@ -410,7 +439,7 @@ add_only:;
 			
 			Debug( LDAP_DEBUG_TRACE, "   backsql_modify_internal(): "
 				"adding new values for attribute \"%s\"\n",
-				at->bam_ad->ad_cname.bv_val, 0, 0 );
+				at->bam_ad->ad_cname.bv_val );
 
 			/* can't add a NULL val array */
 			assert( sm_values != NULL );
@@ -430,8 +459,7 @@ add_only:;
 				if ( rc != SQL_SUCCESS ) {
 					Debug( LDAP_DEBUG_TRACE,
 						"   backsql_modify_internal(): "
-						"error preparing add query\n", 
-						0, 0, 0 );
+						"error preparing add query\n" );
 					backsql_PrintErrors( bi->sql_db_env, dbh, sth, rc );
 
 					rs->sr_err = LDAP_OTHER;
@@ -447,7 +475,7 @@ add_only:;
 						Debug( LDAP_DEBUG_TRACE,
 							"   backsql_modify_internal(): "
 							"error binding output parameter for %s[%d]\n",
-							at->bam_ad->ad_cname.bv_val, i, 0 );
+							at->bam_ad->ad_cname.bv_val, i );
 						backsql_PrintErrors( bi->sql_db_env, dbh, 
 							sth, rc );
 						SQLFreeStmt( sth, SQL_DROP );
@@ -464,7 +492,7 @@ add_only:;
 					Debug( LDAP_DEBUG_TRACE,
 						"   backsql_modify_internal(): "
 						"error binding keyval parameter for %s[%d]\n",
-						at->bam_ad->ad_cname.bv_val, i, 0 );
+						at->bam_ad->ad_cname.bv_val, i );
 					backsql_PrintErrors( bi->sql_db_env, dbh, 
 						sth, rc );
 					SQLFreeStmt( sth, SQL_DROP );
@@ -478,7 +506,7 @@ add_only:;
 					"   backsql_modify_internal(): "
 					"arg(%d)=" BACKSQL_IDFMT "\n", 
 					pno + 1 + po,
-					BACKSQL_IDARG(e_id->eid_keyval), 0 );
+					BACKSQL_IDARG(e_id->eid_keyval) );
 
 				/*
 				 * check for syntax needed here
@@ -490,7 +518,7 @@ add_only:;
 					Debug( LDAP_DEBUG_TRACE,
 						"   backsql_modify_internal(): "
 						"error binding value parameter for %s[%d]\n",
-						at->bam_ad->ad_cname.bv_val, i, 0 );
+						at->bam_ad->ad_cname.bv_val, i );
 					backsql_PrintErrors( bi->sql_db_env, dbh, 
 						sth, rc );
 					SQLFreeStmt( sth, SQL_DROP );
@@ -514,7 +542,7 @@ add_only:;
 						"   backsql_modify_internal(): "
 						"add_proc execution failed "
 						"(rc=%d, prc=%d)\n",
-						rc, prc, 0 );
+						rc, prc );
 					if ( prc != LDAP_SUCCESS ) {
 						/* SQL procedure executed fine 
 						 * but returned an error */
@@ -548,7 +576,7 @@ add_only:;
 					"   backsql_modify_internal(): "
 					"delete procedure is not defined "
 					"for attribute \"%s\"\n",
-					at->bam_ad->ad_cname.bv_val, 0, 0 );
+					at->bam_ad->ad_cname.bv_val );
 
 				if ( BACKSQL_FAIL_IF_NO_MAPPING( bi ) ) {
 					rs->sr_err = LDAP_UNWILLING_TO_PERFORM;
@@ -566,13 +594,13 @@ add_only:;
 					"no values given to delete "
 					"for attribute \"%s\" "
 					"-- deleting all values\n",
-					at->bam_ad->ad_cname.bv_val, 0, 0 );
+					at->bam_ad->ad_cname.bv_val );
 				goto del_all;
 			}
 
 			Debug( LDAP_DEBUG_TRACE, "   backsql_modify_internal(): "
 				"deleting values for attribute \"%s\"\n",
-				at->bam_ad->ad_cname.bv_val, 0, 0 );
+				at->bam_ad->ad_cname.bv_val );
 
 			for ( i = 0, at_val = sm_values;
 					!BER_BVISNULL( at_val );
@@ -589,8 +617,7 @@ add_only:;
 				if ( rc != SQL_SUCCESS ) {
 					Debug( LDAP_DEBUG_TRACE,
 						"   backsql_modify_internal(): "
-						"error preparing delete query\n", 
-						0, 0, 0 );
+						"error preparing delete query\n" );
 					backsql_PrintErrors( bi->sql_db_env, dbh, sth, rc );
 
 					rs->sr_err = LDAP_OTHER;
@@ -606,7 +633,7 @@ add_only:;
 						Debug( LDAP_DEBUG_TRACE,
 							"   backsql_modify_internal(): "
 							"error binding output parameter for %s[%d]\n",
-							at->bam_ad->ad_cname.bv_val, i, 0 );
+							at->bam_ad->ad_cname.bv_val, i );
 						backsql_PrintErrors( bi->sql_db_env, dbh, 
 							sth, rc );
 						SQLFreeStmt( sth, SQL_DROP );
@@ -623,7 +650,7 @@ add_only:;
 					Debug( LDAP_DEBUG_TRACE,
 						"   backsql_modify_internal(): "
 						"error binding keyval parameter for %s[%d]\n",
-						at->bam_ad->ad_cname.bv_val, i, 0 );
+						at->bam_ad->ad_cname.bv_val, i );
 					backsql_PrintErrors( bi->sql_db_env, dbh, 
 						sth, rc );
 					SQLFreeStmt( sth, SQL_DROP );
@@ -637,7 +664,7 @@ add_only:;
 					"   backsql_modify_internal(): "
 					"arg(%d)=" BACKSQL_IDFMT "\n", 
 					pno + 1 + po,
-					BACKSQL_IDARG(e_id->eid_keyval), 0 );
+					BACKSQL_IDARG(e_id->eid_keyval) );
 
 				/*
 				 * check for syntax needed here 
@@ -649,7 +676,7 @@ add_only:;
 					Debug( LDAP_DEBUG_TRACE,
 						"   backsql_modify_internal(): "
 						"error binding value parameter for %s[%d]\n",
-						at->bam_ad->ad_cname.bv_val, i, 0 );
+						at->bam_ad->ad_cname.bv_val, i );
 					backsql_PrintErrors( bi->sql_db_env, dbh, 
 						sth, rc );
 					SQLFreeStmt( sth, SQL_DROP );
@@ -662,7 +689,7 @@ add_only:;
 				Debug( LDAP_DEBUG_TRACE,
 					"   backsql_modify_internal(): "
 					"executing \"%s\"\n", 
-					at->bam_delete_proc, 0, 0 );
+					at->bam_delete_proc );
 				rc = SQLExecute( sth );
 				if ( rc == SQL_SUCCESS && prc == LDAP_SUCCESS )
 				{
@@ -673,7 +700,7 @@ add_only:;
 						"   backsql_modify_internal(): "
 						"delete_proc execution "
 						"failed (rc=%d, prc=%d)\n",
-						rc, prc, 0 );
+						rc, prc );
 
 					if ( prc != LDAP_SUCCESS ) {
 						/* SQL procedure executed fine
@@ -697,7 +724,7 @@ add_only:;
 
 	      	case LDAP_MOD_INCREMENT:
 			Debug( LDAP_DEBUG_TRACE, "   backsql_modify_internal(): "
-				"increment not supported yet\n", 0, 0, 0 );
+				"increment not supported yet\n" );
 			if ( BACKSQL_FAIL_IF_NO_MAPPING( bi ) ) {
 				rs->sr_err = LDAP_OTHER;
 				rs->sr_text = "SQL-backend error";
@@ -781,7 +808,6 @@ backsql_add_attr(
 		int		prc = LDAP_SUCCESS;
 		/* first parameter #, parameter order */
 		SQLUSMALLINT	pno, po;
-		char		logbuf[ STRLENOF("val[], id=") + 2*LDAP_PVT_INTTYPE_CHARS(unsigned long)];
 		
 		/*
 		 * Do not deal with the objectClass that is used
@@ -807,7 +833,7 @@ backsql_add_attr(
 				Debug( LDAP_DEBUG_TRACE,
 					"   backsql_add_attr(): "
 					"error binding output parameter for %s[%lu]\n",
-					at_rec->bam_ad->ad_cname.bv_val, i, 0 );
+					at_rec->bam_ad->ad_cname.bv_val, i );
 				backsql_PrintErrors( bi->sql_db_env, dbh, 
 					sth, rc );
 				SQLFreeStmt( sth, SQL_DROP );
@@ -828,7 +854,7 @@ backsql_add_attr(
 			Debug( LDAP_DEBUG_TRACE,
 				"   backsql_add_attr(): "
 				"error binding keyval parameter for %s[%lu]\n",
-				at_rec->bam_ad->ad_cname.bv_val, i, 0 );
+				at_rec->bam_ad->ad_cname.bv_val, i );
 			backsql_PrintErrors( bi->sql_db_env, dbh, 
 				sth, rc );
 			SQLFreeStmt( sth, SQL_DROP );
@@ -849,7 +875,7 @@ backsql_add_attr(
 			Debug( LDAP_DEBUG_TRACE,
 				"   backsql_add_attr(): "
 				"error binding value parameter for %s[%lu]\n",
-				at_rec->bam_ad->ad_cname.bv_val, i, 0 );
+				at_rec->bam_ad->ad_cname.bv_val, i );
 			backsql_PrintErrors( bi->sql_db_env, dbh, 
 				sth, rc );
 			SQLFreeStmt( sth, SQL_DROP );
@@ -859,14 +885,10 @@ backsql_add_attr(
 		}
 
 #ifdef LDAP_DEBUG
-		if ( LogTest( LDAP_DEBUG_TRACE ) ) {
-			snprintf( logbuf, sizeof( logbuf ), "val[%lu], id=" BACKSQL_IDNUMFMT,
-					i, new_keyval );
-			Debug( LDAP_DEBUG_TRACE, "   backsql_add_attr(\"%s\"): "
-				"executing \"%s\" %s\n", 
-				op->ora_e->e_name.bv_val,
-				at_rec->bam_add_proc, logbuf );
-		}
+		Debug(LDAP_DEBUG_TRACE,
+		      "   backsql_add_attr(\"%s\"): " "executing \"%s\" val[%lu], id=" BACKSQL_IDNUMFMT "\n",
+		      op->ora_e->e_name.bv_val, at_rec->bam_add_proc,
+		      i, new_keyval );
 #endif
 		rc = SQLExecute( sth );
 		if ( rc == SQL_SUCCESS && prc == LDAP_SUCCESS ) {
@@ -945,7 +967,7 @@ backsql_add( Operation *op, SlapReply *rs )
 #endif /* BACKSQL_SYNCPROV */
 
 	Debug( LDAP_DEBUG_TRACE, "==>backsql_add(\"%s\")\n",
-			op->ora_e->e_name.bv_val, 0, 0 );
+			op->ora_e->e_name.bv_val );
 
 	/* check schema */
 	if ( BACKSQL_CHECK_SCHEMA( bi ) ) {
@@ -956,7 +978,7 @@ backsql_add( Operation *op, SlapReply *rs )
 		if ( rs->sr_err != LDAP_SUCCESS ) {
 			Debug( LDAP_DEBUG_TRACE, "   backsql_add(\"%s\"): "
 				"entry failed schema check -- aborting\n",
-				op->ora_e->e_name.bv_val, 0, 0 );
+				op->ora_e->e_name.bv_val );
 			e = NULL;
 			goto done;
 		}
@@ -969,7 +991,7 @@ backsql_add( Operation *op, SlapReply *rs )
 	{
 		Debug( LDAP_DEBUG_TRACE, "   backsql_add(\"%s\"): "
 			"assertion control failed -- aborting\n",
-			op->ora_e->e_name.bv_val, 0, 0 );
+			op->ora_e->e_name.bv_val );
 		e = NULL;
 		rs->sr_err = LDAP_ASSERTION_FAILED;
 		goto done;
@@ -997,7 +1019,7 @@ backsql_add( Operation *op, SlapReply *rs )
 		if ( at == NULL ) {
 			Debug( LDAP_DEBUG_TRACE, "   backsql_add(\"%s\"): "
 				"no objectClass\n",
-				op->ora_e->e_name.bv_val, 0, 0 );
+				op->ora_e->e_name.bv_val );
 			rs->sr_err = LDAP_OBJECT_CLASS_VIOLATION;
 			e = NULL;
 			goto done;
@@ -1025,7 +1047,7 @@ backsql_add( Operation *op, SlapReply *rs )
 		Debug( LDAP_DEBUG_TRACE, "   backsql_add(\"%s\"): "
 			"cannot map structuralObjectClass \"%s\" -- aborting\n",
 			op->ora_e->e_name.bv_val,
-			scname.bv_val, 0 );
+			scname.bv_val );
 		rs->sr_err = LDAP_UNWILLING_TO_PERFORM;
 		rs->sr_text = "operation not permitted within namingContext";
 		e = NULL;
@@ -1037,7 +1059,7 @@ backsql_add( Operation *op, SlapReply *rs )
 			"create procedure is not defined "
 			"for structuralObjectClass \"%s\" - aborting\n",
 			op->ora_e->e_name.bv_val,
-			scname.bv_val, 0 );
+			scname.bv_val );
 		rs->sr_err = LDAP_UNWILLING_TO_PERFORM;
 		rs->sr_text = "operation not permitted within namingContext";
 		e = NULL;
@@ -1050,7 +1072,7 @@ backsql_add( Operation *op, SlapReply *rs )
 			"but none is defined for structuralObjectClass \"%s\" "
 			"- aborting\n",
 			op->ora_e->e_name.bv_val,
-			scname.bv_val, 0 );
+			scname.bv_val );
 		rs->sr_err = LDAP_UNWILLING_TO_PERFORM;
 		rs->sr_text = "operation not permitted within namingContext";
 		e = NULL;
@@ -1071,7 +1093,7 @@ backsql_add( Operation *op, SlapReply *rs )
 	if ( rs->sr_err != LDAP_SUCCESS ) {
 		Debug( LDAP_DEBUG_TRACE, "   backsql_add(\"%s\"): "
 			"could not get connection handle - exiting\n", 
-			op->ora_e->e_name.bv_val, 0, 0 );
+			op->ora_e->e_name.bv_val );
 		rs->sr_text = ( rs->sr_err == LDAP_OTHER )
 			?  "SQL-backend error" : NULL;
 		e = NULL;
@@ -1088,7 +1110,7 @@ backsql_add( Operation *op, SlapReply *rs )
 	if ( backsql_api_dn2odbc( op, rs, &realdn ) ) {
 		Debug( LDAP_DEBUG_TRACE, "   backsql_add(\"%s\"): "
 			"backsql_api_dn2odbc(\"%s\") failed\n", 
-			op->ora_e->e_name.bv_val, realdn.bv_val, 0 );
+			op->ora_e->e_name.bv_val, realdn.bv_val );
 		rs->sr_err = LDAP_OTHER;
 		rs->sr_text = "SQL-backend error";
 		e = NULL;
@@ -1099,7 +1121,7 @@ backsql_add( Operation *op, SlapReply *rs )
 	if ( rs->sr_err == LDAP_SUCCESS ) {
 		Debug( LDAP_DEBUG_TRACE, "   backsql_add(\"%s\"): "
 			"entry exists\n",
-			op->ora_e->e_name.bv_val, 0, 0 );
+			op->ora_e->e_name.bv_val );
 		rs->sr_err = LDAP_ALREADY_EXISTS;
 		e = op->ora_e;
 		goto done;
@@ -1165,7 +1187,7 @@ backsql_add( Operation *op, SlapReply *rs )
 				"error binding keyval parameter "
 				"for objectClass %s\n",
 				op->ora_e->e_name.bv_val,
-				oc->bom_oc->soc_cname.bv_val, 0 );
+				oc->bom_oc->soc_cname.bv_val );
 			backsql_PrintErrors( bi->sql_db_env, dbh, 
 				sth, rc );
 			SQLFreeStmt( sth, SQL_DROP );
@@ -1186,26 +1208,25 @@ backsql_add( Operation *op, SlapReply *rs )
 					at->a_vals[0].bv_len );
 			Debug( LDAP_DEBUG_TRACE, "backsql_add(): "
 					"create_proc hint: param = '%s'\n",
-					at->a_vals[0].bv_val, 0, 0 );
+					at->a_vals[0].bv_val );
 
 		} else {
 			backsql_BindParamStr( sth, colnum, SQL_PARAM_INPUT,
 					"", 0 );
 			Debug( LDAP_DEBUG_TRACE, "backsql_add(): "
-					"create_proc hint (%s) not avalable\n",
-					oc->bom_create_hint->ad_cname.bv_val,
-					0, 0 );
+					"create_proc hint (%s) not available\n",
+					oc->bom_create_hint->ad_cname.bv_val );
 		}
 		colnum++;
 	}
 
 	Debug( LDAP_DEBUG_TRACE, "   backsql_add(\"%s\"): executing \"%s\"\n",
-		op->ora_e->e_name.bv_val, oc->bom_create_proc, 0 );
+		op->ora_e->e_name.bv_val, oc->bom_create_proc );
 	rc = SQLExecute( sth );
 	if ( rc != SQL_SUCCESS ) {
 		Debug( LDAP_DEBUG_TRACE, "   backsql_add(\"%s\"): "
 			"create_proc execution failed\n",
-			op->ora_e->e_name.bv_val, 0, 0 );
+			op->ora_e->e_name.bv_val );
 		backsql_PrintErrors( bi->sql_db_env, dbh, sth, rc);
 		SQLFreeStmt( sth, SQL_DROP );
 		rs->sr_err = LDAP_OTHER;
@@ -1249,7 +1270,7 @@ backsql_add( Operation *op, SlapReply *rs )
 		if ( rc != SQL_SUCCESS ) {
 			Debug( LDAP_DEBUG_TRACE, "   backsql_add(\"%s\"): "
 				"create_proc result evaluation failed\n",
-				op->ora_e->e_name.bv_val, 0, 0 );
+				op->ora_e->e_name.bv_val );
 			backsql_PrintErrors( bi->sql_db_env, dbh, sth, rc);
 			SQLFreeStmt( sth, SQL_DROP );
 			rs->sr_err = LDAP_OTHER;
@@ -1260,7 +1281,7 @@ backsql_add( Operation *op, SlapReply *rs )
 		} else if ( ncols != 1 ) {
 			Debug( LDAP_DEBUG_TRACE, "   backsql_add(\"%s\"): "
 				"create_proc result is bogus (ncols=%d)\n",
-				op->ora_e->e_name.bv_val, ncols, 0 );
+				op->ora_e->e_name.bv_val, ncols );
 			backsql_PrintErrors( bi->sql_db_env, dbh, sth, rc);
 			SQLFreeStmt( sth, SQL_DROP );
 			rs->sr_err = LDAP_OTHER;
@@ -1297,7 +1318,7 @@ backsql_add( Operation *op, SlapReply *rs )
 		if ( value_len <= 0 ) {
 			Debug( LDAP_DEBUG_TRACE, "   backsql_add(\"%s\"): "
 				"create_proc result is empty?\n",
-				op->ora_e->e_name.bv_val, 0, 0 );
+				op->ora_e->e_name.bv_val );
 			backsql_PrintErrors( bi->sql_db_env, dbh, sth, rc);
 			SQLFreeStmt( sth, SQL_DROP );
 			rs->sr_err = LDAP_OTHER;
@@ -1311,7 +1332,7 @@ backsql_add( Operation *op, SlapReply *rs )
 
 	Debug( LDAP_DEBUG_TRACE, "   backsql_add(\"%s\"): "
 		"create_proc returned keyval=" BACKSQL_IDNUMFMT "\n",
-		op->ora_e->e_name.bv_val, new_keyval, 0 );
+		op->ora_e->e_name.bv_val, new_keyval );
 
 	rc = backsql_Prepare( dbh, &sth, bi->sql_insentry_stmt, 0 );
 	if ( rc != SQL_SUCCESS ) {
@@ -1326,7 +1347,7 @@ backsql_add( Operation *op, SlapReply *rs )
 		Debug( LDAP_DEBUG_TRACE, "   backsql_add(\"%s\"): "
 			"error binding DN parameter for objectClass %s\n",
 			op->ora_e->e_name.bv_val,
-			oc->bom_oc->soc_cname.bv_val, 0 );
+			oc->bom_oc->soc_cname.bv_val );
 		backsql_PrintErrors( bi->sql_db_env, dbh, 
 			sth, rc );
 		SQLFreeStmt( sth, SQL_DROP );
@@ -1343,7 +1364,7 @@ backsql_add( Operation *op, SlapReply *rs )
 			"error binding objectClass ID parameter "
 			"for objectClass %s\n",
 			op->ora_e->e_name.bv_val,
-			oc->bom_oc->soc_cname.bv_val, 0 );
+			oc->bom_oc->soc_cname.bv_val );
 		backsql_PrintErrors( bi->sql_db_env, dbh, 
 			sth, rc );
 		SQLFreeStmt( sth, SQL_DROP );
@@ -1360,7 +1381,7 @@ backsql_add( Operation *op, SlapReply *rs )
 			"error binding parent ID parameter "
 			"for objectClass %s\n",
 			op->ora_e->e_name.bv_val,
-			oc->bom_oc->soc_cname.bv_val, 0 );
+			oc->bom_oc->soc_cname.bv_val );
 		backsql_PrintErrors( bi->sql_db_env, dbh, 
 			sth, rc );
 		SQLFreeStmt( sth, SQL_DROP );
@@ -1377,7 +1398,7 @@ backsql_add( Operation *op, SlapReply *rs )
 			"error binding entry ID parameter "
 			"for objectClass %s\n",
 			op->ora_e->e_name.bv_val,
-			oc->bom_oc->soc_cname.bv_val, 0 );
+			oc->bom_oc->soc_cname.bv_val );
 		backsql_PrintErrors( bi->sql_db_env, dbh, 
 			sth, rc );
 		SQLFreeStmt( sth, SQL_DROP );
@@ -1388,22 +1409,17 @@ backsql_add( Operation *op, SlapReply *rs )
 		goto done;
 	}
 
-	if ( LogTest( LDAP_DEBUG_TRACE ) ) {
-		char buf[ SLAP_TEXT_BUFLEN ];
-
-		snprintf( buf, sizeof(buf),
-			"executing \"%s\" for dn=\"%s\"  oc_map_id=" BACKSQL_IDNUMFMT " p_id=" BACKSQL_IDFMT " keyval=" BACKSQL_IDNUMFMT,
-			bi->sql_insentry_stmt, op->ora_e->e_name.bv_val,
-			oc->bom_id, BACKSQL_IDARG(bsi.bsi_base_id.eid_id),
-			new_keyval );
-		Debug( LDAP_DEBUG_TRACE, "   backsql_add(): %s\n", buf, 0, 0 );
-	}
+	Debug(LDAP_DEBUG_TRACE,
+	      "   backsql_add(): executing \"%s\" for dn=\"%s\"  oc_map_id=" BACKSQL_IDNUMFMT " p_id=" BACKSQL_IDFMT " keyval=" BACKSQL_IDNUMFMT "\n",
+	      bi->sql_insentry_stmt, op->ora_e->e_name.bv_val,
+	      oc->bom_id, BACKSQL_IDARG(bsi.bsi_base_id.eid_id),
+	      new_keyval );
 
 	rc = SQLExecute( sth );
 	if ( rc != SQL_SUCCESS ) {
 		Debug( LDAP_DEBUG_TRACE, "   backsql_add(\"%s\"): "
 			"could not insert ldap_entries record\n",
-			op->ora_e->e_name.bv_val, 0, 0 );
+			op->ora_e->e_name.bv_val );
 		backsql_PrintErrors( bi->sql_db_env, dbh, sth, rc );
 		
 		/*
@@ -1421,7 +1437,7 @@ backsql_add( Operation *op, SlapReply *rs )
 	for ( at = op->ora_e->e_attrs; at != NULL; at = at->a_next ) {
 		Debug( LDAP_DEBUG_TRACE, "   backsql_add(): "
 			"adding attribute \"%s\"\n", 
-			at->a_desc->ad_cname.bv_val, 0, 0 );
+			at->a_desc->ad_cname.bv_val );
 
 		/*
 		 * Skip:

@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2018 The OpenLDAP Foundation.
+ * Copyright 1998-2024 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -20,19 +20,6 @@
 #define SLAPD_TOOLS 1
 #include "slap.h"
 
-enum slaptool {
-	SLAPADD=1,	/* LDIF -> database tool */
-	SLAPCAT,	/* database -> LDIF tool */
-	SLAPDN,		/* DN check w/ syntax tool */
-	SLAPINDEX,	/* database index tool */
-	SLAPPASSWD,	/* password generation tool */
-	SLAPSCHEMA,	/* schema checking tool */
-	SLAPTEST,	/* slapd.conf test tool */
-	SLAPAUTH,	/* test authz-regexp and authc/authz stuff */
-	SLAPACL,	/* test acl */
-	SLAPLAST
-};
-
 typedef struct tool_vars {
 	Backend *tv_be;
 	int tv_dbnum;
@@ -42,9 +29,9 @@ typedef struct tool_vars {
 	int tv_continuemode;
 	int tv_nosubordinates;
 	int tv_dryrun;
+	int tv_scope;
 	unsigned long tv_jumpline;
 	struct berval tv_sub_ndn;
-	int tv_scope;
 	Filter *tv_filter;
 	struct LDIFFP	*tv_ldiffp;
 	struct berval tv_baseDN;

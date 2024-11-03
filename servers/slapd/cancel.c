@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2018 The OpenLDAP Foundation.
+ * Copyright 1998-2024 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -34,7 +34,8 @@ int cancel_extop( Operation *op, SlapReply *rs )
 	Operation *o;
 	int rc;
 	int opid;
-	BerElement *ber;
+	BerElementBuffer berbuf;
+	BerElement *ber = (BerElement *)&berbuf;
 
 	assert( ber_bvcmp( &slap_EXOP_CANCEL, &op->ore_reqoid ) == 0 );
 
@@ -43,25 +44,30 @@ int cancel_extop( Operation *op, SlapReply *rs )
 		return LDAP_PROTOCOL_ERROR;
 	}
 
-	ber = ber_init( op->ore_reqdata );
-	if ( ber == NULL ) {
-		rs->sr_text = "internal error";
-		return LDAP_OTHER;
+	if ( op->ore_reqdata->bv_len == 0 ) {
+		rs->sr_text = "empty request data field";
+		return LDAP_PROTOCOL_ERROR;
 	}
+
+	/* ber_init2 uses reqdata directly, doesn't allocate new buffers */
+	ber_init2( ber, op->ore_reqdata, 0 );
 
 	if ( ber_scanf( ber, "{i}", &opid ) == LBER_ERROR ) {
 		rs->sr_text = "message ID parse failed";
 		return LDAP_PROTOCOL_ERROR;
 	}
 
-	(void) ber_free( ber, 1 );
-
-	Statslog( LDAP_DEBUG_STATS, "%s CANCEL msg=%d\n",
-		op->o_log_prefix, opid, 0, 0, 0 );
+	Debug( LDAP_DEBUG_STATS, "%s CANCEL msg=%d\n",
+		op->o_log_prefix, opid );
 
 	if ( opid < 0 ) {
 		rs->sr_text = "message ID invalid";
 		return LDAP_PROTOCOL_ERROR;
+	}
+
+	if ( opid == op->o_msgid ) {
+		op->o_cancel = SLAP_CANCEL_DONE;
+		return LDAP_SUCCESS;
 	}
 
 	ldap_pvt_thread_mutex_lock( &op->o_conn->c_mutex );

@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2018 The OpenLDAP Foundation.
+ * Copyright 1998-2024 The OpenLDAP Foundation.
  * Portions Copyright 1998-2003 Kurt D. Zeilenga.
  * All rights reserved.
  *
@@ -68,7 +68,7 @@ usage( void )
 {
 	fprintf( stderr, _("Delete entries from an LDAP server\n\n"));
 	fprintf( stderr, _("usage: %s [options] [dn]...\n"), prog);
-	fprintf( stderr, _("	dn: list of DNs to delete. If not given, it will be readed from stdin\n"));
+	fprintf( stderr, _("	dn: list of DNs to delete. If not given, it will be read from stdin\n"));
 	fprintf( stderr, _("	    or from the file specified with \"-f file\".\n"));
 	fprintf( stderr, _("Delete Options:\n"));
 	fprintf( stderr, _("  -c         continuous operation mode (do not stop on errors)\n"));
@@ -82,7 +82,7 @@ usage( void )
 
 
 const char options[] = "r"
-	"cd:D:e:f:h:H:IMnNO:o:p:P:QR:U:vVw:WxX:y:Y:z:Z";
+	"cd:D:e:f:H:IMnNO:o:P:QR:U:vVw:WxX:y:Y:z:Z";
 
 int
 handle_private_option( int i )
@@ -111,7 +111,7 @@ handle_private_option( int i )
 			optarg++;
 		}
 
-		control = strdup( optarg );
+		control = optarg;
 		if ( (cvalue = strchr( control, '=' )) != NULL ) {
 			*cvalue++ = '\0';
 		}
@@ -386,7 +386,9 @@ more:;
 		break;
 	default:
 		tool_perror( "ldap_search", srch_rc, NULL, NULL, NULL, NULL );
-		return( srch_rc );
+		rc = srch_rc;
+		srch_rc = 0;
+		goto leave;
 	}
 
 	entries = ldap_count_entries( ld, res );
@@ -402,15 +404,14 @@ more:;
 			if( dn == NULL ) {
 				ldap_get_option( ld, LDAP_OPT_RESULT_CODE, &rc );
 				tool_perror( "ldap_prune", rc, NULL, NULL, NULL, NULL );
-				ber_memfree( dn );
-				return rc;
+				goto leave;
 			}
 
 			rc = deletechildren( ld, dn, 0 );
 			if ( rc != LDAP_SUCCESS ) {
 				tool_perror( "ldap_prune", rc, NULL, NULL, NULL, NULL );
 				ber_memfree( dn );
-				return rc;
+				goto leave;
 			}
 
 			if ( verbose ) {
@@ -421,7 +422,7 @@ more:;
 			if ( rc != LDAP_SUCCESS ) {
 				tool_perror( "ldap_delete", rc, NULL, NULL, NULL, NULL );
 				ber_memfree( dn );
-				return rc;
+				goto leave;
 
 			}
 			
@@ -433,6 +434,7 @@ more:;
 		}
 	}
 
+leave:
 	ldap_msgfree( res );
 
 	if ( srch_rc == LDAP_SIZELIMIT_EXCEEDED ) {

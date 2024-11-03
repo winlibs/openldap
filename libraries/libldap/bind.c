@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2018 The OpenLDAP Foundation.
+ * Copyright 1998-2024 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -65,16 +65,11 @@
 int
 ldap_bind( LDAP *ld, LDAP_CONST char *dn, LDAP_CONST char *passwd, int authmethod )
 {
-	Debug( LDAP_DEBUG_TRACE, "ldap_bind\n", 0, 0, 0 );
+	Debug0( LDAP_DEBUG_TRACE, "ldap_bind\n" );
 
 	switch ( authmethod ) {
 	case LDAP_AUTH_SIMPLE:
 		return( ldap_simple_bind( ld, dn, passwd ) );
-
-#ifdef HAVE_GSSAPI
-	case LDAP_AUTH_NEGOTIATE:
-		return( ldap_gssapi_bind_s( ld, dn, passwd) );
-#endif
 
 	case LDAP_AUTH_SASL:
 		/* user must use ldap_sasl_bind */
@@ -106,16 +101,11 @@ ldap_bind_s(
 	LDAP_CONST char *passwd,
 	int authmethod )
 {
-	Debug( LDAP_DEBUG_TRACE, "ldap_bind_s\n", 0, 0, 0 );
+	Debug0( LDAP_DEBUG_TRACE, "ldap_bind_s\n" );
 
 	switch ( authmethod ) {
 	case LDAP_AUTH_SIMPLE:
 		return( ldap_simple_bind_s( ld, dn, passwd ) );
-
-#ifdef HAVE_GSSAPI
-	case LDAP_AUTH_NEGOTIATE:
-		return( ldap_gssapi_bind_s( ld, dn, passwd) );
-#endif
 
 	case LDAP_AUTH_SASL:
 		/* user must use ldap_sasl_bind */

@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2018 The OpenLDAP Foundation.
+ * Copyright 1998-2024 The OpenLDAP Foundation.
  * Portions Copyright 1998-2003 Kurt D. Zeilenga.
  * Portions Copyright 1995 IBM Corporation.
  * All rights reserved.
@@ -116,14 +116,14 @@ static const char Pad64 = '=';
 
 int
 lutil_b64_ntop(
-	u_char const *src,
+	unsigned char const *src,
 	size_t srclength,
 	char *target,
 	size_t targsize)
 {
 	size_t datalength = 0;
-	u_char input[3];
-	u_char output[4];
+	unsigned char input[3];
+	unsigned char output[4];
 	size_t i;
 
 	while (2 < srclength) {
@@ -188,7 +188,7 @@ lutil_b64_ntop(
 int
 lutil_b64_pton(
 	char const *src,
-	u_char *target, 
+	unsigned char *target,
 	size_t targsize)
 {
 	int tarindex, state, ch;

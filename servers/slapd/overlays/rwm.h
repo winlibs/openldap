@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1999-2018 The OpenLDAP Foundation.
+ * Copyright 1999-2024 The OpenLDAP Foundation.
  * Portions Copyright 1999-2003 Howard Chu.
  * Portions Copyright 2000-2003 Pierangelo Masarati.
  * All rights reserved.
@@ -23,10 +23,6 @@
 
 #ifndef RWM_H
 #define RWM_H
-
-#ifndef ENABLE_REWRITE
-#error "librewrite must be enabled!"
-#endif /* ENABLE_REWRITE */
 
 /* String rewrite library */
 #include "rewrite.h"

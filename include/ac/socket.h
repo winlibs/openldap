@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2018 The OpenLDAP Foundation.
+ * Copyright 1998-2024 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -63,7 +63,7 @@
 #ifdef HAVE_WINSOCK2
 #include <winsock2.h>
 #include <ws2tcpip.h>
-#elif HAVE_WINSOCK
+#elif defined(HAVE_WINSOCK)
 #include <winsock.h>
 #endif
 
@@ -82,7 +82,7 @@
 #undef	sock_errno
 #undef	sock_errstr
 #define sock_errno()	errno
-#define sock_errstr(e)	STRERROR(e)
+#define sock_errstr(e, b, l)	AC_STRERROR_R(e, b, l)
 #define sock_errset(e)	((void) (errno = (e)))
 
 #ifdef HAVE_WINSOCK
@@ -98,44 +98,33 @@
 #		define tcp_close( s )		closesocket( s )
 #	endif
 
-#ifdef EWOULDBLOCK
-#undef EWOULDBLOCK
 #define EWOULDBLOCK WSAEWOULDBLOCK
-#endif
-#ifdef EINPROGRESS
-#undef EINPROGRESS
 #define EINPROGRESS WSAEINPROGRESS
-#endif
-#ifdef ETIMEDOUT
-#undef ETIMEDOUT
 #define ETIMEDOUT	WSAETIMEDOUT
-#endif
 
 #undef	sock_errno
 #undef	sock_errstr
 #undef	sock_errset
 #define	sock_errno()	WSAGetLastError()
-#define	sock_errstr(e)	ber_pvt_wsa_err2string(e)
+#define	sock_errstr(e, b, l)	ber_pvt_wsa_err2string(e)
 #define	sock_errset(e)	WSASetLastError(e)
 
 LBER_F( char * ) ber_pvt_wsa_err2string LDAP_P((int));
 
-#elif MACOS
+#elif defined(MACOS)
 #	define tcp_close( s )		tcpclose( s )
 #	define tcp_read( s, buf, len )	tcpread( s, buf, len )
 #	define tcp_write( s, buf, len )	tcpwrite( s, buf, len )
 
-#elif DOS
-#	ifdef PCNFS
-#		define tcp_close( s )	close( s )
-#		define tcp_read( s, buf, len )	recv( s, buf, len, 0 )
-#		define tcp_write( s, buf, len )	send( s, buf, len, 0 )
-#	endif /* PCNFS */
-#	ifdef NCSA
-#		define tcp_close( s )	do { netclose( s ); netshut() } while(0)
-#		define tcp_read( s, buf, len )	nread( s, buf, len )
-#		define tcp_write( s, buf, len )	netwrite( s, buf, len )
-#	endif /* NCSA */
+#elif defined(HAVE_PCNFS)
+#	define tcp_close( s )	close( s )
+#	define tcp_read( s, buf, len )	recv( s, buf, len, 0 )
+#	define tcp_write( s, buf, len )	send( s, buf, len, 0 )
+
+#elif defined(HAVE_NCSA)
+#	define tcp_close( s )	do { netclose( s ); netshut() } while(0)
+#	define tcp_read( s, buf, len )	nread( s, buf, len )
+#	define tcp_write( s, buf, len )	netwrite( s, buf, len )
 
 #elif defined(HAVE_CLOSESOCKET)
 #	define tcp_close( s )		closesocket( s )
@@ -158,7 +147,7 @@ LBER_F( char * ) ber_pvt_wsa_err2string LDAP_P((int));
 #ifdef HAVE_PIPE
 /*
  * Only use pipe() on systems where file and socket descriptors
- * are interchangable
+ * are interchangeable
  */
 #	define USE_PIPE HAVE_PIPE
 #endif
@@ -242,6 +231,18 @@ LDAP_LUTIL_F( int ) lutil_getpeereid( int s, uid_t *, gid_t *, struct berval *bv
 LDAP_LUTIL_F( int ) lutil_getpeereid( int s, uid_t *, gid_t * );
 #define	LUTIL_GETPEEREID( s, uid, gid, bv )	lutil_getpeereid( s, uid, gid )
 #endif
+
+typedef union Sockaddr {
+	struct sockaddr sa_addr;
+	struct sockaddr_in sa_in_addr;
+#ifdef LDAP_PF_INET6
+	struct sockaddr_storage sa_storage;
+	struct sockaddr_in6 sa_in6_addr;
+#endif
+#ifdef LDAP_PF_LOCAL
+	struct sockaddr_un sa_un_addr;
+#endif
+} Sockaddr;
 
 /* DNS RFC defines max host name as 255. New systems seem to use 1024 */
 #ifndef NI_MAXHOST

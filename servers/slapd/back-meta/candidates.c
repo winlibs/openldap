@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1999-2018 The OpenLDAP Foundation.
+ * Copyright 1999-2024 The OpenLDAP Foundation.
  * Portions Copyright 2001-2003 Pierangelo Masarati.
  * Portions Copyright 1999-2003 Howard Chu.
  * All rights reserved.
@@ -222,11 +222,11 @@ meta_back_select_unique_candidate(
 int
 meta_clear_unused_candidates(
 	Operation	*op,
-	int		candidate )
+	int		candidate,
+	SlapReply	*candidates )
 {
 	metainfo_t	*mi = ( metainfo_t * )op->o_bd->be_private;
 	int		i;
-	SlapReply	*candidates = meta_back_candidates_get( op );
 	
 	for ( i = 0; i < mi->mi_ntargets; ++i ) {
 		if ( i == candidate ) {
@@ -254,12 +254,10 @@ meta_clear_one_candidate(
 	if ( msc->msc_ld != NULL ) {
 
 #ifdef DEBUG_205
-		char	buf[ BUFSIZ ];
-
-		snprintf( buf, sizeof( buf ), "meta_clear_one_candidate ldap_unbind_ext[%d] mc=%p ld=%p",
-			candidate, (void *)mc, (void *)msc->msc_ld );
-		Debug( LDAP_DEBUG_ANY, "### %s %s\n",
-			op ? op->o_log_prefix : "", buf, 0 );
+		Debug(LDAP_DEBUG_ANY,
+		      "### %s meta_clear_one_candidate ldap_unbind_ext[%d] mc=%p ld=%p\n",
+		      op ? op->o_log_prefix : "", candidate, (void *)mc,
+		      (void *)msc->msc_ld );
 #endif /* DEBUG_205 */
 
 		ldap_unbind_ext( msc->msc_ld, NULL, NULL );

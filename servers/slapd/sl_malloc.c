@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2003-2018 The OpenLDAP Foundation.
+ * Copyright 2003-2024 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -110,12 +110,7 @@ static struct slab_object * slap_replenish_sopool(struct slab_heap* sh);
 static void print_slheap(int level, void *ctx);
 #endif
 
-/* Keep memory context in a thread-local var, or in a global when no threads */
-#ifdef NO_THREADS
-static struct slab_heap *slheap;
-# define SET_MEMCTX(thrctx, memctx, sfree)	((void) (slheap = (memctx)))
-# define GET_MEMCTX(thrctx, memctxp)		(*(memctxp) = slheap)
-#else
+/* Keep memory context in a thread-local var */
 # define memctx_key ((void *) slap_sl_mem_init)
 # define SET_MEMCTX(thrctx, memctx, kfree) \
 	ldap_pvt_thread_pool_setkey(thrctx,memctx_key, memctx,kfree, NULL,NULL)
@@ -123,8 +118,6 @@ static struct slab_heap *slheap;
 	((void) (*(memctxp) = NULL), \
 	 (void) ldap_pvt_thread_pool_getkey(thrctx,memctx_key, memctxp,NULL), \
 	 *(memctxp))
-#endif /* NO_THREADS */
-
 
 /* Destroy the context, or if key==NULL clean it up for reuse. */
 void
@@ -136,6 +129,9 @@ slap_sl_mem_destroy(
 	struct slab_heap *sh = data;
 	struct slab_object *so;
 	int i;
+
+	if (!sh)
+		return;
 
 	if (!sh->sh_stack) {
 		for (i = 0; i <= sh->sh_maxorder - order_start; i++) {
@@ -306,7 +302,7 @@ slap_sl_malloc(
 		newptr = ber_memalloc_x( size, NULL );
 		if ( newptr ) return newptr;
 		Debug(LDAP_DEBUG_ANY, "slap_sl_malloc of %lu bytes failed\n",
-			(unsigned long) size, 0, 0);
+			(unsigned long) size );
 		assert( 0 );
 		exit( EXIT_FAILURE );
 	}
@@ -386,7 +382,7 @@ slap_sl_malloc(
 
 	Debug(LDAP_DEBUG_TRACE,
 		"sl_malloc %lu: ch_malloc\n",
-		(unsigned long) size, 0, 0);
+		(unsigned long) size );
 	return ch_malloc(size);
 }
 
@@ -406,7 +402,7 @@ slap_sl_calloc( ber_len_t n, ber_len_t size, void *ctx )
 		memset( newptr, 0, n*size );
 	} else {
 		Debug(LDAP_DEBUG_ANY, "slap_sl_calloc(%lu,%lu) out of range\n",
-			(unsigned long) n, (unsigned long) size, 0);
+			(unsigned long) n, (unsigned long) size );
 		assert(0);
 		exit(EXIT_FAILURE);
 	}
@@ -431,7 +427,7 @@ slap_sl_realloc(void *ptr, ber_len_t size, void *ctx)
 			return newptr;
 		}
 		Debug(LDAP_DEBUG_ANY, "slap_sl_realloc of %lu bytes failed\n",
-			(unsigned long) size, 0, 0);
+			(unsigned long) size );
 		assert(0);
 		exit( EXIT_FAILURE );
 	}
@@ -576,8 +572,7 @@ slap_sl_free(void *ptr, void *ctx)
 						break;
 
 						Debug(LDAP_DEBUG_TRACE, "slap_sl_free: "
-							"free object not found while bit is clear.\n",
-							0, 0, 0);
+							"free object not found while bit is clear.\n" );
 						assert(so != NULL);
 
 					}
@@ -626,8 +621,7 @@ slap_sl_free(void *ptr, void *ctx)
 						break;
 
 						Debug(LDAP_DEBUG_TRACE, "slap_sl_free: "
-							"free object not found while bit is clear.\n",
-							0, 0, 0 );
+							"free object not found while bit is clear.\n" );
 						assert(so != NULL);
 
 					}
@@ -647,6 +641,21 @@ slap_sl_free(void *ptr, void *ctx)
 			}
 		}
 	}
+}
+
+void
+slap_sl_release( void *ptr, void *ctx )
+{
+	struct slab_heap *sh = ctx;
+	if ( sh && ptr >= sh->sh_base && ptr <= sh->sh_end )
+		sh->sh_last = ptr;
+}
+
+void *
+slap_sl_mark( void *ctx )
+{
+	struct slab_heap *sh = ctx;
+	return sh->sh_last;
 }
 
 /*
@@ -702,27 +711,27 @@ print_slheap(int level, void *ctx)
 	int i, j, once = 0;
 
 	if (!ctx) {
-		Debug(level, "NULL memctx\n", 0, 0, 0);
+		Debug(level, "NULL memctx\n" );
 		return;
 	}
 
-	Debug(level, "sh->sh_maxorder=%d\n", sh->sh_maxorder, 0, 0);
+	Debug(level, "sh->sh_maxorder=%d\n", sh->sh_maxorder );
 
 	for (i = order_start; i <= sh->sh_maxorder; i++) {
 		once = 0;
-		Debug(level, "order=%d\n", i, 0, 0);
+		Debug(level, "order=%d\n", i );
 		for (j = 0; j < (1<<(sh->sh_maxorder-i))/8; j++) {
-			Debug(level, "%02x ", sh->sh_map[i-order_start][j], 0, 0);
+			Debug(level, "%02x ", sh->sh_map[i-order_start][j] );
 			once = 1;
 		}
 		if (!once) {
-			Debug(level, "%02x ", sh->sh_map[i-order_start][0], 0, 0);
+			Debug(level, "%02x ", sh->sh_map[i-order_start][0] );
 		}
-		Debug(level, "\n", 0, 0, 0);
-		Debug(level, "free list:\n", 0, 0, 0);
+		Debug(level, "\n" );
+		Debug(level, "free list:\n" );
 		so = LDAP_LIST_FIRST(&sh->sh_free[i-order_start]);
 		while (so) {
-			Debug(level, "%p\n", so->so_ptr, 0, 0);
+			Debug(level, "%p\n", so->so_ptr );
 			so = LDAP_LIST_NEXT(so, so_link);
 		}
 	}

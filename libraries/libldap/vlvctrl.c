@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2018 The OpenLDAP Foundation.
+ * Copyright 1998-2024 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -253,7 +253,7 @@ ldap_create_vlv_control(
 					   generated context identifier if one was returned by
 					   the server.  If the server did not return a context
 					   identifier, this parameter will be set to NULL, even
-					   if an error occured.
+					   if an error occurred.
 					   The returned context SHOULD be used in the next call
 					   to create a VLV sort control.  The struct berval
 					   returned SHOULD be disposed of by calling ber_bvfree()
@@ -272,7 +272,7 @@ ldap_create_vlv_control(
 		contentCount     INTEGER (0 .. maxInt),
 		virtualListViewResult ENUMERATED {
 		success (0),
-		operatonsError (1),
+		operationsError (1),
 		unwillingToPerform (53),
 		insufficientAccessRights (50),
 		busy (51),

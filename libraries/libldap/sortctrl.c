@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2018 The OpenLDAP Foundation.
+ * Copyright 1998-2024 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -87,7 +87,7 @@ static int countKeys(char *keyString)
 						The pointer is updated to point to the next character
 						after the sortkey being parsed.
 						
-   key         (OUT)    Points to the address of an LDAPSortKey stucture
+   key         (OUT)    Points to the address of an LDAPSortKey structure
 						which has been allocated by this routine and
 						initialized with information from the next sortkey.                        
    ---------------------------------------------------------------------------*/
@@ -448,7 +448,7 @@ ldap_create_sort_control(
    returnCode (OUT) This result parameter is filled in with the sort control
 					result code.  This parameter MUST not be NULL.
 				  
-   attribute  (OUT) If an error occured the server may return a string
+   attribute  (OUT) If an error occurred the server may return a string
 					indicating the first attribute in the sortkey list
 					that was in error.  If a string is returned, the memory
 					should be freed with ldap_memfree.  If this parameter is

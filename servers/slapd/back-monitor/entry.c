@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2001-2018 The OpenLDAP Foundation.
+ * Copyright 2001-2024 The OpenLDAP Foundation.
  * Portions Copyright 2001-2003 Pierangelo Masarati.
  * All rights reserved.
  *
@@ -220,4 +220,17 @@ monitor_entry_stub(
 			modify ? modify : &mi->mi_startTime, NULL );
 	}
 	return e;
+}
+
+Entry *
+monitor_entry_get_unlocked(
+	struct berval *ndn
+)
+{
+	monitor_info_t *mi = ( monitor_info_t * )be_monitor->be_private;
+	Entry *ret = NULL;
+
+	if ( !monitor_cache_get( mi, ndn, &ret ))
+		monitor_cache_release( mi, ret );
+	return ret;
 }

@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2004-2018 The OpenLDAP Foundation.
+ * Copyright 2004-2024 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -372,7 +372,7 @@ best_guess( Operation *op,
 	
 		entryCSN.bv_val = csnbuf;
 		entryCSN.bv_len = sizeof( csnbuf );
-		slap_get_csn( NULL, &entryCSN, 0 );
+		slap_get_csn( op, &entryCSN, 0 );
 
 		ber_dupbv( bv_entryCSN, &entryCSN );
 		ber_dupbv( bv_nentryCSN, &entryCSN );
@@ -755,7 +755,7 @@ lastmod_db_init( BackendDB *be, ConfigReply *cr )
 			code = register_at( mat[i].schema, ad, 0 );
 			if ( code ) {
 				Debug( LDAP_DEBUG_ANY,
-					"lastmod_init: register_at failed\n", 0, 0, 0 );
+					"lastmod_init: register_at failed\n" );
 				return -1;
 			}
 			(*ad)->ad_type->sat_flags |= mat[i].flags;
@@ -769,7 +769,7 @@ lastmod_db_init( BackendDB *be, ConfigReply *cr )
 			code = register_oc( moc[i].schema, Oc, 0 );
 			if ( code ) {
 				Debug( LDAP_DEBUG_ANY,
-					"lastmod_init: register_oc failed\n", 0, 0, 0 );
+					"lastmod_init: register_oc failed\n" );
 				return -1;
 			}
 			(*Oc)->soc_flags |= moc[i].flags;
@@ -833,6 +833,11 @@ lastmod_db_open( BackendDB *be, ConfigReply *cr )
 	static char		tmbuf[ LDAP_LUTIL_GENTIME_BUFSIZE ];
 
 	char			csnbuf[ LDAP_PVT_CSNSTR_BUFSIZE ];
+	void			*thrctx = ldap_pvt_thread_pool_context();
+	Connection		conn = { 0 };
+	OperationBuffer		opbuf;
+	Operation		*op;
+
 	struct berval		entryCSN;
 	struct berval timestamp;
 
@@ -840,6 +845,9 @@ lastmod_db_open( BackendDB *be, ConfigReply *cr )
 		fprintf( stderr, "set \"lastmod on\" to make this overlay effective\n" );
 		return -1;
 	}
+
+	connection_fake_init2( &conn, &opbuf, thrctx, 0 );
+	op = &opbuf.ob_op;
 
 	/*
 	 * Start
@@ -850,7 +858,7 @@ lastmod_db_open( BackendDB *be, ConfigReply *cr )
 
 	entryCSN.bv_val = csnbuf;
 	entryCSN.bv_len = sizeof( csnbuf );
-	slap_get_csn( NULL, &entryCSN, 0 );
+	slap_get_csn( op, &entryCSN, 0 );
 
 	if ( BER_BVISNULL( &lmi->lmi_rdnvalue ) ) {
 		ber_str2bv( "Lastmod", 0, 1, &lmi->lmi_rdnvalue );
@@ -933,6 +941,7 @@ int
 lastmod_initialize()
 {
 	lastmod.on_bi.bi_type = "lastmod";
+	lastmod.on_bi.bi_flags = SLAPO_BFLAG_SINGLE;
 	lastmod.on_bi.bi_db_init = lastmod_db_init;
 	lastmod.on_bi.bi_db_config = lastmod_db_config;
 	lastmod.on_bi.bi_db_destroy = lastmod_db_destroy;

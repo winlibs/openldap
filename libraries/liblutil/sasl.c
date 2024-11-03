@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2018 The OpenLDAP Foundation.
+ * Copyright 1998-2024 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -215,8 +215,6 @@ int lutil_sasl_interact(
 	void *in )
 {
 	sasl_interact_t *interact = in;
-
-	if( ld == NULL ) return LDAP_PARAM_ERROR;
 
 	if( flags == LDAP_SASL_INTERACTIVE ) {
 		fputs( _("SASL Interaction\n"), stderr );

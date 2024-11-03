@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2018 The OpenLDAP Foundation.
+ * Copyright 1998-2024 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -59,7 +59,8 @@ BerVarray default_referral = NULL;
  * global variables that need mutex protection
  */
 ldap_pvt_thread_pool_t	connection_pool;
-int			connection_pool_max = SLAP_MAX_WORKER_THREADS;
+int		connection_pool_max = SLAP_MAX_WORKER_THREADS;
+int		connection_pool_queues = 1;
 int		slap_tool_thread_max = 1;
 
 slap_counters_t			slap_counters, *slap_counters_list;
@@ -88,12 +89,15 @@ slap_init( int mode, const char *name )
 
 	slap_op_init();
 
+	ldap_pvt_thread_mutex_init( &slapd_init_mutex );
+	ldap_pvt_thread_cond_init( &slapd_init_cond );
+
 #ifdef SLAPD_MODULES
 	if ( module_init() != 0 ) {
 		slap_debug |= LDAP_DEBUG_NONE;
 		Debug( LDAP_DEBUG_ANY,
 		    "%s: module_init failed\n",
-			name, 0, 0 );
+			name );
 		return 1;
 	}
 #endif
@@ -102,7 +106,7 @@ slap_init( int mode, const char *name )
 		slap_debug |= LDAP_DEBUG_NONE;
 		Debug( LDAP_DEBUG_ANY,
 		    "%s: slap_schema_init failed\n",
-		    name, 0, 0 );
+		    name );
 		return 1;
 	}
 
@@ -110,7 +114,7 @@ slap_init( int mode, const char *name )
 		slap_debug |= LDAP_DEBUG_NONE;
 		Debug( LDAP_DEBUG_ANY,
 		    "%s: filter_init failed\n",
-		    name, 0, 0 );
+		    name );
 		return 1;
 	}
 
@@ -118,7 +122,7 @@ slap_init( int mode, const char *name )
 		slap_debug |= LDAP_DEBUG_NONE;
 		Debug( LDAP_DEBUG_ANY,
 		    "%s: entry_init failed\n",
-		    name, 0, 0 );
+		    name );
 		return 1;
 	}
 
@@ -130,13 +134,12 @@ slap_init( int mode, const char *name )
 	case SLAP_TOOL_MODE:
 		Debug( LDAP_DEBUG_TRACE,
 			"%s init: initiated %s.\n",	name,
-			(mode & SLAP_MODE) == SLAP_TOOL_MODE ? "tool" : "server",
-			0 );
+			(mode & SLAP_MODE) == SLAP_TOOL_MODE ? "tool" : "server" );
 
 		slap_name = name;
 
-		ldap_pvt_thread_pool_init( &connection_pool,
-				connection_pool_max, 0);
+		ldap_pvt_thread_pool_init_q( &connection_pool,
+				connection_pool_max, 0, connection_pool_queues);
 
 		slap_counters_init( &slap_counters );
 
@@ -159,7 +162,7 @@ slap_init( int mode, const char *name )
 	default:
 		slap_debug |= LDAP_DEBUG_NONE;
 		Debug( LDAP_DEBUG_ANY,
-			"%s init: undefined mode (%d).\n", name, mode, 0 );
+			"%s init: undefined mode (%d).\n", name, mode );
 
 		rc = 1;
 		break;
@@ -169,7 +172,7 @@ slap_init( int mode, const char *name )
 		slap_debug |= LDAP_DEBUG_NONE;
 		Debug( LDAP_DEBUG_ANY,
 		    "%s: slap_controls_init failed\n",
-		    name, 0, 0 );
+		    name );
 		return 1;
 	}
 
@@ -177,7 +180,7 @@ slap_init( int mode, const char *name )
 		slap_debug |= LDAP_DEBUG_NONE;
 		Debug( LDAP_DEBUG_ANY,
 		    "%s: frontend_init failed\n",
-		    name, 0, 0 );
+		    name );
 		return 1;
 	}
 
@@ -185,7 +188,7 @@ slap_init( int mode, const char *name )
 		slap_debug |= LDAP_DEBUG_NONE;
 		Debug( LDAP_DEBUG_ANY,
 		    "%s: overlay_init failed\n",
-		    name, 0, 0 );
+		    name );
 		return 1;
 	}
 
@@ -193,7 +196,7 @@ slap_init( int mode, const char *name )
 		slap_debug |= LDAP_DEBUG_NONE;
 		Debug( LDAP_DEBUG_ANY,
 		    "%s: glue/subordinate init failed\n",
-		    name, 0, 0 );
+		    name );
 
 		return 1;
 	}
@@ -202,7 +205,7 @@ slap_init( int mode, const char *name )
 		slap_debug |= LDAP_DEBUG_NONE;
 		Debug( LDAP_DEBUG_ANY,
 		    "%s: acl_init failed\n",
-		    name, 0, 0 );
+		    name );
 		return 1;
 	}
 
@@ -214,7 +217,7 @@ int slap_startup( Backend *be )
 	int rc;
 	Debug( LDAP_DEBUG_TRACE,
 		"%s startup: initiated.\n",
-		slap_name, 0, 0 );
+		slap_name );
 
 	rc = backend_startup( be );
 	if ( !rc && ( slapMode & SLAP_SERVER_MODE ))
@@ -226,7 +229,10 @@ int slap_shutdown( Backend *be )
 {
 	Debug( LDAP_DEBUG_TRACE,
 		"%s shutdown: initiated\n",
-		slap_name, 0, 0 );
+		slap_name );
+
+	/* Make sure the pool stops now even if we did not start up fully */
+	ldap_pvt_thread_pool_close( &connection_pool, 1 );
 
 	/* let backends do whatever cleanup they need to do */
 	return backend_shutdown( be ); 
@@ -238,11 +244,13 @@ int slap_destroy(void)
 
 	Debug( LDAP_DEBUG_TRACE,
 		"%s destroy: freeing system resources.\n",
-		slap_name, 0, 0 );
+		slap_name );
 
 	if ( default_referral ) {
 		ber_bvarray_free( default_referral );
 	}
+
+	ldap_pvt_thread_pool_free( &connection_pool );
 
 	/* clear out any thread-keys for the main thread */
 	ldap_pvt_thread_pool_context_reset( ldap_pvt_thread_pool_context());
@@ -264,12 +272,15 @@ int slap_destroy(void)
 
 	default:
 		Debug( LDAP_DEBUG_ANY,
-			"slap_destroy(): undefined mode (%d).\n", slapMode, 0, 0 );
+			"slap_destroy(): undefined mode (%d).\n", slapMode );
 
 		rc = 1;
 		break;
 
 	}
+
+	ldap_pvt_thread_mutex_destroy( &slapd_init_mutex );
+	ldap_pvt_thread_cond_destroy( &slapd_init_cond );
 
 	slap_op_destroy();
 
@@ -292,12 +303,10 @@ void slap_counters_init( slap_counters_t *sc )
 	ldap_pvt_mp_init( sc->sc_ops_initiated );
 	ldap_pvt_mp_init( sc->sc_ops_completed );
 
-#ifdef SLAPD_MONITOR
 	for ( i = 0; i < SLAP_OP_LAST; i++ ) {
 		ldap_pvt_mp_init( sc->sc_ops_initiated_[ i ] );
 		ldap_pvt_mp_init( sc->sc_ops_completed_[ i ] );
 	}
-#endif /* SLAPD_MONITOR */
 }
 
 void slap_counters_destroy( slap_counters_t *sc )
@@ -313,11 +322,9 @@ void slap_counters_destroy( slap_counters_t *sc )
 	ldap_pvt_mp_clear( sc->sc_ops_initiated );
 	ldap_pvt_mp_clear( sc->sc_ops_completed );
 
-#ifdef SLAPD_MONITOR
 	for ( i = 0; i < SLAP_OP_LAST; i++ ) {
 		ldap_pvt_mp_clear( sc->sc_ops_initiated_[ i ] );
 		ldap_pvt_mp_clear( sc->sc_ops_completed_[ i ] );
 	}
-#endif /* SLAPD_MONITOR */
 }
 

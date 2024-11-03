@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1999-2018 The OpenLDAP Foundation.
+ * Copyright 1999-2024 The OpenLDAP Foundation.
  * Portions Copyright 2000-2003 Pierangelo Masarati.
  * Portions Copyright 1999-2003 Howard Chu.
  * All rights reserved.
@@ -180,7 +180,7 @@ typedef struct ldapconn_t {
 
 typedef struct ldap_avl_info_t {
 	ldap_pvt_thread_mutex_t		lai_mutex;
-	Avlnode				*lai_tree;
+	TAvlnode			*lai_tree;
 } ldap_avl_info_t;
 
 typedef struct slap_retry_info_t {
@@ -233,6 +233,9 @@ typedef struct slap_idassert_t {
 #define	LDAP_BACK_AUTH_OBSOLETE_ENCODING_WORKAROUND	(0x10U)
 #define	LDAP_BACK_AUTH_AUTHZ_ALL			(0x20U)
 #define	LDAP_BACK_AUTH_PROXYAUTHZ_CRITICAL		(0x40U)
+#define LDAP_BACK_AUTH_DN_AUTHZID			(0x100U)
+#define LDAP_BACK_AUTH_DN_WHOAMI			(0x200U)
+#define LDAP_BACK_AUTH_DN_MASK				(LDAP_BACK_AUTH_DN_AUTHZID|LDAP_BACK_AUTH_DN_WHOAMI)
 #define	li_idassert_flags	li_idassert.si_flags
 
 	BerVarray	si_authz;
@@ -288,7 +291,7 @@ typedef struct ldapinfo_t {
 
 	unsigned		li_flags;
 
-/* 0xFFF00000U are reserved for back-meta */
+/* 0xFF000000U are reserved for back-meta */
 
 #define LDAP_BACK_F_NONE		(0x00000000U)
 #define LDAP_BACK_F_SAVECRED		(0x00000001U)
@@ -332,7 +335,7 @@ typedef struct ldapinfo_t {
 #define LDAP_BACK_F_NOUNDEFFILTER	(0x00100000U)
 #define LDAP_BACK_F_OMIT_UNKNOWN_SCHEMA (0x00200000U)
 
-#define LDAP_BACK_F_ONERR_STOP		(0x00200000U)
+#define LDAP_BACK_F_ONERR_STOP		(0x00400000U)
 
 #define	LDAP_BACK_ISSET_F(ff,f)		( ( (ff) & (f) ) == (f) )
 #define	LDAP_BACK_ISMASK_F(ff,m,f)	( ( (ff) & (m) ) == (f) )
@@ -414,6 +417,7 @@ typedef struct ldapinfo_t {
 
 	ldap_pvt_thread_mutex_t li_counter_mutex;
 	ldap_pvt_mp_t		li_ops_completed[SLAP_OP_LAST];
+	struct re_s*		li_conn_expire_task;
 } ldapinfo_t;
 
 #define	LDAP_ERR_OK(err) ((err) == LDAP_SUCCESS || (err) == LDAP_COMPARE_FALSE || (err) == LDAP_COMPARE_TRUE)

@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1999-2018 The OpenLDAP Foundation.
+ * Copyright 1999-2024 The OpenLDAP Foundation.
  * Portions Copyright 2001-2003 Pierangelo Masarati.
  * Portions Copyright 1999-2003 Howard Chu.
  * All rights reserved.
@@ -46,7 +46,7 @@ meta_back_conn_destroy(
 	Debug( LDAP_DEBUG_TRACE,
 		"=>meta_back_conn_destroy: fetching conn=%ld DN=\"%s\"\n",
 		conn->c_connid,
-		BER_BVISNULL( &conn->c_ndn ) ? "" : conn->c_ndn.bv_val, 0 );
+		BER_BVISNULL( &conn->c_ndn ) ? "" : conn->c_ndn.bv_val );
 	
 	mc_curr.mc_conn = conn;
 	
@@ -54,7 +54,7 @@ meta_back_conn_destroy(
 #if META_BACK_PRINT_CONNTREE > 0
 	meta_back_print_conntree( mi, ">>> meta_back_conn_destroy" );
 #endif /* META_BACK_PRINT_CONNTREE */
-	while ( ( mc = avl_delete( &mi->mi_conninfo.lai_tree, ( caddr_t )&mc_curr, meta_back_conn_cmp ) ) != NULL )
+	while ( ( mc = ldap_tavl_delete( &mi->mi_conninfo.lai_tree, ( caddr_t )&mc_curr, meta_back_conn_cmp ) ) != NULL )
 	{
 		assert( !LDAP_BACK_PCONN_ISPRIV( mc ) );
 		Debug( LDAP_DEBUG_TRACE,

@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2018 The OpenLDAP Foundation.
+ * Copyright 1998-2024 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -38,7 +38,7 @@
 
 #include "slap.h"
 #include "back-passwd.h"
-#include "config.h"
+#include "slap-config.h"
 
 static ConfigTable passwdcfg[] = {
 	{ "file", "filename", 2, 2, 0,

@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2018 The OpenLDAP Foundation.
+ * Copyright 1998-2024 The OpenLDAP Foundation.
  * Portions Copyright 1998-2003 Kurt D. Zeilenga.
  * Portions Copyright 2003 IBM Corporation.
  * All rights reserved.
@@ -53,7 +53,7 @@ slapschema( int argc, char **argv )
 	int requestBSF = 0;
 	int doBSF = 0;
 
-	slap_tool_init( progname, SLAPCAT, argc, argv );
+	slap_tool_init( progname, SLAPSCHEMA, argc, argv );
 
 	requestBSF = ( sub_ndn.bv_len || filter );
 

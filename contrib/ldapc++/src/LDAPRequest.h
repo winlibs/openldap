@@ -1,6 +1,6 @@
 // $OpenLDAP$
 /*
- * Copyright 2000-2018 The OpenLDAP Foundation, All Rights Reserved.
+ * Copyright 2000-2024 The OpenLDAP Foundation, All Rights Reserved.
  * COPYING RESTRICTIONS APPLY, see COPYRIGHT file
  */
 
@@ -19,7 +19,7 @@ class LDAPUrl;
  * 
  * Each request that is sent to a LDAP-server by this library is
  * represented by a special object that contains the parameters and some
- * other info of the request. This virtual class is the common base classe
+ * other info of the request. This virtual class is the common base class
  * for these specialized request classes.
  */
 class LDAPRequest{
@@ -61,7 +61,7 @@ class LDAPRequest{
         void unbind() const; 
 
         /**
-         * This method encodes the request an calls the apprpriate
+         * This method encodes the request an calls the appropriate
          * functions of the C-API to send the Request to a LDAP-Server
          */
         virtual LDAPMessageQueue* sendRequest()=0;

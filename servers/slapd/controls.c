@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2018 The OpenLDAP Foundation.
+ * Copyright 1998-2024 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -17,6 +17,7 @@
 
 #include <stdio.h>
 
+#include <ac/ctype.h>
 #include <ac/string.h>
 #include <ac/socket.h>
 
@@ -50,6 +51,9 @@ static SLAP_CTRL_PARSE_FN parseSessionTracking;
 #endif
 #ifdef SLAP_CONTROL_X_WHATFAILED
 static SLAP_CTRL_PARSE_FN parseWhatFailed;
+#endif
+#ifdef SLAP_CONTROL_X_LAZY_COMMIT
+static SLAP_CTRL_PARSE_FN parseLazyCommit;
 #endif
 
 #undef sc_mask /* avoid conflict with Irix 6.5 <sys/signal.h> */
@@ -195,13 +199,11 @@ static struct slap_control control_defs[] = {
 		SLAP_CTRL_GLOBAL|SLAP_CTRL_UPDATE|SLAP_CTRL_HIDE,
 		NULL, NULL,
 		parseRelax, LDAP_SLIST_ENTRY_INITIALIZER(next) },
-#ifdef LDAP_X_TXN
-	{ LDAP_CONTROL_X_TXN_SPEC,
+	{ LDAP_CONTROL_TXN_SPEC,
  		(int)offsetof(struct slap_control_ids, sc_txnSpec),
 		SLAP_CTRL_UPDATE|SLAP_CTRL_HIDE,
 		NULL, NULL,
 		txn_spec_ctrl, LDAP_SLIST_ENTRY_INITIALIZER(next) },
-#endif
 	{ LDAP_CONTROL_MANAGEDSAIT,
  		(int)offsetof(struct slap_control_ids, sc_manageDSAit),
 		SLAP_CTRL_ACCESS,
@@ -225,6 +227,13 @@ static struct slap_control control_defs[] = {
 		SLAP_CTRL_GLOBAL|SLAP_CTRL_ACCESS|SLAP_CTRL_HIDE,
 		NULL, NULL,
 		parseWhatFailed, LDAP_SLIST_ENTRY_INITIALIZER(next) },
+#endif
+#ifdef SLAP_CONTROL_X_LAZY_COMMIT
+	{ LDAP_CONTROL_X_LAZY_COMMIT,
+		(int)offsetof(struct slap_control_ids, sc_lazyCommit),
+		SLAP_CTRL_GLOBAL|SLAP_CTRL_ACCESS|SLAP_CTRL_HIDE,
+		NULL, NULL,
+		parseLazyCommit, LDAP_SLIST_ENTRY_INITIALIZER(next) },
 #endif
 
 	{ NULL, 0, 0, NULL, 0, NULL, LDAP_SLIST_ENTRY_INITIALIZER(next) }
@@ -257,7 +266,7 @@ register_supported_control2(const char *controloid,
 	if ( num_known_controls >= SLAP_MAX_CIDS ) {
 		Debug( LDAP_DEBUG_ANY, "Too many controls registered."
 			" Recompile slapd with SLAP_MAX_CIDS defined > %d\n",
-		SLAP_MAX_CIDS, 0, 0 );
+		num_known_controls );
 		return LDAP_OTHER;
 	}
 
@@ -271,7 +280,7 @@ register_supported_control2(const char *controloid,
 			if ( flags == 1 ) {
 				Debug( LDAP_DEBUG_TRACE,
 					"Control %s already registered; replacing.\n",
-					controloid, 0, 0 );
+					controloid );
 				/* (find and) replace existing handler */
 				sc = find_ctrl( controloid );
 				assert( sc != NULL );
@@ -280,7 +289,7 @@ register_supported_control2(const char *controloid,
 
 			Debug( LDAP_DEBUG_ANY,
 				"Control %s already registered.\n",
-				controloid, 0, 0 );
+				controloid );
 			return LDAP_PARAM_ERROR;
 		}
 	}
@@ -320,15 +329,6 @@ register_supported_control2(const char *controloid,
 
 	} else {
 		if ( sc->sc_extendedopsbv ) {
-			/* FIXME: in principle, we should rather merge
-			 * existing extops with those supported by the
-			 * new control handling implementation.
-			 * In fact, whether a control is compatible with
-			 * an extop should not be a matter of implementation.
-			 * We likely also need a means for a newly
-			 * registered extop to declare that it is
-			 * comptible with an already registered control.
-			 */
 			ber_bvarray_free( sc->sc_extendedopsbv );
 			sc->sc_extendedopsbv = NULL;
 			sc->sc_extendedops = NULL;
@@ -376,6 +376,51 @@ unregister_supported_control( const char *controloid )
 	return 0;
 }
 #endif /* SLAP_CONFIG_DELETE */
+
+int
+register_control_exop( const char *controloid, char *exopoid )
+{
+	struct slap_control *sc = NULL;
+	BerVarray extendedopsbv;
+	char **extendedops;
+	int i;
+
+	if ( controloid == NULL || exopoid == NULL ) {
+		return LDAP_PARAM_ERROR;
+	}
+
+	for ( i = 0; slap_known_controls[ i ]; i++ ) {
+		if ( strcmp( controloid, slap_known_controls[ i ] ) == 0 ) {
+			sc = find_ctrl( controloid );
+			assert( sc != NULL );
+			break;
+		}
+	}
+
+	if ( !sc ) {
+		Debug( LDAP_DEBUG_ANY, "register_control_exop: "
+			"Control %s not registered.\n",
+			controloid );
+		return LDAP_PARAM_ERROR;
+	}
+
+	for ( i = 0; sc->sc_extendedopsbv && !BER_BVISNULL( &sc->sc_extendedopsbv[ i ] ); i++ ) {
+		if ( strcmp( exopoid, sc->sc_extendedopsbv[ i ].bv_val ) == 0 ) {
+			return LDAP_SUCCESS;
+		}
+	}
+
+	extendedopsbv = ber_memrealloc( sc->sc_extendedopsbv, (i + 2) * sizeof( struct berval ) );
+	if ( extendedopsbv == NULL ) {
+		return LDAP_NO_MEMORY;
+	}
+	sc->sc_extendedopsbv = extendedopsbv;
+
+	ber_str2bv( exopoid, 0, 1, &extendedopsbv[ i ] );
+	BER_BVZERO( &extendedopsbv[ i+1 ] );
+
+	return LDAP_SUCCESS;
+}
 
 /*
  * One-time initialization of internal controls.
@@ -538,7 +583,7 @@ slap_global_control( Operation *op, const char *oid, int *cid )
 		/* should not be reachable */
 		Debug( LDAP_DEBUG_ANY,
 			"slap_global_control: unrecognized control: %s\n",      
-			oid, 0, 0 );
+			oid );
 		return LDAP_CONTROL_NOT_FOUND;
 	}
 
@@ -554,7 +599,7 @@ slap_global_control( Operation *op, const char *oid, int *cid )
 #if 0
 	Debug( LDAP_DEBUG_TRACE,
 		"slap_global_control: unavailable control: %s\n",      
-		oid, 0, 0 );
+		oid );
 #endif
 
 	return LDAP_COMPARE_FALSE;
@@ -714,10 +759,21 @@ int slap_parse_ctrl(
 	return rc;
 }
 
-int get_ctrls(
+int
+get_ctrls(
 	Operation *op,
 	SlapReply *rs,
 	int sendres )
+{
+	return get_ctrls2( op, rs, sendres, LDAP_TAG_CONTROLS );
+}
+
+int
+get_ctrls2(
+	Operation *op,
+	SlapReply *rs,
+	int sendres,
+	ber_tag_t ctag )
 {
 	int nctrls = 0;
 	ber_tag_t tag;
@@ -743,7 +799,7 @@ int get_ctrls(
 		return rs->sr_err;
 	}
 
-	if(( tag = ber_peek_tag( ber, &len )) != LDAP_TAG_CONTROLS ) {
+	if(( tag = ber_peek_tag( ber, &len )) != ctag ) {
 		if( tag == LBER_ERROR ) {
 			rs->sr_err = SLAPD_DISCONNECT;
 			rs->sr_text = "unexpected data in PDU";
@@ -753,7 +809,7 @@ int get_ctrls(
 	}
 
 	Debug( LDAP_DEBUG_TRACE,
-		"=> get_ctrls\n", 0, 0, 0 );
+		"=> get_ctrls\n" );
 
 	if( op->o_protocol < LDAP_VERSION3 ) {
 		rs->sr_err = SLAPD_DISCONNECT;
@@ -811,8 +867,7 @@ int get_ctrls(
 		c->ldctl_oid = bv.bv_val;
 
 		if( tag == LBER_ERROR ) {
-			Debug( LDAP_DEBUG_TRACE, "=> get_ctrls: get oid failed.\n",
-				0, 0, 0 );
+			Debug( LDAP_DEBUG_TRACE, "=> get_ctrls: get oid failed.\n" );
 
 			slap_free_ctrls( op, op->o_ctrls );
 			op->o_ctrls = NULL;
@@ -823,7 +878,7 @@ int get_ctrls(
 		} else if( c->ldctl_oid == NULL ) {
 			Debug( LDAP_DEBUG_TRACE,
 				"get_ctrls: conn %lu got empty OID.\n",
-				op->o_connid, 0, 0 );
+				op->o_connid );
 
 			slap_free_ctrls( op, op->o_ctrls );
 			op->o_ctrls = NULL;
@@ -839,8 +894,7 @@ int get_ctrls(
 			tag = ber_scanf( ber, "b", &crit );
 
 			if( tag == LBER_ERROR ) {
-				Debug( LDAP_DEBUG_TRACE, "=> get_ctrls: get crit failed.\n",
-					0, 0, 0 );
+				Debug( LDAP_DEBUG_TRACE, "=> get_ctrls: get crit failed.\n" );
 				slap_free_ctrls( op, op->o_ctrls );
 				op->o_ctrls = NULL;
 				rs->sr_err = SLAPD_DISCONNECT;
@@ -870,7 +924,7 @@ int get_ctrls(
 
 		Debug( LDAP_DEBUG_TRACE,
 			"=> get_ctrls: oid=\"%s\" (%scritical)\n",
-			c->ldctl_oid, c->ldctl_iscritical ? "" : "non", 0 );
+			c->ldctl_oid, c->ldctl_iscritical ? "" : "non" );
 
 		rs->sr_err = slap_parse_ctrl( op, rs, c, &rs->sr_text );
 		if ( rs->sr_err != LDAP_SUCCESS ) {
@@ -1007,7 +1061,7 @@ slap_remove_control(
 
 		Debug( LDAP_DEBUG_ANY, "%s: "
 			"non-critical control \"%s\" not supported; stripped.\n",
-			op->o_log_prefix, slap_known_controls[ ctrl ], 0 );
+			op->o_log_prefix, slap_known_controls[ ctrl ] );
 		/* fall thru */
 
 	case SLAP_CONTROL_IGNORED:
@@ -1022,7 +1076,7 @@ slap_remove_control(
 		}
 		Debug( LDAP_DEBUG_ANY, "%s: "
 			"critical control \"%s\" not supported.\n",
-			op->o_log_prefix, slap_known_controls[ ctrl ], 0 );
+			op->o_log_prefix, slap_known_controls[ ctrl ] );
 		break;
 
 	default:
@@ -1145,13 +1199,12 @@ static int parseProxyAuthz (
 	Debug( LDAP_DEBUG_ARGS,
 		"parseProxyAuthz: conn %lu authzid=\"%s\"\n", 
 		op->o_connid,
-		ctrl->ldctl_value.bv_len ?  ctrl->ldctl_value.bv_val : "anonymous",
-		0 );
+		ctrl->ldctl_value.bv_len ?  ctrl->ldctl_value.bv_val : "anonymous" );
 
 	if ( BER_BVISEMPTY( &ctrl->ldctl_value )) {
 		Debug( LDAP_DEBUG_TRACE,
 			"parseProxyAuthz: conn=%lu anonymous\n", 
-			op->o_connid, 0, 0 );
+			op->o_connid );
 
 		/* anonymous */
 		if ( !BER_BVISNULL( &op->o_ndn ) ) {
@@ -1182,7 +1235,7 @@ static int parseProxyAuthz (
 	Debug( LDAP_DEBUG_TRACE,
 		"parseProxyAuthz: conn=%lu \"%s\"\n", 
 		op->o_connid,
-		dn.bv_len ? dn.bv_val : "(NULL)", 0 );
+		dn.bv_len ? dn.bv_val : "(NULL)" );
 
 	rc = slap_sasl_authorized( op, &op->o_ndn, &dn );
 
@@ -1201,8 +1254,8 @@ static int parseProxyAuthz (
 	op->o_ndn = dn;
 	ber_bvreplace( &op->o_dn, &dn );
 
-	Statslog( LDAP_DEBUG_STATS, "%s PROXYAUTHZ dn=\"%s\"\n",
-	    op->o_log_prefix, dn.bv_val, 0, 0, 0 );
+	Debug( LDAP_DEBUG_STATS, "%s PROXYAUTHZ dn=\"%s\"\n",
+	    op->o_log_prefix, dn.bv_val );
 
 	return LDAP_SUCCESS;
 }
@@ -1401,7 +1454,7 @@ static int parseAssert (
 	filter2bv_x( op, op->o_assertion, &fstr );
 
 	Debug( LDAP_DEBUG_ARGS, "parseAssert: conn %ld assert: %s\n",
-		op->o_connid, fstr.bv_len ? fstr.bv_val : "empty" , 0 );
+		op->o_connid, fstr.bv_len ? fstr.bv_val : "empty" );
 	op->o_tmpfree( fstr.bv_val, op->o_tmpmemctx );
 #endif
 
@@ -1444,12 +1497,10 @@ parseReadAttrs(
 		return LDAP_PROTOCOL_ERROR;
 	}
 
-#ifdef LDAP_X_TXN
 	if ( op->o_txnSpec ) { /* temporary limitation */
 		rs->sr_text = READMSG( post, "cannot perform in transaction" );
 		return LDAP_UNWILLING_TO_PERFORM;
 	}
-#endif
 
 	ber = ber_init( &ctrl->ldctl_value );
 	if ( ber == NULL ) {
@@ -1578,7 +1629,10 @@ static int parseValuesReturnFilter (
 		} else {
 			send_ldap_result( op, rs );
 		}
-		if( op->o_vrFilter != NULL) vrFilter_free( op, op->o_vrFilter ); 
+		if( op->o_vrFilter != NULL) {
+			vrFilter_free( op, op->o_vrFilter );
+			op->o_vrFilter = NULL;
+		}
 	}
 #ifdef LDAP_DEBUG
 	else {
@@ -1586,7 +1640,7 @@ static int parseValuesReturnFilter (
 	}
 
 	Debug( LDAP_DEBUG_ARGS, "	vrFilter: %s\n",
-		fstr.bv_len ? fstr.bv_val : "empty", 0, 0 );
+		fstr.bv_len ? fstr.bv_val : "empty" );
 	op->o_tmpfree( fstr.bv_val, op->o_tmpmemctx );
 #endif
 
@@ -1660,7 +1714,11 @@ static int parseDomainScope (
 		return LDAP_PROTOCOL_ERROR;
 	}
 
-	if ( !BER_BVISNULL( &ctrl->ldctl_value )) {
+	/* this should be checking BVISNULL, but M$ clients are broken
+	 * and include the value even though the M$ spec says it must be
+	 * omitted. ITS#9100.
+	 */
+	if ( !BER_BVISEMPTY( &ctrl->ldctl_value )) {
 		rs->sr_text = "domainScope control value not absent";
 		return LDAP_PROTOCOL_ERROR;
 	}
@@ -1742,7 +1800,7 @@ static int parseSearchOptions (
 		/* Ignore */
 		Debug( LDAP_DEBUG_TRACE,
 			"searchOptions: conn=%lu unrecognized flag(s) 0x%x (non-critical)\n", 
-			op->o_connid, (unsigned)search_flags, 0 );
+			op->o_connid, (unsigned)search_flags );
 
 		return LDAP_SUCCESS;
 	}
@@ -2143,5 +2201,29 @@ slap_ctrl_whatFailed_add(
 
 done:;
 	return rc;
+}
+#endif
+
+#ifdef SLAP_CONTROL_X_LAZY_COMMIT
+static int parseLazyCommit(
+	Operation *op,
+	SlapReply *rs,
+	LDAPControl *ctrl )
+{
+	if ( op->o_lazyCommit != SLAP_CONTROL_NONE ) {
+		rs->sr_text = "\"Lazy Commit?\" control specified multiple times";
+		return LDAP_PROTOCOL_ERROR;
+	}
+
+	if ( !BER_BVISNULL( &ctrl->ldctl_value )) {
+		rs->sr_text = "\"Lazy Commit?\" control value not absent";
+		return LDAP_PROTOCOL_ERROR;
+	}
+
+	op->o_lazyCommit = ctrl->ldctl_iscritical
+		? SLAP_CONTROL_CRITICAL
+		: SLAP_CONTROL_NONCRITICAL;
+
+	return LDAP_SUCCESS;
 }
 #endif

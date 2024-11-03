@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2000-2018 The OpenLDAP Foundation.
+ * Copyright 2000-2024 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -142,11 +142,11 @@ static int search_aliases(
 	Filter	af;
 
 	aliases = stack;	/* IDL of all aliases in the database */
-	curscop = aliases + MDB_IDL_DB_SIZE;	/* Aliases in the current scope */
-	visited = curscop + MDB_IDL_DB_SIZE;	/* IDs we've seen in this search */
-	newsubs = visited + MDB_IDL_DB_SIZE;	/* New subtrees we've added */
-	oldsubs = newsubs + MDB_IDL_DB_SIZE;	/* Subtrees added previously */
-	tmp = oldsubs + MDB_IDL_DB_SIZE;	/* Scratch space for deref_base() */
+	curscop = aliases + MDB_idl_db_size;	/* Aliases in the current scope */
+	visited = curscop + MDB_idl_db_size;	/* IDs we've seen in this search */
+	newsubs = visited + MDB_idl_db_size;	/* New subtrees we've added */
+	oldsubs = newsubs + MDB_idl_db_size;	/* Subtrees added previously */
+	tmp = oldsubs + MDB_idl_db_size;	/* Scratch space for deref_base() */
 
 	af.f_choice = LDAP_FILTER_EQUALITY;
 	af.f_ava = &aa_alias;
@@ -160,6 +160,12 @@ static int search_aliases(
 		curscop, visited );
 	if (rs->sr_err != LDAP_SUCCESS || MDB_IDL_IS_ZERO( aliases )) {
 		return rs->sr_err;
+	}
+	if ( op->ors_limit	/* isroot == FALSE */ &&
+		op->ors_limit->lms_s_unchecked != -1 &&
+		MDB_IDL_N( aliases ) > (unsigned) op->ors_limit->lms_s_unchecked )
+	{
+		return LDAP_ADMINLIMIT_EXCEEDED;
 	}
 	oldsubs[0] = 1;
 	oldsubs[1] = e_id;
@@ -297,7 +303,7 @@ static ID2 *scope_chunk_get( Operation *op )
 	ldap_pvt_thread_pool_getkey( op->o_threadctx, (void *)scope_chunk_get,
 			(void *)&ret, NULL );
 	if ( !ret ) {
-		ret = ch_malloc( MDB_IDL_UM_SIZE * sizeof( ID2 ));
+		ret = ch_malloc( MDB_idl_um_size * sizeof( ID2 ));
 	} else {
 		void *r2 = ret[0].mval.mv_data;
 		ldap_pvt_thread_pool_setkey( op->o_threadctx, (void *)scope_chunk_get,
@@ -325,7 +331,7 @@ typedef struct ww_ctx {
 	ID key;
 	MDB_val data;
 	int flag;
-	int nentries;
+	unsigned nentries;
 } ww_ctx;
 
 /* ITS#7904 if we get blocked while writing results to client,
@@ -400,7 +406,7 @@ mdb_waitfixup( Operation *op, ww_ctx *ww, MDB_cursor *mci, MDB_cursor *mcd, IdSc
 		ww->data.mv_data = NULL;
 	} else if ( isc->scopes[0].mid > 1 ) {	/* candidate-based search */
 		int i;
-		for ( i=1; i<isc->scopes[0].mid; i++ ) {
+		for ( i=1; i<=isc->scopes[0].mid; i++ ) {
 			if ( !isc->scopes[i].mval.mv_data )
 				continue;
 			key.mv_data = &isc->scopes[i].mid;
@@ -416,8 +422,7 @@ mdb_search( Operation *op, SlapReply *rs )
 	struct mdb_info *mdb = (struct mdb_info *) op->o_bd->be_private;
 	ID		id, cursor, nsubs, ncand, cscope;
 	ID		lastid = NOID;
-	ID		candidates[MDB_IDL_UM_SIZE];
-	ID		iscopes[MDB_IDL_DB_SIZE];
+	ID		*candidates, *iscopes, *c0;
 	ID2		*scopes;
 	void	*stack;
 	Entry		*e = NULL, *base = NULL;
@@ -427,6 +432,7 @@ mdb_search( Operation *op, SlapReply *rs )
 	time_t		stoptime;
 	int		manageDSAit;
 	int		tentries = 0;
+	int		admincheck = 0;
 	IdScopes	isc;
 	MDB_cursor	*mci, *mcd;
 	ww_ctx wwctx;
@@ -435,7 +441,7 @@ mdb_search( Operation *op, SlapReply *rs )
 	mdb_op_info	opinfo = {{{0}}}, *moi = &opinfo;
 	MDB_txn			*ltid = NULL;
 
-	Debug( LDAP_DEBUG_TRACE, "=> " LDAP_XSTRING(mdb_search) "\n", 0, 0, 0);
+	Debug( LDAP_DEBUG_TRACE, "=> " LDAP_XSTRING(mdb_search) "\n" );
 	attrs = op->oq_search.rs_attrs;
 
 	manageDSAit = get_manageDSAit( op );
@@ -465,7 +471,14 @@ mdb_search( Operation *op, SlapReply *rs )
 	}
 
 	scopes = scope_chunk_get( op );
-	stack = search_stack( op );
+	candidates = c0 = search_stack( op );
+	iscopes = candidates + MDB_idl_um_size;
+	stack = iscopes + MDB_idl_db_size;
+	/* if candidates already in use, alloc a new array */
+	if ( c0[0] ) {
+		candidates = ch_malloc(( MDB_idl_um_size + MDB_idl_db_size ) * sizeof ( ID ));
+		iscopes = candidates + MDB_idl_um_size;
+	}
 	isc.mt = ltid;
 	isc.mc = mcd;
 	isc.scopes = scopes;
@@ -608,8 +621,7 @@ dn2entry_retry:
 		}
 
 		Debug( LDAP_DEBUG_TRACE,
-			LDAP_XSTRING(mdb_search) ": entry is referral\n",
-			0, 0, 0 );
+			LDAP_XSTRING(mdb_search) ": entry is referral\n" );
 
 		rs->sr_matched = matched_dn.bv_val;
 		send_ldap_result( op, rs );
@@ -665,6 +677,15 @@ dn2entry_retry:
 		scopes[1].mval.mv_data = NULL;
 		rs->sr_err = search_candidates( op, rs, base,
 			&isc, mci, candidates, stack );
+
+		if ( rs->sr_err == LDAP_ADMINLIMIT_EXCEEDED ) {
+adminlimit:
+			rs->sr_err = LDAP_ADMINLIMIT_EXCEEDED;
+			send_ldap_result( op, rs );
+			rs->sr_err = LDAP_SUCCESS;
+			goto done;
+		}
+
 		ncand = MDB_IDL_N( candidates );
 		if ( !base->e_id || ncand == NOID ) {
 			/* grab entry count from id2entry stat
@@ -684,8 +705,7 @@ dn2entry_retry:
 
 	if ( candidates[0] == 0 ) {
 		Debug( LDAP_DEBUG_TRACE,
-			LDAP_XSTRING(mdb_search) ": no candidates\n",
-			0, 0, 0 );
+			LDAP_XSTRING(mdb_search) ": no candidates\n" );
 
 		goto nochange;
 	}
@@ -695,10 +715,7 @@ dn2entry_retry:
 		op->ors_limit->lms_s_unchecked != -1 &&
 		ncand > (unsigned) op->ors_limit->lms_s_unchecked )
 	{
-		rs->sr_err = LDAP_ADMINLIMIT_EXCEEDED;
-		send_ldap_result( op, rs );
-		rs->sr_err = LDAP_SUCCESS;
-		goto done;
+		admincheck = 1;
 	}
 
 	if ( op->ors_limit == NULL	/* isroot == TRUE */ ||
@@ -708,6 +725,7 @@ dn2entry_retry:
 	}
 
 	wwctx.flag = 0;
+	wwctx.nentries = 0;
 	/* If we're running in our own read txn */
 	if (  moi == &opinfo ) {
 		cb.sc_writewait = mdb_writewait;
@@ -734,12 +752,15 @@ dn2entry_retry:
 			send_ldap_result( op, rs );
 			goto done;
 		}
+
+		if ( admincheck )
+			goto adminlimit;
+
 		id = mdb_idl_first( candidates, &cursor );
 		if ( id == NOID ) {
 			Debug( LDAP_DEBUG_TRACE, 
 				LDAP_XSTRING(mdb_search)
-				": no paged results candidates\n",
-				0, 0, 0 );
+				": no paged results candidates\n" );
 			send_paged_response( op, rs, &lastid, 0 );
 
 			rs->sr_err = LDAP_OTHER;
@@ -753,6 +774,8 @@ dn2entry_retry:
 	if ( nsubs < ncand ) {
 		int rc;
 		/* Do scope-based search */
+		if ( admincheck && nsubs > (unsigned) op->ors_limit->lms_s_unchecked )
+			goto adminlimit;
 
 		/* if any alias scopes were set, save them */
 		if (scopes[0].mid > 1) {
@@ -778,6 +801,8 @@ dn2entry_retry:
 			id = isc.id;
 		cscope = 0;
 	} else {
+		if ( admincheck )
+			goto adminlimit;
 		id = mdb_idl_first( candidates, &cursor );
 	}
 
@@ -876,7 +901,7 @@ loop_begin:
 			Debug( LDAP_DEBUG_TRACE,
 				LDAP_XSTRING(mdb_search)
 				": %ld scope not okay\n",
-				(long) id, 0, 0 );
+				(long) id );
 			goto loop_continue;
 		}
 
@@ -897,7 +922,7 @@ notfound:
 					Debug( LDAP_DEBUG_TRACE,
 						LDAP_XSTRING(mdb_search)
 						": candidate %ld not found\n",
-						(long) id, 0, 0 );
+						(long) id );
 				} else {
 					/* get the next ID from the DB */
 					rs->sr_err = mdb_get_nextid( mci, &cursor );
@@ -921,7 +946,7 @@ notfound:
 				goto done;
 			}
 
-			rs->sr_err = mdb_entry_decode( op, ltid, &edata, &e );
+			rs->sr_err = mdb_entry_decode( op, ltid, &edata, id, &e );
 			if ( rs->sr_err ) {
 				rs->sr_err = LDAP_OTHER;
 				rs->sr_text = "internal error in mdb_entry_decode";
@@ -1115,7 +1140,7 @@ notfound:
 			Debug( LDAP_DEBUG_TRACE,
 				LDAP_XSTRING(mdb_search)
 				": %ld does not match filter\n",
-				(long) id, 0, 0 );
+				(long) id );
 		}
 
 loop_continue:
@@ -1217,6 +1242,11 @@ done:
 	if (base)
 		mdb_entry_return( op, base );
 	scope_chunk_ret( op, scopes );
+	if ( candidates != c0 ) {
+		ch_free( candidates );
+	} else {
+		MDB_IDL_ZERO( candidates );
+	}
 
 	return rs->sr_err;
 }
@@ -1228,7 +1258,7 @@ static int base_candidate(
 	ID		*ids )
 {
 	Debug(LDAP_DEBUG_ARGS, "base_candidates: base: \"%s\" (0x%08lx)\n",
-		e->e_nname.bv_val, (long) e->e_id, 0);
+		e->e_nname.bv_val, (long) e->e_id );
 
 	ids[0] = 1;
 	ids[1] = e->e_id;
@@ -1270,6 +1300,11 @@ static int oc_filter(
 	return rc;
 }
 
+typedef struct IDLchunk {
+	unsigned int logn;
+	unsigned int pad;
+} IDLchunk;
+
 static void search_stack_free( void *key, void *data )
 {
 	ber_memfree_x(data, NULL);
@@ -1278,26 +1313,34 @@ static void search_stack_free( void *key, void *data )
 static void *search_stack( Operation *op )
 {
 	struct mdb_info *mdb = (struct mdb_info *) op->o_bd->be_private;
-	void *ret = NULL;
+	IDLchunk *ic = NULL;
 
 	if ( op->o_threadctx ) {
 		ldap_pvt_thread_pool_getkey( op->o_threadctx, (void *)search_stack,
-			&ret, NULL );
+			(void **)&ic, NULL );
 	} else {
-		ret = mdb->mi_search_stack;
+		ic = mdb->mi_search_stack;
 	}
 
-	if ( !ret ) {
-		ret = ch_malloc( mdb->mi_search_stack_depth * MDB_IDL_UM_SIZE
-			* sizeof( ID ) );
+	if ( ic && ic->logn != MDB_idl_logn ) {
+		ber_memfree_x( ic, NULL );
+		ic = NULL;
+	}
+
+	if ( !ic ) {
+		ic = ch_malloc(( mdb->mi_search_stack_depth + 2 ) * (size_t)MDB_idl_um_size
+			* sizeof( ID ) + sizeof( IDLchunk ) );
+		ic->logn = MDB_idl_logn;
 		if ( op->o_threadctx ) {
 			ldap_pvt_thread_pool_setkey( op->o_threadctx, (void *)search_stack,
-				ret, search_stack_free, NULL, NULL );
+				ic, search_stack_free, NULL, NULL );
 		} else {
-			mdb->mi_search_stack = ret;
+			mdb->mi_search_stack = ic;
 		}
+		ID *idl = (ID *)( ic+1 );
+		MDB_IDL_ZERO( idl );
 	}
-	return ret;
+	return ic+1;
 }
 
 static int search_candidates(
@@ -1365,7 +1408,7 @@ static int search_candidates(
 
 	/* Allocate IDL stack, plus 1 more for former tmp */
 	if ( depth+1 > mdb->mi_search_stack_depth ) {
-		stack = ch_malloc( (depth + 1) * MDB_IDL_UM_SIZE * sizeof( ID ) );
+		stack = ch_malloc( (depth + 1) * MDB_idl_um_size * sizeof( ID ) );
 	}
 
 	if( op->ors_deref & LDAP_DEREF_SEARCHING ) {
@@ -1376,7 +1419,7 @@ static int search_candidates(
 
 	if ( rc == LDAP_SUCCESS ) {
 		rc = mdb_filter_candidates( op, isc->mt, f, ids,
-			stack, stack+MDB_IDL_UM_SIZE );
+			stack, stack+MDB_idl_um_size );
 	}
 
 	if ( depth+1 > mdb->mi_search_stack_depth ) {
@@ -1386,7 +1429,7 @@ static int search_candidates(
 	if( rc ) {
 		Debug(LDAP_DEBUG_TRACE,
 			"mdb_search_candidates: failed (rc=%d)\n",
-			rc, NULL, NULL );
+			rc );
 
 	} else {
 		Debug(LDAP_DEBUG_TRACE,
@@ -1459,7 +1502,7 @@ send_paged_response(
 
 	Debug(LDAP_DEBUG_ARGS,
 		"send_paged_response: lastid=0x%08lx nentries=%d\n", 
-		lastid ? *lastid : 0, rs->sr_nentries, NULL );
+		lastid ? *lastid : 0, rs->sr_nentries );
 
 	ctrls[1] = NULL;
 

@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2018 The OpenLDAP Foundation.
+ * Copyright 1998-2024 The OpenLDAP Foundation.
  * Portions Copyright 1998-2003 Kurt D. Zeilenga.
  * Portions Copyright 1998-2001 Net Boolean Incorporated.
  * All rights reserved.
@@ -104,7 +104,7 @@ static int docompare LDAP_P((
 
 
 const char options[] = "z"
-	"Cd:D:e:h:H:IMnNO:o:p:P:QR:U:vVw:WxX:y:Y:Z";
+	"Cd:D:e:H:IMnNO:o:P:QR:U:vVw:WxX:y:Y:Z";
 
 #ifdef LDAP_CONTROL_DONTUSECOPY
 int dontUseCopy = 0;
@@ -135,7 +135,7 @@ handle_private_option( int i )
 			optarg++;
 		}
 
-		control = ber_strdup( optarg );
+		control = optarg;
 		if ( (cvalue = strchr( control, '=' )) != NULL ) {
 			*cvalue++ = '\0';
 		}

@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2018 The OpenLDAP Foundation.
+ * Copyright 1998-2024 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -266,9 +266,9 @@ ber_dump(
 	}
 
 	sprintf( buf, "ber_dump: buf=%p ptr=%p end=%p len=%ld\n",
-		ber->ber_buf,
-		ber->ber_ptr,
-		ber->ber_end,
+		(void *) ber->ber_buf,
+		(void *) ber->ber_ptr,
+		(void *) ber->ber_end,
 		(long) len );
 
 	(void) (*ber_pvt_log_print)( buf );

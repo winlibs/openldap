@@ -1,0 +1,28 @@
+# Makefile.in for Load Balancer module
+# $OpenLDAP$
+## This work is part of OpenLDAP Software <http://www.openldap.org/>.
+##
+## Copyright 1998-2024 The OpenLDAP Foundation.
+## All rights reserved.
+##
+## Redistribution and use in source and binary forms, with or without
+## modification, are permitted only as authorized by the OpenLDAP
+## Public License.
+##
+## A copy of this license is available in the file LICENSE in the
+## top-level directory of the distribution or, alternatively, at
+## <http://www.OpenLDAP.org/license.html>.
+
+O = lo
+
+SRCS	+= module_init.c monitor.c
+
+OBJS	+= module_init.lo monitor.lo
+
+BUILD_OPT = "--enable-balancer=mod"
+BUILD_MOD = @BUILD_BALANCER@
+
+LIBBASE=lloadd
+
+LINK_LIBS=$(LLOADD_LIBS)
+MOD_DEFS = -DSLAPD_IMPORT -DBALANCER_MODULE

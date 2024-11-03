@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2008-2018 The OpenLDAP Foundation.
+ * Copyright 2008-2024 The OpenLDAP Foundation.
  * Portions Copyright 2008 Pierangelo Masarati, SysNet
  * All rights reserved.
  *
@@ -34,6 +34,7 @@
 #include <ac/stdlib.h>
 #include <stdio.h>
 #include <ac/unistd.h>
+#include <ac/socket.h>
 
 #include "ldap.h"
 #include "ldap_pvt.h"

@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2005-2018 The OpenLDAP Foundation.
+ * Copyright 2005-2024 The OpenLDAP Foundation.
  * Portions Copyright 2003 Howard Chu.
  * All rights reserved.
  *
@@ -33,7 +33,7 @@
 
 #include "back-ldap.h"
 
-#include "config.h"
+#include "slap-config.h"
 
 /*
  * From <draft-sermersheim-ldap-distproc>
@@ -211,10 +211,7 @@ static int		sc_returnContRef;
 #define get_returnContRef(op)		((op)->o_returnContRef & SLAP_CONTROL_MASK)
 
 static struct berval	slap_EXOP_CHAINEDREQUEST = BER_BVC( LDAP_EXOP_X_CHAINEDREQUEST );
-#ifdef LDAP_DEVEL
 static struct berval	slap_FEATURE_CANCHAINOPS = BER_BVC( LDAP_FEATURE_X_CANCHAINOPS );
-#endif
-
 
 static BackendInfo	*lback;
 
@@ -400,7 +397,7 @@ distproc_ldadd( CfEntryInfo *p, Entry *e, ConfigArgs *ca )
 		Debug( LDAP_DEBUG_ANY, "slapd-distproc: "
 			"first underlying database \"%s\" "
 			"cannot contain attribute \"%s\".\n",
-			e->e_name.bv_val, ad->ad_cname.bv_val, 0 );
+			e->e_name.bv_val, ad->ad_cname.bv_val );
 		rc = LDAP_CONSTRAINT_VIOLATION;
 		goto done;
 
@@ -410,7 +407,7 @@ distproc_ldadd( CfEntryInfo *p, Entry *e, ConfigArgs *ca )
 		Debug( LDAP_DEBUG_ANY, "slapd-distproc: "
 			"subsequent underlying database \"%s\" "
 			"must contain attribute \"%s\".\n",
-			e->e_name.bv_val, ad->ad_cname.bv_val, 0 );
+			e->e_name.bv_val, ad->ad_cname.bv_val );
 		rc = LDAP_CONSTRAINT_VIOLATION;
 		goto done;
 	}
@@ -425,7 +422,7 @@ distproc_ldadd( CfEntryInfo *p, Entry *e, ConfigArgs *ca )
 	if ( rc != 0 ) {
 		Debug( LDAP_DEBUG_ANY, "slapd-distproc: "
 			"unable to init %sunderlying database \"%s\".\n",
-			lc->lc_common_li == NULL ? "common " : "", e->e_name.bv_val, 0 );
+			lc->lc_common_li == NULL ? "common " : "", e->e_name.bv_val );
 		rc = LDAP_CONSTRAINT_VIOLATION;
 		goto done;
 	}
@@ -435,12 +432,12 @@ distproc_ldadd( CfEntryInfo *p, Entry *e, ConfigArgs *ca )
 	if ( lc->lc_common_li == NULL ) {
 		lc->lc_common_li = li;
 
-	} else if ( avl_insert( &lc->lc_lai.lai_tree, (caddr_t)li,
+	} else if ( ldap_tavl_insert( &lc->lc_lai.lai_tree, (caddr_t)li,
 		ldap_distproc_uri_cmp, ldap_distproc_uri_dup ) )
 	{
 		Debug( LDAP_DEBUG_ANY, "slapd-distproc: "
 			"database \"%s\" insert failed.\n",
-			e->e_name.bv_val, 0, 0 );
+			e->e_name.bv_val );
 		rc = LDAP_CONSTRAINT_VIOLATION;
 		goto done;
 	}
@@ -463,26 +460,27 @@ typedef struct ldap_distproc_cfadd_apply_t {
 	int		count;
 } ldap_distproc_cfadd_apply_t;
 
-static int
-ldap_distproc_cfadd_apply( void *datum, void *arg )
+static void
+ldap_distproc_cfadd_apply(
+	ldapinfo_t *li,
+	Operation *op,
+	SlapReply *rs,
+	Entry *p,
+	ConfigArgs *ca,
+	int count )
 {
-	ldapinfo_t			*li = (ldapinfo_t *)datum;
-	ldap_distproc_cfadd_apply_t	*lca = (ldap_distproc_cfadd_apply_t *)arg;
-
 	struct berval			bv;
 
 	/* FIXME: should not hardcode "olcDatabase" here */
-	bv.bv_len = snprintf( lca->ca->cr_msg, sizeof( lca->ca->cr_msg ),
-		"olcDatabase={%d}%s", lca->count, lback->bi_type );
-	bv.bv_val = lca->ca->cr_msg;
+	bv.bv_len = snprintf( ca->cr_msg, sizeof( ca->cr_msg ),
+		"olcDatabase={%d}%s", count, lback->bi_type );
+	bv.bv_val = ca->cr_msg;
 
-	lca->ca->be->be_private = (void *)li;
-	config_build_entry( lca->op, lca->rs, lca->p->e_private, lca->ca,
+	ca->be->be_private = (void *)li;
+	config_build_entry( op, rs, p->e_private, ca,
 		&bv, lback->bi_cf_ocs, &distproc_ocs[ 1 ] );
 
-	lca->count++;
-
-	return 0;
+	return;
 }
 
 static int
@@ -492,6 +490,8 @@ distproc_cfadd( Operation *op, SlapReply *rs, Entry *p, ConfigArgs *ca )
 	slap_overinst	*on = (slap_overinst *)pe->ce_bi;
 	ldap_distproc_t	*lc = (ldap_distproc_t *)on->on_bi.bi_private;
 	void		*priv = (void *)ca->be->be_private;
+	TAvlnode	*edge;
+	int		count = 0;
 
 	if ( lback->bi_cf_ocs ) {
 		ldap_distproc_cfadd_apply_t	lca = { 0 };
@@ -502,10 +502,15 @@ distproc_cfadd( Operation *op, SlapReply *rs, Entry *p, ConfigArgs *ca )
 		lca.ca = ca;
 		lca.count = 0;
 
-		(void)ldap_distproc_cfadd_apply( (void *)lc->lc_common_li, (void *)&lca );
+		ldap_distproc_cfadd_apply( lc->lc_common_li, op, rs, p, ca, count++ );
 
-		(void)avl_apply( lc->lc_lai.lai_tree, ldap_distproc_cfadd_apply,
-			&lca, 1, AVL_INORDER );
+		edge = ldap_tavl_end( lc->lc_lai.lai_tree, TAVL_DIR_LEFT );
+		while ( edge ) {
+			TAvlnode *next = ldap_tavl_next( edge, TAVL_DIR_RIGHT );
+			ldapinfo_t *li = (ldapinfo_t *)edge->avl_data;
+			ldap_distproc_cfadd_apply( li, op, rs, p, ca, count++ );
+			edge = next;
+		}
 
 		ca->be->be_private = priv;
 	}
@@ -628,7 +633,7 @@ ldap_distproc_db_config(
 			if ( rc != 0 ) {
 				Debug( LDAP_DEBUG_ANY, "%s: line %d: "
 					"underlying slapd-ldap initialization failed.\n.",
-					fname, lineno, 0 );
+					fname, lineno );
 				return 1;
 			}
 			lc->lc_cfg_li = be->be_private;
@@ -670,18 +675,18 @@ private_destroy:;
 				{
 					Debug( LDAP_DEBUG_ANY, "%s: line %d: "
 						"no URI list allowed in slapo-distproc.\n",
-						fname, lineno, 0 );
+						fname, lineno );
 					rc = 1;
 					goto private_destroy;
 				}
 
-				if ( avl_insert( &lc->lc_lai.lai_tree,
+				if ( ldap_tavl_insert( &lc->lc_lai.lai_tree,
 					(caddr_t)lc->lc_cfg_li,
 					ldap_distproc_uri_cmp, ldap_distproc_uri_dup ) )
 				{
 					Debug( LDAP_DEBUG_ANY, "%s: line %d: "
 						"duplicate URI in slapo-distproc.\n",
-						fname, lineno, 0 );
+						fname, lineno );
 					rc = 1;
 					goto private_destroy;
 				}
@@ -699,22 +704,6 @@ enum db_which {
 
 	db_last
 };
-
-typedef struct ldap_distproc_db_apply_t {
-	BackendDB	*be;
-	BI_db_func	*func;
-} ldap_distproc_db_apply_t;
-
-static int
-ldap_distproc_db_apply( void *datum, void *arg )
-{
-	ldapinfo_t		*li = (ldapinfo_t *)datum;
-	ldap_distproc_db_apply_t	*lca = (ldap_distproc_db_apply_t *)arg;
-
-	lca->be->be_private = (void *)li;
-
-	return lca->func( lca->be, NULL );
-}
 
 static int
 ldap_distproc_db_func(
@@ -743,14 +732,17 @@ ldap_distproc_db_func(
 			}
 
 			if ( lc->lc_lai.lai_tree != NULL ) {
-				ldap_distproc_db_apply_t	lca;
-
-				lca.be = &db;
-				lca.func = func;
-
-				rc = avl_apply( lc->lc_lai.lai_tree,
-					ldap_distproc_db_apply, (void *)&lca,
-					1, AVL_INORDER ) != AVL_NOMORE;
+				TAvlnode *edge = ldap_tavl_end( lc->lc_lai.lai_tree, TAVL_DIR_LEFT );
+				while ( edge ) {
+					TAvlnode *next = ldap_tavl_next( edge, TAVL_DIR_RIGHT );
+					ldapinfo_t *li = (ldapinfo_t *)edge->avl_data;
+					be->be_private = (void *)li;
+					rc = func( &db, NULL );
+					if ( rc == 1 ) {
+						break;
+					}
+					edge = next;
+				}
 			}
 		}
 	}
@@ -787,7 +779,7 @@ ldap_distproc_db_destroy(
 	rc = ldap_distproc_db_func( be, db_destroy );
 
 	if ( lc ) {
-		avl_free( lc->lc_lai.lai_tree, NULL );
+		ldap_tavl_free( lc->lc_lai.lai_tree, NULL );
 		ldap_pvt_thread_mutex_destroy( &lc->lc_lai.lai_mutex );
 		ch_free( lc );
 	}
@@ -857,22 +849,6 @@ ldap_distproc_db_init_one(
 	return 0;
 }
 
-typedef struct ldap_distproc_conn_apply_t {
-	BackendDB	*be;
-	Connection	*conn;
-} ldap_distproc_conn_apply_t;
-
-static int
-ldap_distproc_conn_apply( void *datum, void *arg )
-{
-	ldapinfo_t		*li = (ldapinfo_t *)datum;
-	ldap_distproc_conn_apply_t	*lca = (ldap_distproc_conn_apply_t *)arg;
-
-	lca->be->be_private = (void *)li;
-
-	return lback->bi_connection_destroy( lca->be, lca->conn );
-}
-
 static int
 ldap_distproc_connection_destroy(
 	BackendDB *be,
@@ -882,15 +858,22 @@ ldap_distproc_connection_destroy(
 	slap_overinst		*on = (slap_overinst *) be->bd_info;
 	ldap_distproc_t		*lc = (ldap_distproc_t *)on->on_bi.bi_private;
 	void			*private = be->be_private;
-	ldap_distproc_conn_apply_t	lca;
 	int			rc;
+	TAvlnode		*edge;
 
 	be->be_private = NULL;
-	lca.be = be;
-	lca.conn = conn;
 	ldap_pvt_thread_mutex_lock( &lc->lc_lai.lai_mutex );
-	rc = avl_apply( lc->lc_lai.lai_tree, ldap_distproc_conn_apply,
-		(void *)&lca, 1, AVL_INORDER ) != AVL_NOMORE;
+	edge = ldap_tavl_end( lc->lc_lai.lai_tree, TAVL_DIR_LEFT );
+	while ( edge ) {
+		TAvlnode *next = ldap_tavl_next( edge, TAVL_DIR_RIGHT );
+		ldapinfo_t *li = (ldapinfo_t *)edge->avl_data;
+		be->be_private = (void *)li;
+		rc = lback->bi_connection_destroy( be, conn );
+		if ( rc == 1 ) {
+			break;
+		}
+		edge = next;
+	}
 	ldap_pvt_thread_mutex_unlock( &lc->lc_lai.lai_mutex );
 	be->be_private = private;
 
@@ -928,8 +911,8 @@ ldap_exop_chained_request(
 		Operation	*op,
 		SlapReply	*rs )
 {
-	Statslog( LDAP_DEBUG_STATS, "%s CHAINED REQUEST\n",
-	    op->o_log_prefix, 0, 0, 0, 0 );
+	Debug( LDAP_DEBUG_STATS, "%s CHAINED REQUEST\n",
+	    op->o_log_prefix );
 
 	rs->sr_err = backend_check_restrictions( op, rs, 
 			(struct berval *)&slap_EXOP_CHAINEDREQUEST );
@@ -958,19 +941,17 @@ distproc_initialize( void )
 	if ( rc != LDAP_SUCCESS ) {
 		Debug( LDAP_DEBUG_ANY, "slapd-distproc: "
 			"unable to register chainedRequest exop: %d.\n",
-			rc, 0, 0 );
+			rc );
 		return rc;
 	}
 
-#ifdef LDAP_DEVEL
 	rc = supported_feature_load( &slap_FEATURE_CANCHAINOPS );
 	if ( rc != LDAP_SUCCESS ) {
 		Debug( LDAP_DEBUG_ANY, "slapd-distproc: "
 			"unable to register canChainOperations supported feature: %d.\n",
-			rc, 0, 0 );
+			rc );
 		return rc;
 	}
-#endif
 
 	rc = register_supported_control( LDAP_CONTROL_X_RETURNCONTREF,
 			SLAP_CTRL_GLOBAL|SLAP_CTRL_ACCESS|SLAP_CTRL_HIDE, NULL,
@@ -978,7 +959,7 @@ distproc_initialize( void )
 	if ( rc != LDAP_SUCCESS ) {
 		Debug( LDAP_DEBUG_ANY, "slapd-distproc: "
 			"unable to register returnContinuationReference control: %d.\n",
-			rc, 0, 0 );
+			rc );
 		return rc;
 	}
 

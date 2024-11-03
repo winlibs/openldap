@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2003-2018 The OpenLDAP Foundation.
+ * Copyright 2003-2024 The OpenLDAP Foundation.
  * Portions Copyright 2003 Howard Chu.
  * All rights reserved.
  *
@@ -29,7 +29,7 @@
 #include <ac/socket.h>
 
 #include "slap.h"
-#include "config.h"
+#include "slap-config.h"
 
 #include "lutil.h"
 
@@ -206,7 +206,7 @@ collect_cf( ConfigArgs *c )
 			snprintf( c->cr_msg, sizeof( c->cr_msg ), "%s invalid DN: \"%s\"",
 				c->argv[0], c->argv[1] );
 			Debug( LDAP_DEBUG_CONFIG|LDAP_DEBUG_NONE,
-				"%s: %s\n", c->log, c->cr_msg, 0 );
+				"%s: %s\n", c->log, c->cr_msg );
 			return ARG_BAD_CONF;
 		}
 
@@ -226,7 +226,7 @@ collect_cf( ConfigArgs *c )
 			snprintf( c->cr_msg, sizeof( c->cr_msg ), "%s DN already configured: \"%s\"",
 				c->argv[0], c->argv[1] );
 			Debug( LDAP_DEBUG_CONFIG|LDAP_DEBUG_NONE,
-				"%s: %s\n", c->log, c->cr_msg, 0 );
+				"%s: %s\n", c->log, c->cr_msg );
 			return ARG_BAD_CONF;
 		}
 
@@ -244,7 +244,7 @@ collect_cf( ConfigArgs *c )
 					"%s attribute description unknown: \"%s\"",
 					c->argv[0], arg);
 				Debug( LDAP_DEBUG_CONFIG|LDAP_DEBUG_NONE,
-					"%s: %s\n", c->log, c->cr_msg, 0 );
+					"%s: %s\n", c->log, c->cr_msg );
 				ch_free( ci );
 				return ARG_BAD_CONF;
 			}
@@ -419,6 +419,7 @@ int collect_initialize() {
 	int code;
 
 	collect.on_bi.bi_type = "collect";
+	collect.on_bi.bi_flags = SLAPO_BFLAG_SINGLE;
 	collect.on_bi.bi_db_destroy = collect_destroy;
 	collect.on_bi.bi_op_modify = collect_modify;
 	collect.on_response = collect_response;

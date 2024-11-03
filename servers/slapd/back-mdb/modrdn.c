@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2000-2018 The OpenLDAP Foundation.
+ * Copyright 2000-2024 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -55,51 +55,9 @@ mdb_modrdn( Operation	*op, SlapReply *rs )
 	int parent_is_glue = 0;
 	int parent_is_leaf = 0;
 
-#ifdef LDAP_X_TXN
-	int settle = 0;
-#endif
-
 	Debug( LDAP_DEBUG_TRACE, "==>" LDAP_XSTRING(mdb_modrdn) "(%s,%s,%s)\n",
 		op->o_req_dn.bv_val,op->oq_modrdn.rs_newrdn.bv_val,
 		op->oq_modrdn.rs_newSup ? op->oq_modrdn.rs_newSup->bv_val : "NULL" );
-
-#ifdef LDAP_X_TXN
-	if( op->o_txnSpec ) {
-		/* acquire connection lock */
-		ldap_pvt_thread_mutex_lock( &op->o_conn->c_mutex );
-		if( op->o_conn->c_txn == CONN_TXN_INACTIVE ) {
-			rs->sr_text = "invalid transaction identifier";
-			rs->sr_err = LDAP_X_TXN_ID_INVALID;
-			goto txnReturn;
-		} else if( op->o_conn->c_txn == CONN_TXN_SETTLE ) {
-			settle=1;
-			goto txnReturn;
-		}
-
-		if( op->o_conn->c_txn_backend == NULL ) {
-			op->o_conn->c_txn_backend = op->o_bd;
-
-		} else if( op->o_conn->c_txn_backend != op->o_bd ) {
-			rs->sr_text = "transaction cannot span multiple database contexts";
-			rs->sr_err = LDAP_AFFECTS_MULTIPLE_DSAS;
-			goto txnReturn;
-		}
-
-		/* insert operation into transaction */
-
-		rs->sr_text = "transaction specified";
-		rs->sr_err = LDAP_X_TXN_SPECIFY_OKAY;
-
-txnReturn:
-		/* release connection lock */
-		ldap_pvt_thread_mutex_unlock( &op->o_conn->c_mutex );
-
-		if( !settle ) {
-			send_ldap_result( op, rs );
-			return rs->sr_err;
-		}
-	}
-#endif
 
 	ctrls[num_ctrls] = NULL;
 
@@ -109,7 +67,7 @@ txnReturn:
 	if( rs->sr_err != 0 ) {
 		Debug( LDAP_DEBUG_TRACE,
 			LDAP_XSTRING(mdb_modrdn) ": txn_begin failed: "
-			"%s (%d)\n", mdb_strerror(rs->sr_err), rs->sr_err, 0 );
+			"%s (%d)\n", mdb_strerror(rs->sr_err), rs->sr_err );
 		rs->sr_err = LDAP_OTHER;
 		rs->sr_text = "internal error";
 		goto return_results;
@@ -140,7 +98,7 @@ txnReturn:
 		Debug(LDAP_DEBUG_TRACE,
 			"<=- " LDAP_XSTRING(mdb_modrdn)
 			": cursor_open failed: %s (%d)\n",
-			mdb_strerror(rs->sr_err), rs->sr_err, 0 );
+			mdb_strerror(rs->sr_err), rs->sr_err );
 		rs->sr_err = LDAP_OTHER;
 		rs->sr_text = "DN cursor_open failed";
 		goto return_results;
@@ -149,7 +107,7 @@ txnReturn:
 	switch( rs->sr_err ) {
 	case MDB_NOTFOUND:
 		Debug( LDAP_DEBUG_TRACE, LDAP_XSTRING(mdb_modrdn)
-			": parent does not exist\n", 0, 0, 0);
+			": parent does not exist\n" );
 		rs->sr_ref = referral_rewrite( default_referral, NULL,
 					&op->o_req_dn, LDAP_SCOPE_DEFAULT );
 		rs->sr_err = LDAP_REFERRAL;
@@ -178,15 +136,14 @@ txnReturn:
 
 	if ( ! rs->sr_err ) {
 		rs->sr_err = LDAP_INSUFFICIENT_ACCESS;
-		Debug( LDAP_DEBUG_TRACE, "no access to parent\n", 0,
-			0, 0 );
+		Debug( LDAP_DEBUG_TRACE, "no access to parent\n" );
 		rs->sr_text = "no write access to parent's children";
 		goto return_results;
 	}
 
 	Debug( LDAP_DEBUG_TRACE,
 		LDAP_XSTRING(mdb_modrdn) ": wr to children "
-		"of entry %s OK\n", p_ndn.bv_val, 0, 0 );
+		"of entry %s OK\n", p_ndn.bv_val );
 
 	if ( p_ndn.bv_val == slap_empty_bv.bv_val ) {
 		p_dn = slap_empty_bv;
@@ -196,7 +153,7 @@ txnReturn:
 
 	Debug( LDAP_DEBUG_TRACE,
 		LDAP_XSTRING(mdb_modrdn) ": parent dn=%s\n",
-		p_dn.bv_val, 0, 0 );
+		p_dn.bv_val );
 
 	/* get entry */
 	rs->sr_err = mdb_dn2entry( op, txn, mc, &op->o_req_ndn, &e, &nsubs, 0 );
@@ -258,8 +215,7 @@ txnReturn:
 	/* check write on old entry */
 	rs->sr_err = access_allowed( op, e, entry, NULL, ACL_WRITE, NULL );
 	if ( ! rs->sr_err ) {
-		Debug( LDAP_DEBUG_TRACE, "no access to entry\n", 0,
-			0, 0 );
+		Debug( LDAP_DEBUG_TRACE, "no access to entry\n" );
 		rs->sr_text = "no write access to old entry";
 		rs->sr_err = LDAP_INSUFFICIENT_ACCESS;
 		goto return_results;
@@ -270,7 +226,7 @@ txnReturn:
 		rs->sr_ref = get_entry_referrals( op, e );
 
 		Debug( LDAP_DEBUG_TRACE, LDAP_XSTRING(mdb_modrdn)
-			": entry %s is referral\n", e->e_dn, 0, 0 );
+			": entry %s is referral\n", e->e_dn );
 
 		rs->sr_err = LDAP_REFERRAL,
 		rs->sr_matched = e->e_name.bv_val;
@@ -288,13 +244,13 @@ txnReturn:
 		Debug( LDAP_DEBUG_TRACE,
 			LDAP_XSTRING(mdb_modrdn)
 			": new parent \"%s\" requested...\n",
-			op->oq_modrdn.rs_newSup->bv_val, 0, 0 );
+			op->oq_modrdn.rs_newSup->bv_val );
 
 		/*  newSuperior == oldParent? */
 		if( dn_match( &p_ndn, op->oq_modrdn.rs_nnewSup ) ) {
 			Debug( LDAP_DEBUG_TRACE, "mdb_back_modrdn: "
 				"new parent \"%s\" same as the old parent \"%s\"\n",
-				op->oq_modrdn.rs_newSup->bv_val, p_dn.bv_val, 0 );
+				op->oq_modrdn.rs_newSup->bv_val, p_dn.bv_val );
 			op->oq_modrdn.rs_newSup = NULL; /* ignore newSuperior */
 		}
 	}
@@ -330,7 +286,7 @@ txnReturn:
 				Debug( LDAP_DEBUG_TRACE,
 					LDAP_XSTRING(mdb_modrdn)
 					": newSup(ndn=%s) not here!\n",
-					np_ndn->bv_val, 0, 0);
+					np_ndn->bv_val );
 				rs->sr_text = "new superior not found";
 				rs->sr_err = LDAP_NO_SUCH_OBJECT;
 				goto return_results;
@@ -350,8 +306,7 @@ txnReturn:
 			if( ! rs->sr_err ) {
 				Debug( LDAP_DEBUG_TRACE,
 					LDAP_XSTRING(mdb_modrdn)
-					": no wr to newSup children\n",
-					0, 0, 0 );
+					": no wr to newSup children\n" );
 				rs->sr_text = "no write access to new superior's children";
 				rs->sr_err = LDAP_INSUFFICIENT_ACCESS;
 				goto return_results;
@@ -360,14 +315,13 @@ txnReturn:
 			Debug( LDAP_DEBUG_TRACE,
 				LDAP_XSTRING(mdb_modrdn)
 				": wr to new parent OK np=%p, id=%ld\n",
-				(void *) np, (long) np->e_id, 0 );
+				(void *) np, (long) np->e_id );
 
 			if ( is_entry_alias( np ) ) {
 				/* parent is an alias, don't allow add */
 				Debug( LDAP_DEBUG_TRACE,
 					LDAP_XSTRING(mdb_modrdn)
-					": entry is alias\n",
-					0, 0, 0 );
+					": entry is alias\n" );
 				rs->sr_text = "new superior is an alias";
 				rs->sr_err = LDAP_ALIAS_PROBLEM;
 				goto return_results;
@@ -377,8 +331,7 @@ txnReturn:
 				/* parent is a referral, don't allow add */
 				Debug( LDAP_DEBUG_TRACE,
 					LDAP_XSTRING(mdb_modrdn)
-					": entry is referral\n",
-					0, 0, 0 );
+					": entry is referral\n" );
 				rs->sr_text = "new superior is a referral";
 				rs->sr_err = LDAP_OTHER;
 				goto return_results;
@@ -402,8 +355,7 @@ txnReturn:
 				if ( ! rs->sr_err ) {
 					rs->sr_err = LDAP_INSUFFICIENT_ACCESS;
 					Debug( LDAP_DEBUG_TRACE,
-						"no access to new superior\n",
-						0, 0, 0 );
+						"no access to new superior\n" );
 					rs->sr_text =
 						"no write access to new superior's children";
 					goto return_results;
@@ -413,8 +365,7 @@ txnReturn:
 
 		Debug( LDAP_DEBUG_TRACE,
 			LDAP_XSTRING(mdb_modrdn)
-			": wr to new parent's children OK\n",
-			0, 0, 0 );
+			": wr to new parent's children OK\n" );
 
 		new_parent_dn = np_dn;
 	}
@@ -429,7 +380,7 @@ txnReturn:
 	}
 
 	Debug( LDAP_DEBUG_TRACE, LDAP_XSTRING(mdb_modrdn) ": new ndn=%s\n",
-		new_ndn.bv_val, 0, 0 );
+		new_ndn.bv_val );
 
 	/* Shortcut the search */
 	rs->sr_err = mdb_dn2id ( op, txn, NULL, &new_ndn, &nid, NULL, NULL, NULL );
@@ -448,8 +399,6 @@ txnReturn:
 		goto return_results;
 	}
 
-	assert( op->orr_modlist != NULL );
-
 	if( op->o_preread ) {
 		if( preread_ctrl == NULL ) {
 			preread_ctrl = &ctrls[num_ctrls++];
@@ -460,7 +409,7 @@ txnReturn:
 		{
 			Debug( LDAP_DEBUG_TRACE,
 				"<=- " LDAP_XSTRING(mdb_modrdn)
-				": pre-read failed!\n", 0, 0, 0 );
+				": pre-read failed!\n" );
 			if ( op->o_preread & SLAP_CONTROL_CRITICAL ) {
 				/* FIXME: is it correct to abort
 				 * operation if control fails? */
@@ -478,7 +427,7 @@ txnReturn:
 		Debug(LDAP_DEBUG_TRACE,
 			"<=- " LDAP_XSTRING(mdb_modrdn)
 			": dn2id del failed: %s (%d)\n",
-			mdb_strerror(rs->sr_err), rs->sr_err, 0 );
+			mdb_strerror(rs->sr_err), rs->sr_err );
 		rs->sr_err = LDAP_OTHER;
 		rs->sr_text = "DN index delete fail";
 		goto return_results;
@@ -497,7 +446,7 @@ txnReturn:
 		Debug(LDAP_DEBUG_TRACE,
 			"<=- " LDAP_XSTRING(mdb_modrdn)
 			": dn2id add failed: %s (%d)\n",
-			mdb_strerror(rs->sr_err), rs->sr_err, 0 );
+			mdb_strerror(rs->sr_err), rs->sr_err );
 		rs->sr_err = LDAP_OTHER;
 		rs->sr_text = "DN index add failed";
 		goto return_results;
@@ -505,16 +454,17 @@ txnReturn:
 
 	dummy.e_attrs = e->e_attrs;
 
-	/* modify entry */
-	rs->sr_err = mdb_modify_internal( op, txn, op->orr_modlist, &dummy,
-		&rs->sr_text, textbuf, textlen );
-	if( rs->sr_err != LDAP_SUCCESS ) {
-		Debug(LDAP_DEBUG_TRACE,
-			"<=- " LDAP_XSTRING(mdb_modrdn)
-			": modify failed: %s (%d)\n",
-			mdb_strerror(rs->sr_err), rs->sr_err, 0 );
-		if ( dummy.e_attrs == e->e_attrs ) dummy.e_attrs = NULL;
-		goto return_results;
+	if ( op->orr_modlist != NULL ) {
+		/* modify entry */
+		rs->sr_err = mdb_modify_internal( op, txn, op->orr_modlist, &dummy,
+			&rs->sr_text, textbuf, textlen );
+		if( rs->sr_err != LDAP_SUCCESS ) {
+			Debug(LDAP_DEBUG_TRACE,
+				"<=- " LDAP_XSTRING(mdb_modrdn)
+				": modify failed: %s (%d)\n",
+				mdb_strerror(rs->sr_err), rs->sr_err );
+			goto return_results;
+		}
 	}
 
 	/* id2entry index */
@@ -523,9 +473,13 @@ txnReturn:
 		Debug(LDAP_DEBUG_TRACE,
 			"<=- " LDAP_XSTRING(mdb_modrdn)
 			": id2entry failed: %s (%d)\n",
-			mdb_strerror(rs->sr_err), rs->sr_err, 0 );
-		rs->sr_err = LDAP_OTHER;
-		rs->sr_text = "entry update failed";
+			mdb_strerror(rs->sr_err), rs->sr_err );
+		if ( rs->sr_err == LDAP_ADMINLIMIT_EXCEEDED ) {
+			rs->sr_text = "entry too big";
+		} else {
+			rs->sr_err = LDAP_OTHER;
+			rs->sr_text = "entry update failed";
+		}
 		goto return_results;
 	}
 
@@ -540,7 +494,7 @@ txnReturn:
 					Debug(LDAP_DEBUG_ARGS,
 						"<=- " LDAP_XSTRING(mdb_modrdn)
 						": has_children failed: %s (%d)\n",
-						mdb_strerror(rs->sr_err), rs->sr_err, 0 );
+						mdb_strerror(rs->sr_err), rs->sr_err );
 					rs->sr_err = LDAP_OTHER;
 					rs->sr_text = "internal error";
 					goto return_results;
@@ -563,7 +517,7 @@ txnReturn:
 		{
 			Debug( LDAP_DEBUG_TRACE,
 				"<=- " LDAP_XSTRING(mdb_modrdn)
-				": post-read failed!\n", 0, 0, 0 );
+				": post-read failed!\n" );
 			if ( op->o_postread & SLAP_CONTROL_CRITICAL ) {
 				/* FIXME: is it correct to abort
 				 * operation if control fails? */
@@ -579,8 +533,6 @@ txnReturn:
 			mdb_txn_abort( txn );
 			rs->sr_err = LDAP_X_NO_OPERATION;
 			txn = NULL;
-			/* Only free attrs if they were dup'd.  */
-			if ( dummy.e_attrs == e->e_attrs ) dummy.e_attrs = NULL;
 			goto return_results;
 
 		} else {
@@ -611,7 +563,7 @@ txnReturn:
 	if( num_ctrls ) rs->sr_ctrls = ctrls;
 
 return_results:
-	if ( dummy.e_attrs ) {
+	if ( e != NULL && dummy.e_attrs != e->e_attrs ) {
 		attrs_free( dummy.e_attrs );
 	}
 	send_ldap_result( op, rs );

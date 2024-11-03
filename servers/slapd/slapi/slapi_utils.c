@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2002-2018 The OpenLDAP Foundation.
+ * Copyright 2002-2024 The OpenLDAP Foundation.
  * Portions Copyright 1997,2002-2003 IBM Corporation.
  * All rights reserved.
  *
@@ -31,7 +31,11 @@
 #include <slap.h>
 #include <slapi.h>
 
+#ifdef _WIN32
+#include <winsock.h>
+#else
 #include <netdb.h>
+#endif
 
 #ifdef LDAP_SLAPI
 
@@ -1971,6 +1975,8 @@ slapi_timer_current_time( void )
 	 */
 #else /* _WIN32 */
 	LARGE_INTEGER now;
+	static LARGE_INTEGER base_time, performance_freq;
+	static int performance_counter_present;
 
 	if ( first_time ) {
 		first_time = 0;
@@ -2047,7 +2053,7 @@ int slapi_is_connection_ssl( Slapi_PBlock *pb, int *isSSL )
 }
 
 /*
- * DS 5.x compatability API follow
+ * DS 5.x compatibility API follow
  */
 
 int slapi_attr_get_flags( const Slapi_Attr *attr, unsigned long *flags )

@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2018 The OpenLDAP Foundation.
+ * Copyright 1998-2024 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -73,7 +73,7 @@ cr_bvfind( struct berval *crname )
 {
 	struct cindexrec	*cir;
 
-	cir = avl_find( cr_index, crname, cr_index_name_cmp );
+	cir = ldap_avl_find( cr_index, crname, cr_index_name_cmp );
 
 	if ( cir != NULL ) {
 		return( cir->cir_cr );
@@ -101,7 +101,7 @@ cr_destroy( void )
 {
 	ContentRule *c;
 
-	avl_free(cr_index, ldap_memfree);
+	ldap_avl_free(cr_index, ldap_memfree);
 
 	while( !LDAP_STAILQ_EMPTY(&cr_list) ) {
 		c = LDAP_STAILQ_FIRST(&cr_list);
@@ -129,8 +129,8 @@ cr_insert(
 		cir->cir_name.bv_len = strlen( scr->scr_oid );
 		cir->cir_cr = scr;
 
-		if ( avl_insert( &cr_index, (caddr_t) cir,
-		                 cr_index_cmp, avl_dup_error ) )
+		if ( ldap_avl_insert( &cr_index, (caddr_t) cir,
+		                 cr_index_cmp, ldap_avl_dup_error ) )
 		{
 			*err = scr->scr_oid;
 			ldap_memfree(cir);
@@ -149,8 +149,8 @@ cr_insert(
 			cir->cir_name.bv_len = strlen( *names );
 			cir->cir_cr = scr;
 
-			if ( avl_insert( &cr_index, (caddr_t) cir,
-			                 cr_index_cmp, avl_dup_error ) )
+			if ( ldap_avl_insert( &cr_index, (caddr_t) cir,
+			                 cr_index_cmp, ldap_avl_dup_error ) )
 			{
 				*err = *names;
 				ldap_memfree(cir);
@@ -485,7 +485,7 @@ cr_schema_info( Entry *e )
 #endif
 #if 0
 		Debug( LDAP_DEBUG_TRACE, "Merging cr [%ld] %s\n",
-	       (long) val.bv_len, val.bv_val, 0 );
+	       (long) val.bv_len, val.bv_val );
 #endif
 
 		nval.bv_val = cr->scr_oid;

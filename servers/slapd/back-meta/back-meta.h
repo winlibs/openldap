@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1999-2018 The OpenLDAP Foundation.
+ * Copyright 1999-2024 The OpenLDAP Foundation.
  * Portions Copyright 2001-2003 Pierangelo Masarati.
  * Portions Copyright 1999-2003 Howard Chu.
  * All rights reserved.
@@ -27,9 +27,7 @@
 #ifndef SLAPD_META_H
 #define SLAPD_META_H
 
-#ifdef LDAP_DEVEL
 #define SLAPD_META_CLIENT_PR 1
-#endif /* LDAP_DEVEL */
 
 #include "proto-meta.h"
 
@@ -62,13 +60,7 @@ struct ldaprwmap {
 	/*
 	 * DN rewriting
 	 */
-#ifdef ENABLE_REWRITE
 	struct rewrite_info *rwm_rw;
-#else /* !ENABLE_REWRITE */
-	/* some time the suffix massaging without librewrite
-	 * will be disabled */
-	BerVarray rwm_suffix_massage;
-#endif /* !ENABLE_REWRITE */
 	BerVarray rwm_bva_rewrite;
 
 	/*
@@ -83,14 +75,9 @@ struct ldaprwmap {
 typedef struct dncookie {
 	struct metatarget_t	*target;
 
-#ifdef ENABLE_REWRITE
 	Connection		*conn;
 	char			*ctx;
 	SlapReply		*rs;
-#else
-	int			normalized;
-	int			tofrom;
-#endif
 } dncookie;
 
 int ldap_back_dn_massage(dncookie *dc, struct berval *dn,
@@ -135,14 +122,12 @@ ldap_back_filter_map_rewrite(
 	void		*memctx );
 
 /* suffix massaging by means of librewrite */
-#ifdef ENABLE_REWRITE
 extern int
 suffix_massage_config( struct rewrite_info *info,
 	struct berval *pvnc,
 	struct berval *nvnc,
 	struct berval *prnc,
 	struct berval *nrnc );
-#endif /* ENABLE_REWRITE */
 extern int
 ldap_back_referral_result_rewrite(
 	dncookie	*dc,
@@ -504,7 +489,8 @@ meta_back_getconn(
 	Operation		*op,
 	SlapReply		*rs,
 	int			*candidate,
-	ldap_back_send_t	sendok );
+	ldap_back_send_t	sendok,
+	SlapReply *candidates );
 
 extern void
 meta_back_release_conn_lock(
@@ -519,7 +505,8 @@ meta_back_retry(
 	SlapReply		*rs,
 	metaconn_t		**mcp,
 	int			candidate,
-	ldap_back_send_t	sendok );
+	ldap_back_send_t	sendok,
+	SlapReply    *candidates );
 
 extern void
 meta_back_conn_free(
@@ -553,7 +540,8 @@ meta_back_dobind(
 	Operation		*op,
 	SlapReply		*rs,
 	metaconn_t		*mc,
-	ldap_back_send_t	sendok );
+	ldap_back_send_t	sendok,
+	SlapReply		*candidates );
 
 extern int
 meta_back_single_dobind(
@@ -640,7 +628,8 @@ meta_back_select_unique_candidate(
 extern int
 meta_clear_unused_candidates(
 	Operation		*op,
-	int			candidate );
+	int			candidate,
+	SlapReply *candidates );
 
 extern int
 meta_clear_one_candidate(

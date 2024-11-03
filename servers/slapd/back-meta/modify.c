@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1999-2018 The OpenLDAP Foundation.
+ * Copyright 1999-2024 The OpenLDAP Foundation.
  * Portions Copyright 2001-2003 Pierangelo Masarati.
  * Portions Copyright 1999-2003 Howard Chu.
  * All rights reserved.
@@ -49,9 +49,12 @@ meta_back_modify( Operation *op, SlapReply *rs )
 	int		msgid;
 	ldap_back_send_t	retrying = LDAP_BACK_RETRYING;
 	LDAPControl	**ctrls = NULL;
+	SlapReply *candidates = NULL;
 
-	mc = meta_back_getconn( op, rs, &candidate, LDAP_BACK_SENDERR );
-	if ( !mc || !meta_back_dobind( op, rs, mc, LDAP_BACK_SENDERR ) ) {
+	candidates = meta_back_candidates_get( op );
+	mc = meta_back_getconn( op, rs, &candidate, LDAP_BACK_SENDERR, candidates );
+	if ( !mc || !meta_back_dobind( op, rs, mc, LDAP_BACK_SENDERR, candidates ) ) {
+		op->o_tmpfree( candidates, op->o_tmpmemctx );
 		return rs->sr_err;
 	}
 
@@ -74,18 +77,8 @@ meta_back_modify( Operation *op, SlapReply *rs )
 	for ( i = 0, ml = op->orm_modlist; ml; i++ ,ml = ml->sml_next )
 		;
 
-	mods = ch_malloc( sizeof( LDAPMod )*i );
-	if ( mods == NULL ) {
-		rs->sr_err = LDAP_OTHER;
-		send_ldap_result( op, rs );
-		goto cleanup;
-	}
-	modv = ( LDAPMod ** )ch_malloc( ( i + 1 )*sizeof( LDAPMod * ) );
-	if ( modv == NULL ) {
-		rs->sr_err = LDAP_OTHER;
-		send_ldap_result( op, rs );
-		goto cleanup;
-	}
+	modv = ch_malloc( ( i + 1 )*sizeof( LDAPMod * ) + i*sizeof( LDAPMod ) );
+	mods = (LDAPMod *)&modv[ i + 1 ];
 
 	dc.ctx = "modifyAttrDN";
 	isupdate = be_shadow_update( op );
@@ -190,7 +183,7 @@ retry:;
 		mt->mt_timeout[ SLAP_OP_MODIFY ], ( LDAP_BACK_SENDRESULT | retrying ) );
 	if ( rs->sr_err == LDAP_UNAVAILABLE && retrying ) {
 		retrying &= ~LDAP_BACK_RETRYING;
-		if ( meta_back_retry( op, rs, &mc, candidate, LDAP_BACK_SENDERR ) ) {
+		if ( meta_back_retry( op, rs, &mc, candidate, LDAP_BACK_SENDERR, candidates ) ) {
 			/* if the identity changed, there might be need to re-authz */
 			(void)mi->mi_ldap_extra->controls_free( op, rs, &ctrls );
 			goto retry;
@@ -206,16 +199,16 @@ cleanup:;
 	}
 	if ( modv != NULL ) {
 		for ( i = 0; modv[ i ]; i++ ) {
-			free( modv[ i ]->mod_bvalues );
+			ch_free( modv[ i ]->mod_bvalues );
 		}
 	}
-	free( mods );
-	free( modv );
+	ch_free( modv );
 
 	if ( mc ) {
 		meta_back_release_conn( mi, mc );
 	}
 
+	op->o_tmpfree( candidates, op->o_tmpmemctx );
 	return rs->sr_err;
 }
 

@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2007-2018 The OpenLDAP Foundation.
+ * Copyright 2007-2024 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -57,15 +57,16 @@ sock_read_and_send_results(
 	while ( !feof(fp) ) {
 		errno = 0;
 		if ( fgets( line, sizeof(line), fp ) == NULL ) {
+			int saved_errno = errno;
 			if ( errno == EINTR ) continue;
 
 			Debug( LDAP_DEBUG_ANY, "sock: fgets failed: %s (%d)\n",
-				AC_STRERROR_R(errno, ebuf, sizeof ebuf), errno, 0 ); 
+				AC_STRERROR_R(saved_errno, ebuf, sizeof ebuf), saved_errno );
 			break;
 		}
 
 		Debug( LDAP_DEBUG_SHELL, "sock search reading line (%s)\n",
-		    line, 0, 0 );
+		    line );
 
 		/* ignore lines beginning with # (LDIFv1 comments) */
 		if ( *line == '#' ) {
@@ -103,7 +104,7 @@ sock_read_and_send_results(
 
 			if ( (rs->sr_entry = str2entry( buf )) == NULL ) {
 				Debug( LDAP_DEBUG_ANY, "str2entry(%s) failed\n",
-				    buf, 0, 0 );
+				    buf );
 			} else {
 				rs->sr_attrs = op->oq_search.rs_attrs;
 				rs->sr_flags = REP_ENTRY_MODIFIABLE;

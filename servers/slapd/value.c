@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2018 The OpenLDAP Foundation.
+ * Copyright 1998-2024 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -56,7 +56,7 @@ value_add(
 		    * sizeof(struct berval) );
 		if( *vals == NULL ) {
 			Debug(LDAP_DEBUG_TRACE,
-		      "value_add: SLAP_MALLOC failed.\n", 0, 0, 0 );
+		      "value_add: SLAP_MALLOC failed.\n" );
 			return LBER_ERROR_MEMORY;
 		}
 		n = 0;
@@ -69,7 +69,7 @@ value_add(
 		    (n + nn + 1) * sizeof(struct berval) );
 		if( *vals == NULL ) {
 			Debug(LDAP_DEBUG_TRACE,
-		      "value_add: SLAP_MALLOC failed.\n", 0, 0, 0 );
+		      "value_add: SLAP_MALLOC failed.\n" );
 			return LBER_ERROR_MEMORY;
 		}
 	}
@@ -96,7 +96,7 @@ value_add_one(
 		*vals = (BerVarray) SLAP_MALLOC( 2 * sizeof(struct berval) );
 		if( *vals == NULL ) {
 			Debug(LDAP_DEBUG_TRACE,
-		      "value_add_one: SLAP_MALLOC failed.\n", 0, 0, 0 );
+		      "value_add_one: SLAP_MALLOC failed.\n" );
 			return LBER_ERROR_MEMORY;
 		}
 		n = 0;
@@ -109,7 +109,7 @@ value_add_one(
 		    (n + 2) * sizeof(struct berval) );
 		if( *vals == NULL ) {
 			Debug(LDAP_DEBUG_TRACE,
-		      "value_add_one: SLAP_MALLOC failed.\n", 0, 0, 0 );
+		      "value_add_one: SLAP_MALLOC failed.\n" );
 			return LBER_ERROR_MEMORY;
 		}
 	}
@@ -514,7 +514,7 @@ ordered_value_pretty(
 		bv = *out;
 
 		out->bv_len = idx.bv_len + bv.bv_len;
-		out->bv_val = ber_memalloc_x( out->bv_len + 1, ctx );
+		out->bv_val = slap_sl_malloc( out->bv_len + 1, ctx );
 		
 		AC_MEMCPY( out->bv_val, idx.bv_val, idx.bv_len );
 		AC_MEMCPY( &out->bv_val[ idx.bv_len ], bv.bv_val, bv.bv_len + 1 );
@@ -591,7 +591,7 @@ ordered_value_normalize(
 		bv = *normalized;
 
 		normalized->bv_len = idx.bv_len + bv.bv_len;
-		normalized->bv_val = ber_memalloc_x( normalized->bv_len + 1, ctx );
+		normalized->bv_val = slap_sl_malloc( normalized->bv_len + 1, ctx );
 		
 		AC_MEMCPY( normalized->bv_val, idx.bv_val, idx.bv_len );
 		AC_MEMCPY( &normalized->bv_val[ idx.bv_len ], bv.bv_val, bv.bv_len + 1 );

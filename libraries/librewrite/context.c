@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2000-2018 The OpenLDAP Foundation.
+ * Copyright 2000-2024 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -85,7 +85,7 @@ rewrite_context_find(
 	 * Fetches the required rewrite context
 	 */
 	c.lc_name = (char *)rewriteContext;
-	context = (struct rewrite_context *)avl_find( info->li_context, 
+	context = (struct rewrite_context *)ldap_avl_find( info->li_context, 
 			(caddr_t)&c, rewrite_context_cmp );
 	if ( context == NULL ) {
 		return NULL;
@@ -144,7 +144,7 @@ rewrite_context_create(
 	/*
 	 * Add context to tree
 	 */
-	rc = avl_insert( &info->li_context, (caddr_t)context,
+	rc = ldap_avl_insert( &info->li_context, (caddr_t)context,
 			rewrite_context_cmp, rewrite_context_dup );
 	if ( rc == -1 ) {
 		free( context->lc_rule );
@@ -218,7 +218,7 @@ rewrite_context_apply(
 
 	Debug( LDAP_DEBUG_TRACE, "==> rewrite_context_apply"
 			" [depth=%d] string='%s'\n",
-			op->lo_depth, string, 0 );
+			op->lo_depth, string );
 	assert( op->lo_depth > 0 );
 	
 	s = (char *)string;
@@ -246,7 +246,7 @@ rewrite_context_apply(
 			
 		case REWRITE_REGEXEC_ERR:
 			Debug( LDAP_DEBUG_ANY, "==> rewrite_context_apply"
-					" error ...\n", 0, 0, 0);
+					" error ...\n" );
 
 			/*
 			 * Checks for special actions to be taken
@@ -268,7 +268,7 @@ rewrite_context_apply(
 					case REWRITE_ACTION_IGNORE_ERR:
 						Debug( LDAP_DEBUG_ANY,
 					"==> rewrite_context_apply"
-					" ignoring error ...\n", 0, 0, 0 );
+					" ignoring error ...\n" );
 						do_continue = 1;
 						break;
 
@@ -311,7 +311,7 @@ rewrite_context_apply(
 		/*
 		 * OK means there were no errors or special return codes;
 		 * if res is defined, it means the rule matched and we
-		 * got a sucessful rewriting
+		 * got a successful rewriting
 		 */
 		case REWRITE_REGEXEC_OK:
 

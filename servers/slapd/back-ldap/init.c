@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2003-2018 The OpenLDAP Foundation.
+ * Copyright 2003-2024 The OpenLDAP Foundation.
  * Portions Copyright 1999-2003 Howard Chu.
  * Portions Copyright 2000-2003 Pierangelo Masarati.
  * All rights reserved.
@@ -29,8 +29,9 @@
 #include <ac/socket.h>
 
 #include "slap.h"
-#include "config.h"
+#include "slap-config.h"
 #include "back-ldap.h"
+#include "ldap_rq.h"
 
 static const ldap_extra_t ldap_extra = {
 	ldap_back_proxy_authz_ctrl,
@@ -185,6 +186,8 @@ ldap_back_db_init( Backend *be, ConfigReply *cr )
 		ldap_pvt_mp_init( li->li_ops_completed[ i ] );
 	}
 
+	li->li_conn_expire_task = NULL;
+
 	be->be_private = li;
 	SLAP_DBFLAGS( be ) |= SLAP_DBFLAG_NOLASTMOD;
 
@@ -209,7 +212,7 @@ ldap_back_db_open( BackendDB *be, ConfigReply *cr )
 
 	Debug( LDAP_DEBUG_TRACE,
 		"ldap_back_db_open: URI=%s\n",
-		li->li_uri != NULL ? li->li_uri : "", 0, 0 );
+		li->li_uri != NULL ? li->li_uri : "" );
 
 	/* by default, use proxyAuthz control on each operation */
 	switch ( li->li_idassert_mode ) {
@@ -303,6 +306,16 @@ ldap_back_db_destroy( Backend *be, ConfigReply *cr )
 
 		(void)ldap_back_monitor_db_destroy( be );
 
+		/* Stop and remove the task that prunes expired connections */
+		if ( li->li_conn_expire_task != NULL ) {
+			ldap_pvt_thread_mutex_lock( &slapd_rq.rq_mutex );
+			if ( ldap_pvt_runqueue_isrunning( &slapd_rq, li->li_conn_expire_task ) ) {
+					ldap_pvt_runqueue_stoptask( &slapd_rq, li->li_conn_expire_task );
+			}
+			ldap_pvt_runqueue_remove( &slapd_rq, li->li_conn_expire_task );
+			ldap_pvt_thread_mutex_unlock( &slapd_rq.rq_mutex );
+		}
+
 		ldap_pvt_thread_mutex_lock( &li->li_conninfo.lai_mutex );
 
 		if ( li->li_uri != NULL ) {
@@ -323,7 +336,7 @@ ldap_back_db_destroy( Backend *be, ConfigReply *cr )
 			li->li_idassert_authz = NULL;
 		}
                	if ( li->li_conninfo.lai_tree ) {
-			avl_free( li->li_conninfo.lai_tree, ldap_back_conn_free );
+			ldap_tavl_free( li->li_conninfo.lai_tree, ldap_back_conn_free );
 		}
 		for ( i = LDAP_BACK_PCONN_FIRST; i < LDAP_BACK_PCONN_LAST; i++ ) {
 			while ( !LDAP_TAILQ_EMPTY( &li->li_conn_priv[ i ].lic_priv ) ) {
@@ -359,4 +372,3 @@ ldap_back_db_destroy( Backend *be, ConfigReply *cr )
 SLAP_BACKEND_INIT_MODULE( ldap )
 
 #endif /* SLAPD_LDAP == SLAPD_MOD_DYNAMIC */
-

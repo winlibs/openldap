@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2005-2018 The OpenLDAP Foundation.
+ * Copyright 2005-2024 The OpenLDAP Foundation.
  * Portions copyright 2004-2005 Symas Corporation.
  * All rights reserved.
  *
@@ -29,7 +29,7 @@
 #include <ac/ctype.h>
 
 #include "slap.h"
-#include "config.h"
+#include "slap-config.h"
 #include "ldif.h"
 
 typedef struct auditlog_data {
@@ -43,6 +43,7 @@ static ConfigTable auditlogcfg[] = {
 	  (void *)offsetof(auditlog_data, ad_logfile),
 	  "( OLcfgOvAt:15.1 NAME 'olcAuditlogFile' "
 	  "DESC 'Filename for auditlogging' "
+	  "EQUALITY caseExactMatch "
 	  "SYNTAX OMsDirectoryString )", NULL, NULL },
 	{ NULL, NULL, 0, 0, 0, ARG_IGNORED }
 };
@@ -218,6 +219,7 @@ int auditlog_initialize() {
 	int rc;
 
 	auditlog.on_bi.bi_type = "auditlog";
+	auditlog.on_bi.bi_flags = SLAPO_BFLAG_SINGLE;
 	auditlog.on_bi.bi_db_init = auditlog_db_init;
 	auditlog.on_bi.bi_db_destroy = auditlog_db_destroy;
 	auditlog.on_response = auditlog_response;

@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2018 The OpenLDAP Foundation.
+ * Copyright 1998-2024 The OpenLDAP Foundation.
  * Portions Copyright 1998-2003 Kurt D. Zeilenga.
  * Portions Copyright 2003 IBM Corporation.
  * All rights reserved.
@@ -16,7 +16,7 @@
  */
 /* ACKNOWLEDGEMENTS:
  * This work was initially developed by Kurt Zeilenga for inclusion
- * in OpenLDAP Software.  Additional signficant contributors include
+ * in OpenLDAP Software.  Additional significant contributors include
  *    Jong Hyuk Choi
  */
 

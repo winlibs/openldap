@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2018 The OpenLDAP Foundation.
+ * Copyright 1998-2024 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -320,12 +320,12 @@ main( int argc, char **argv )
 			break;
 
 		case 't':	/* copy ber's to given file */
-			copyfname = strdup( optarg );
+			copyfname = optarg;
 /*			copyoptions = LBER_TO_FILE; */
 			break;
 
 		case 'T':	/* only output ber's to given file */
-			copyfname = strdup( optarg );
+			copyfname = optarg;
 /*			copyoptions = (LBER_TO_FILE | LBER_TO_FILE_ONLY); */
 			break;
 
@@ -402,7 +402,7 @@ main( int argc, char **argv )
 			}
 			break;
 
-		case 'b':	/* asynch bind */
+		case 'b':	/* async bind */
 			method = LDAP_AUTH_SIMPLE;
 			get_line( dn, sizeof(dn), stdin, "dn? " );
 			strcat( dn, dnsuffix );

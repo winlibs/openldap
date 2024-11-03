@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2018 The OpenLDAP Foundation.
+ * Copyright 1998-2024 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -156,7 +156,7 @@ lutil_SHA1Update(
     uint32		len
 )
 {
-    u_int i, j;
+    unsigned int i, j;
 
     j = context->count[0];
     if ((context->count[0] += len << 3) < j)
@@ -181,7 +181,7 @@ lutil_SHA1Update(
 void
 lutil_SHA1Final( unsigned char *digest, lutil_SHA1_CTX *context )
 {
-    u_int i;
+    unsigned int i;
     unsigned char finalcount[8];
 
     for (i = 0; i < 8; i++) {

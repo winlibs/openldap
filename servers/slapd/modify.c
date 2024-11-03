@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2018 The OpenLDAP Foundation.
+ * Copyright 1998-2024 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -48,7 +48,7 @@ do_modify(
 #endif
 
 	Debug( LDAP_DEBUG_TRACE, "%s do_modify\n",
-		op->o_log_prefix, 0, 0 );
+		op->o_log_prefix );
 	/*
 	 * Parse the modify request.  It looks like this:
 	 *
@@ -70,13 +70,13 @@ do_modify(
 
 	if ( ber_scanf( op->o_ber, "{m" /*}*/, &dn ) == LBER_ERROR ) {
 		Debug( LDAP_DEBUG_ANY, "%s do_modify: ber_scanf failed\n",
-			op->o_log_prefix, 0, 0 );
+			op->o_log_prefix );
 		send_ldap_discon( op, rs, LDAP_PROTOCOL_ERROR, "decoding error" );
 		return SLAPD_DISCONNECT;
 	}
 
 	Debug( LDAP_DEBUG_ARGS, "%s do_modify: dn (%s)\n",
-		op->o_log_prefix, dn.bv_val, 0 );
+		op->o_log_prefix, dn.bv_val );
 
 	rs->sr_err = slap_parse_modlist( op, rs, op->o_ber, &op->oq_modify );
 	if ( rs->sr_err != LDAP_SUCCESS ) {
@@ -88,7 +88,7 @@ do_modify(
 
 	if( get_ctrls( op, rs, 1 ) != LDAP_SUCCESS ) {
 		Debug( LDAP_DEBUG_ANY, "%s do_modify: get_ctrls failed\n",
-			op->o_log_prefix, 0, 0 );
+			op->o_log_prefix );
 		/* get_ctrls has sent results.	Now clean up. */
 		goto cleanup;
 	}
@@ -97,7 +97,7 @@ do_modify(
 		op->o_tmpmemctx );
 	if( rs->sr_err != LDAP_SUCCESS ) {
 		Debug( LDAP_DEBUG_ANY, "%s do_modify: invalid dn (%s)\n",
-			op->o_log_prefix, dn.bv_val, 0 );
+			op->o_log_prefix, dn.bv_val );
 		send_ldap_error( op, rs, LDAP_INVALID_DN_SYNTAX, "invalid DN" );
 		goto cleanup;
 	}
@@ -106,48 +106,45 @@ do_modify(
 
 #ifdef LDAP_DEBUG
 	Debug( LDAP_DEBUG_ARGS, "%s modifications:\n",
-			op->o_log_prefix, 0, 0 );
+			op->o_log_prefix );
 
 	for ( tmp = op->orm_modlist; tmp != NULL; tmp = tmp->sml_next ) {
 		Debug( LDAP_DEBUG_ARGS, "\t%s: %s\n",
 			tmp->sml_op == LDAP_MOD_ADD ? "add" :
 				(tmp->sml_op == LDAP_MOD_INCREMENT ? "increment" :
 				(tmp->sml_op == LDAP_MOD_DELETE ? "delete" :
-					"replace")), tmp->sml_type.bv_val, 0 );
+					"replace")), tmp->sml_type.bv_val );
 
 		if ( tmp->sml_values == NULL ) {
-			Debug( LDAP_DEBUG_ARGS, "%s\n",
-			   "\t\tno values", NULL, NULL );
+			Debug( LDAP_DEBUG_ARGS, "\t\tno values\n" );
 		} else if ( BER_BVISNULL( &tmp->sml_values[ 0 ] ) ) {
-			Debug( LDAP_DEBUG_ARGS, "%s\n",
-			   "\t\tzero values", NULL, NULL );
+			Debug( LDAP_DEBUG_ARGS, "\t\tzero values\n" );
 		} else if ( BER_BVISNULL( &tmp->sml_values[ 1 ] ) ) {
-			Debug( LDAP_DEBUG_ARGS, "%s, length %ld\n",
-			   "\t\tone value", (long) tmp->sml_values[0].bv_len, NULL );
+			Debug( LDAP_DEBUG_ARGS, "\t\tone value, length %ld\n",
+			   (long) tmp->sml_values[0].bv_len );
 		} else {
-			Debug( LDAP_DEBUG_ARGS, "%s\n",
-			   "\t\tmultiple values", NULL, NULL );
+			Debug( LDAP_DEBUG_ARGS, "\t\tmultiple values\n" );
 		}
 	}
 
-	if ( StatslogTest( LDAP_DEBUG_STATS ) ) {
+	if (LogTest( LDAP_DEBUG_STATS ) ) {
 		char abuf[BUFSIZ/2], *ptr = abuf;
 		int len = 0;
 
-		Statslog( LDAP_DEBUG_STATS, "%s MOD dn=\"%s\"\n",
-			op->o_log_prefix, op->o_req_dn.bv_val, 0, 0, 0 );
+		Debug( LDAP_DEBUG_STATS, "%s MOD dn=\"%s\"\n",
+			op->o_log_prefix, op->o_req_dn.bv_val );
 
 		for ( tmp = op->orm_modlist; tmp != NULL; tmp = tmp->sml_next ) {
 			if (len + 1 + tmp->sml_type.bv_len > sizeof(abuf)) {
-				Statslog( LDAP_DEBUG_STATS, "%s MOD attr=%s\n",
-				    op->o_log_prefix, abuf, 0, 0, 0 );
+				Debug( LDAP_DEBUG_STATS, "%s MOD attr=%s\n",
+				    op->o_log_prefix, abuf );
 
 				len = 0;
 				ptr = abuf;
 
 				if( 1 + tmp->sml_type.bv_len > sizeof(abuf)) {
-					Statslog( LDAP_DEBUG_STATS, "%s MOD attr=%s\n",
-						op->o_log_prefix, tmp->sml_type.bv_val, 0, 0, 0 );
+					Debug( LDAP_DEBUG_STATS, "%s MOD attr=%s\n",
+						op->o_log_prefix, tmp->sml_type.bv_val );
 					continue;
 				}
 			}
@@ -159,8 +156,8 @@ do_modify(
 			len += tmp->sml_type.bv_len;
 		}
 		if (len) {
-			Statslog( LDAP_DEBUG_STATS, "%s MOD attr=%s\n",
-	    			op->o_log_prefix, abuf, 0, 0, 0 );
+			Debug( LDAP_DEBUG_STATS, "%s MOD attr=%s\n",
+					op->o_log_prefix, abuf );
 		}
 	}
 #endif	/* LDAP_DEBUG */
@@ -175,13 +172,15 @@ do_modify(
 
 	op->o_bd = frontendDB;
 	rs->sr_err = frontendDB->be_modify( op, rs );
-
-#ifdef LDAP_X_TXN
-	if( rs->sr_err == LDAP_X_TXN_SPECIFY_OKAY ) {
+	if ( rs->sr_err == SLAPD_ASYNCOP ) {
 		/* skip cleanup */
 		return rs->sr_err;
 	}
-#endif
+
+	if( rs->sr_err == LDAP_TXN_SPECIFY_OKAY ) {
+		/* skip cleanup */
+		return rs->sr_err;
+	}
 
 cleanup:
 	op->o_tmpfree( op->o_req_dn.bv_val, op->o_tmpmemctx );
@@ -200,14 +199,14 @@ fe_op_modify( Operation *op, SlapReply *rs )
 	
 	if ( BER_BVISEMPTY( &op->o_req_ndn ) ) {
 		Debug( LDAP_DEBUG_ANY, "%s do_modify: root dse!\n",
-			op->o_log_prefix, 0, 0 );
+			op->o_log_prefix );
 		send_ldap_error( op, rs, LDAP_UNWILLING_TO_PERFORM,
 			"modify upon the root DSE not supported" );
 		goto cleanup;
 
 	} else if ( bvmatch( &op->o_req_ndn, &frontendDB->be_schemandn ) ) {
 		Debug( LDAP_DEBUG_ANY, "%s do_modify: subschema subentry!\n",
-			op->o_log_prefix, 0, 0 );
+			op->o_log_prefix );
 		send_ldap_error( op, rs, LDAP_UNWILLING_TO_PERFORM,
 			"modification of subschema subentry not supported" );
 		goto cleanup;
@@ -276,7 +275,7 @@ fe_op_modify( Operation *op, SlapReply *rs )
 	/*
 	 * do the modify if 1 && (2 || 3)
 	 * 1) there is a modify function implemented in this backend;
-	 * 2) this backend is master for what it holds;
+	 * 2) this backend is the provider for what it holds;
 	 * 3) it's a replica and the dn supplied is the update_ndn.
 	 */
 	if ( op->o_bd->be_modify ) {
@@ -290,8 +289,6 @@ fe_op_modify( Operation *op, SlapReply *rs )
 		if ( !SLAP_SINGLE_SHADOW(op->o_bd) || repl_user ) {
 			int update = !BER_BVISEMPTY( &op->o_bd->be_update_ndn );
 
-			op->o_bd = op_be;
-
 			if ( !update ) {
 				rs->sr_err = slap_mods_no_user_mod_check( op, op->orm_modlist,
 					&rs->sr_text, textbuf, textlen );
@@ -300,6 +297,11 @@ fe_op_modify( Operation *op, SlapReply *rs )
 					goto cleanup;
 				}
 			}
+			if ( op->o_txnSpec ) {
+				txn_preop( op, rs );
+				goto cleanup;
+			}
+			op->o_bd = op_be;
 			op->o_bd->be_modify( op, rs );
 
 		} else { /* send a referral */
@@ -620,7 +622,7 @@ int slap_mods_check(
 			if( nvals && ad->ad_type->sat_equality &&
 				ad->ad_type->sat_equality->smr_normalize )
 			{
-				ml->sml_nvalues = ber_memalloc_x(
+				ml->sml_nvalues = slap_sl_malloc(
 					(nvals+1)*sizeof(struct berval), ctx );
 
 				for ( nvals = 0; !BER_BVISNULL( &ml->sml_values[nvals] ); nvals++ ) {
@@ -632,7 +634,7 @@ int slap_mods_check(
 					if ( rc ) {
 						Debug( LDAP_DEBUG_ANY,
 							"<= str2entry NULL (ssyn_normalize %d)\n",
-							rc, 0, 0 );
+							rc );
 						snprintf( textbuf, textlen,
 							"%s: value #%ld normalization failed",
 							ml->sml_type.bv_val, (long) nvals );

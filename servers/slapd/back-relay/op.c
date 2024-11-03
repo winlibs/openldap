@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2004-2018 The OpenLDAP Foundation.
+ * Copyright 2004-2024 The OpenLDAP Foundation.
  * Portions Copyright 2004 Pierangelo Masarati.
  * All rights reserved.
  *
@@ -140,7 +140,7 @@ relay_back_select_backend( Operation *op, SlapReply *rs, int which )
 
 		Debug( LDAP_DEBUG_ANY,
 			"%s: back-relay for DN=\"%s\" would call self.\n",
-			op->o_log_prefix, op->o_req_dn.bv_val, 0 );
+			op->o_log_prefix, op->o_req_dn.bv_val );
 
 	} else if ( useDN && ( fail_mode & RB_REF ) && default_referral ) {
 		rc = LDAP_REFERRAL;
@@ -195,7 +195,7 @@ static int
 relay_back_op( Operation *op, SlapReply *rs, int which )
 {
 	BackendDB	*bd;
-	BI_op_bind	*func;
+	BackendInfo	*bi;
 	slap_mask_t	fail_mode = relay_fail_modes[which].rf_op;
 	int		rc = ( fail_mode & RB_ERR_MASK );
 
@@ -204,14 +204,16 @@ relay_back_op( Operation *op, SlapReply *rs, int which )
 		if ( fail_mode & RB_BDERR )
 			return rs->sr_err;	/* sr_err was set above */
 
-	} else if ( (func = (&bd->be_bind)[which]) != 0 ) {
+	} else if ( (&( bi = bd->bd_info )->bi_op_bind)[which] ) {
 		relay_callback	rcb;
 
 		relay_back_add_cb( &rcb, op );
 		RELAY_WRAP_OP( op, bd, which, {
-			rc = func( op, rs );
+			rc = (&bi->bi_op_bind)[which]( op, rs );
 		});
 		relay_back_remove_cb( &rcb, op );
+		if ( which == op_bind && rc == LDAP_SUCCESS )
+			op->o_bd = bd;
 
 	} else if ( fail_mode & RB_OPERR ) {
 		rs->sr_err = rc;

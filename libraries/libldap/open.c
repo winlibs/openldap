@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2018 The OpenLDAP Foundation.
+ * Copyright 1998-2024 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -33,6 +33,7 @@
 #include <ac/unistd.h>
 
 #include "ldap-int.h"
+#include "ldap.h"
 #include "ldap_log.h"
 
 /* Caller must hold the conn_mutex since simultaneous accesses are possible */
@@ -51,6 +52,29 @@ int ldap_open_defconn( LDAP *ld )
 }
 
 /*
+ * ldap_connect - Connect to an ldap server.
+ *
+ * Example:
+ *	LDAP	*ld;
+ *	ldap_initialize( &ld, url );
+ *	ldap_connect( ld );
+ */
+int
+ldap_connect( LDAP *ld )
+{
+	ber_socket_t sd = AC_SOCKET_INVALID;
+	int rc = LDAP_SUCCESS;
+
+	LDAP_MUTEX_LOCK( &ld->ld_conn_mutex );
+	if ( ber_sockbuf_ctrl( ld->ld_sb, LBER_SB_OPT_GET_FD, &sd ) == -1 ) {
+		rc = ldap_open_defconn( ld );
+	}
+	LDAP_MUTEX_UNLOCK( &ld->ld_conn_mutex );
+
+	return rc;
+}
+
+/*
  * ldap_open - initialize and connect to an ldap server.  A magic cookie to
  * be used for future communication is returned on success, NULL on failure.
  * "host" may be a space-separated list of hosts or IP addresses
@@ -66,8 +90,8 @@ ldap_open( LDAP_CONST char *host, int port )
 	int rc;
 	LDAP		*ld;
 
-	Debug( LDAP_DEBUG_TRACE, "ldap_open(%s, %d)\n",
-		host, port, 0 );
+	Debug2( LDAP_DEBUG_TRACE, "ldap_open(%s, %d)\n",
+		host, port );
 
 	ld = ldap_init( host, port );
 	if ( ld == NULL ) {
@@ -83,8 +107,8 @@ ldap_open( LDAP_CONST char *host, int port )
 		ld = NULL;
 	}
 
-	Debug( LDAP_DEBUG_TRACE, "ldap_open: %s\n",
-		ld != NULL ? "succeeded" : "failed", 0, 0 );
+	Debug1( LDAP_DEBUG_TRACE, "ldap_open: %s\n",
+		ld != NULL ? "succeeded" : "failed" );
 
 	return ld;
 }
@@ -110,7 +134,7 @@ ldap_create( LDAP **ldp )
 			return LDAP_LOCAL_ERROR;
 	}
 
-	Debug( LDAP_DEBUG_TRACE, "ldap_create\n", 0, 0, 0 );
+	Debug0( LDAP_DEBUG_TRACE, "ldap_create\n" );
 
 	if ( (ld = (LDAP *) LDAP_CALLOC( 1, sizeof(LDAP) )) == NULL ) {
 		return( LDAP_NO_MEMORY );
@@ -128,6 +152,23 @@ ldap_create( LDAP **ldp )
 	/* Properly initialize the structs mutex */
 	ldap_pvt_thread_mutex_init( &(ld->ld_ldopts_mutex) );
 #endif
+
+#ifdef HAVE_TLS
+	if ( ld->ld_options.ldo_tls_pin_hashalg ) {
+		int len = strlen( gopts->ldo_tls_pin_hashalg );
+
+		ld->ld_options.ldo_tls_pin_hashalg =
+			LDAP_MALLOC( len + 1 + gopts->ldo_tls_pin.bv_len );
+		if ( !ld->ld_options.ldo_tls_pin_hashalg ) goto nomem;
+
+		ld->ld_options.ldo_tls_pin.bv_val = ld->ld_options.ldo_tls_pin_hashalg
+			+ len + 1;
+		AC_MEMCPY( ld->ld_options.ldo_tls_pin_hashalg, gopts->ldo_tls_pin_hashalg,
+				len + 1 + gopts->ldo_tls_pin.bv_len );
+	} else if ( !BER_BVISEMPTY(&ld->ld_options.ldo_tls_pin) ) {
+		ber_dupbv( &ld->ld_options.ldo_tls_pin, &gopts->ldo_tls_pin );
+	}
+#endif
 	LDAP_MUTEX_UNLOCK( &gopts->ldo_mutex );
 
 	ld->ld_valid = LDAP_VALID_SESSION;
@@ -137,6 +178,9 @@ ldap_create( LDAP **ldp )
 	ld->ld_options.ldo_cctrls = NULL;
 	ld->ld_options.ldo_defludp = NULL;
 	ld->ld_options.ldo_conn_cbs = NULL;
+
+	ld->ld_options.ldo_defbase = gopts->ldo_defbase
+		? LDAP_STRDUP( gopts->ldo_defbase ) : NULL;
 
 #ifdef HAVE_CYRUS_SASL
 	ld->ld_options.ldo_def_sasl_mech = gopts->ldo_def_sasl_mech
@@ -166,6 +210,14 @@ ldap_create( LDAP **ldp )
 
 	if (( ld->ld_selectinfo = ldap_new_select_info()) == NULL ) goto nomem;
 
+	ld->ld_options.ldo_local_ip_addrs.local_ip_addrs = NULL;
+	if( gopts->ldo_local_ip_addrs.local_ip_addrs ) {
+		ld->ld_options.ldo_local_ip_addrs.local_ip_addrs =
+			LDAP_STRDUP( gopts->ldo_local_ip_addrs.local_ip_addrs );
+		if ( ld->ld_options.ldo_local_ip_addrs.local_ip_addrs == NULL )
+			goto nomem;
+	}
+
 	ld->ld_lberoptions = LBER_USE_DER;
 
 	ld->ld_sb = ber_sockbuf_alloc( );
@@ -191,6 +243,15 @@ nomem:
 	LDAP_FREE( ld->ld_options.ldo_def_sasl_authcid );
 	LDAP_FREE( ld->ld_options.ldo_def_sasl_realm );
 	LDAP_FREE( ld->ld_options.ldo_def_sasl_mech );
+#endif
+
+#ifdef HAVE_TLS
+	/* tls_pin_hashalg and tls_pin share the same buffer */
+	if ( ld->ld_options.ldo_tls_pin_hashalg ) {
+		LDAP_FREE( ld->ld_options.ldo_tls_pin_hashalg );
+	} else {
+		LDAP_FREE( ld->ld_options.ldo_tls_pin.bv_val );
+	}
 #endif
 	LDAP_FREE( (char *)ld );
 	return LDAP_NO_MEMORY;
@@ -289,6 +350,7 @@ ldap_init_fd(
 	/* Attach the passed socket as the LDAP's connection */
 	conn = ldap_new_connection( ld, NULL, 1, 0, NULL, 0, 0 );
 	if( conn == NULL ) {
+		LDAP_MUTEX_UNLOCK( &ld->ld_conn_mutex );
 		ldap_unbind_ext( ld, NULL, NULL );
 		return( LDAP_NO_MEMORY );
 	}
@@ -372,7 +434,7 @@ ldap_int_open_connection(
 	int rc = -1;
 	int proto;
 
-	Debug( LDAP_DEBUG_TRACE, "ldap_int_open_connection\n", 0, 0, 0 );
+	Debug0( LDAP_DEBUG_TRACE, "ldap_int_open_connection\n" );
 
 	switch ( proto = ldap_pvt_url_scheme2proto( srv->lud_scheme ) ) {
 		case LDAP_PROTO_TCP:
@@ -439,8 +501,13 @@ ldap_int_open_connection(
 	if( proto == LDAP_PROTO_UDP ) return 0;
 #endif
 
+	if ( async && rc == -2) {
+		/* Need to let the connect complete asynchronously before we continue */
+		return -2;
+	}
+
 #ifdef HAVE_TLS
-	if (rc == 0 && ( ld->ld_options.ldo_tls_mode == LDAP_OPT_X_TLS_HARD ||
+	if ((rc == 0 || rc == -2) && ( ld->ld_options.ldo_tls_mode == LDAP_OPT_X_TLS_HARD ||
 		strcmp( srv->lud_scheme, "ldaps" ) == 0 ))
 	{
 		++conn->lconn_refcnt;	/* avoid premature free */
@@ -475,6 +542,8 @@ ldap_int_open_connection(
 				}
 				LDAP_MUTEX_UNLOCK( &lo->ldo_mutex );
 			}
+			ber_int_sb_close( conn->lconn_sb );
+			ber_int_sb_destroy( conn->lconn_sb );
 			return -1;
 		}
 	}
@@ -515,15 +584,16 @@ ldap_open_internal_connection( LDAP **ldp, ber_socket_t *fdp )
 	lr->lr_status = LDAP_REQST_INPROGRESS;
 	lr->lr_res_errno = LDAP_SUCCESS;
 	/* no mutex lock needed, we just created this ld here */
-	ld->ld_requests = lr;
+	rc = ldap_tavl_insert( &ld->ld_requests, lr, ldap_req_cmp, ldap_avl_dup_error );
+	assert( rc == LDAP_SUCCESS );
 
 	LDAP_MUTEX_LOCK( &ld->ld_conn_mutex );
 	/* Attach the passed socket as the *LDAP's connection */
 	c = ldap_new_connection( ld, NULL, 1, 0, NULL, 0, 0 );
 	if( c == NULL ) {
+		LDAP_MUTEX_UNLOCK( &ld->ld_conn_mutex );
 		ldap_unbind_ext( ld, NULL, NULL );
 		*ldp = NULL;
-		LDAP_MUTEX_UNLOCK( &ld->ld_conn_mutex );
 		return( LDAP_NO_MEMORY );
 	}
 	ber_sockbuf_ctrl( c->lconn_sb, LBER_SB_OPT_SET_FD, fdp );
@@ -558,7 +628,7 @@ ldap_dup( LDAP *old )
 		return( NULL );
 	}
 
-	Debug( LDAP_DEBUG_TRACE, "ldap_dup\n", 0, 0, 0 );
+	Debug0( LDAP_DEBUG_TRACE, "ldap_dup\n" );
 
 	if ( (ld = (LDAP *) LDAP_CALLOC( 1, sizeof(LDAP) )) == NULL ) {
 		return( NULL );

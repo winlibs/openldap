@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2018 The OpenLDAP Foundation.
+ * Copyright 1998-2024 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -490,7 +490,7 @@ _ucstring_visual_cursor_right(ucstring_t *str, int count)
              */
             if (cursor->visual_next == 0)
               /*
-               * If movement occured, then report it.
+               * If movement occurred, then report it.
                */
               return (cnt != count);
 
@@ -616,7 +616,7 @@ _ucstring_visual_cursor_left(ucstring_t *str, int count)
              */
             if (cursor->visual_prev == 0)
               /*
-               * If movement occured, then report it.
+               * If movement occurred, then report it.
                */
               return (cnt != count);
 

@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2018 The OpenLDAP Foundation.
+ * Copyright 1998-2024 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -90,7 +90,7 @@ ldap_get_dn( LDAP *ld, LDAPMessage *entry )
 	char		*dn;
 	BerElement	tmp;
 
-	Debug( LDAP_DEBUG_TRACE, "ldap_get_dn\n", 0, 0, 0 );
+	Debug0( LDAP_DEBUG_TRACE, "ldap_get_dn\n" );
 
 	assert( ld != NULL );
 	assert( LDAP_VALID(ld) );
@@ -113,7 +113,7 @@ ldap_get_dn_ber( LDAP *ld, LDAPMessage *entry, BerElement **berout,
 	ber_len_t	len = 0;
 	int rc = LDAP_SUCCESS;
 
-	Debug( LDAP_DEBUG_TRACE, "ldap_get_dn_ber\n", 0, 0, 0 );
+	Debug0( LDAP_DEBUG_TRACE, "ldap_get_dn_ber\n" );
 
 	assert( ld != NULL );
 	assert( LDAP_VALID(ld) );
@@ -160,7 +160,7 @@ ldap_dn2ufn( LDAP_CONST char *dn )
 {
 	char	*out = NULL;
 
-	Debug( LDAP_DEBUG_TRACE, "ldap_dn2ufn\n", 0, 0, 0 );
+	Debug0( LDAP_DEBUG_TRACE, "ldap_dn2ufn\n" );
 
 	( void )ldap_dn_normalize( dn, LDAP_DN_FORMAT_LDAP, 
 		&out, LDAP_DN_FORMAT_UFN );
@@ -179,7 +179,7 @@ ldap_explode_dn( LDAP_CONST char *dn, int notypes )
 	int	iRDN;
 	unsigned flag = notypes ? LDAP_DN_FORMAT_UFN : LDAP_DN_FORMAT_LDAPV3;
 	
-	Debug( LDAP_DEBUG_TRACE, "ldap_explode_dn\n", 0, 0, 0 );
+	Debug0( LDAP_DEBUG_TRACE, "ldap_explode_dn\n" );
 
 	if ( ldap_str2dn( dn, &tmpDN, LDAP_DN_FORMAT_LDAP ) 
 			!= LDAP_SUCCESS ) {
@@ -219,7 +219,7 @@ ldap_explode_rdn( LDAP_CONST char *rdn, int notypes )
 	const char 	*p;
 	int		iAVA;
 	
-	Debug( LDAP_DEBUG_TRACE, "ldap_explode_rdn\n", 0, 0, 0 );
+	Debug0( LDAP_DEBUG_TRACE, "ldap_explode_rdn\n" );
 
 	/*
 	 * we only parse the first rdn
@@ -258,6 +258,9 @@ ldap_explode_rdn( LDAP_CONST char *rdn, int notypes )
 			l = vl + ava->la_attr.bv_len + 1;
 
 			str = LDAP_MALLOC( l + 1 );
+			if ( str == NULL ) {
+				goto error_return;
+			}
 			AC_MEMCPY( str, ava->la_attr.bv_val, 
 					ava->la_attr.bv_len );
 			str[ al++ ] = '=';
@@ -265,6 +268,9 @@ ldap_explode_rdn( LDAP_CONST char *rdn, int notypes )
 		} else {
 			l = vl;
 			str = LDAP_MALLOC( l + 1 );
+			if ( str == NULL ) {
+				goto error_return;
+			}
 		}
 		
 		if ( ava->la_flags & LDAP_AVA_BINARY ) {
@@ -300,7 +306,7 @@ ldap_dn2dcedn( LDAP_CONST char *dn )
 {
 	char	*out = NULL;
 
-	Debug( LDAP_DEBUG_TRACE, "ldap_dn2dcedn\n", 0, 0, 0 );
+	Debug0( LDAP_DEBUG_TRACE, "ldap_dn2dcedn\n" );
 
 	( void )ldap_dn_normalize( dn, LDAP_DN_FORMAT_LDAP, 
 				   &out, LDAP_DN_FORMAT_DCE );
@@ -313,7 +319,7 @@ ldap_dcedn2dn( LDAP_CONST char *dce )
 {
 	char	*out = NULL;
 
-	Debug( LDAP_DEBUG_TRACE, "ldap_dcedn2dn\n", 0, 0, 0 );
+	Debug0( LDAP_DEBUG_TRACE, "ldap_dcedn2dn\n" );
 
 	( void )ldap_dn_normalize( dce, LDAP_DN_FORMAT_DCE, &out, LDAP_DN_FORMAT_LDAPV3 );
 
@@ -325,7 +331,7 @@ ldap_dn2ad_canonical( LDAP_CONST char *dn )
 {
 	char	*out = NULL;
 
-	Debug( LDAP_DEBUG_TRACE, "ldap_dn2ad_canonical\n", 0, 0, 0 );
+	Debug0( LDAP_DEBUG_TRACE, "ldap_dn2ad_canonical\n" );
 
 	( void )ldap_dn_normalize( dn, LDAP_DN_FORMAT_LDAP, 
 		       &out, LDAP_DN_FORMAT_AD_CANONICAL );
@@ -356,7 +362,7 @@ ldap_dn_normalize( LDAP_CONST char *dnin,
 	int	rc;
 	LDAPDN	tmpDN = NULL;
 
-	Debug( LDAP_DEBUG_TRACE, "ldap_dn_normalize\n", 0, 0, 0 );
+	Debug0( LDAP_DEBUG_TRACE, "ldap_dn_normalize\n" );
 
 	assert( dnout != NULL );
 
@@ -708,7 +714,7 @@ ldap_bv2dn_x( struct berval *bvin, LDAPDN *dn, unsigned flags, void *ctx )
 	str = bv->bv_val;
 	end = str + bv->bv_len;
 
-	Debug( LDAP_DEBUG_ARGS, "=> ldap_bv2dn(%s,%u)\n", str, flags, 0 );
+	Debug2( LDAP_DEBUG_ARGS, "=> ldap_bv2dn(%s,%u)\n", str, flags );
 
 	*dn = NULL;
 
@@ -890,7 +896,7 @@ return_result:;
 		LDAP_FREEX( tmpDN, ctx );
 	}
 
-	Debug( LDAP_DEBUG_ARGS, "<= ldap_bv2dn(%s)=%d %s\n", str, rc,
+	Debug3( LDAP_DEBUG_ARGS, "<= ldap_bv2dn(%s)=%d %s\n", str, rc,
 			rc ? ldap_err2string( rc ) : "" );
 	*dn = newDN;
 	
@@ -1526,6 +1532,10 @@ str2strval( const char *str, ber_len_t stoplen, struct berval *val, const char *
 	if ( escapes == 0 ) {
 		if ( *retFlags & LDAP_AVA_NONPRINTABLE ) {
 			val->bv_val = LDAP_MALLOCX( len + 1, ctx );
+			if ( val->bv_val == NULL ) {
+				return( 1 );
+			}
+
 			AC_MEMCPY( val->bv_val, startPos, len );
 			val->bv_val[ len ] = '\0';
 		} else {
@@ -1536,6 +1546,10 @@ str2strval( const char *str, ber_len_t stoplen, struct berval *val, const char *
 		ber_len_t	s, d;
 
 		val->bv_val = LDAP_MALLOCX( len + 1, ctx );
+		if ( val->bv_val == NULL ) {
+			return( 1 );
+		}
+
 		for ( s = 0, d = 0; d < len; ) {
 			if ( LDAP_DN_ESCAPE( startPos[ s ] ) ) {
 				s++;
@@ -1633,6 +1647,10 @@ DCE2strval( const char *str, struct berval *val, const char **next, unsigned fla
 		ber_len_t	s, d;
 
 		val->bv_val = LDAP_MALLOCX( len + 1, ctx );
+		if ( val->bv_val == NULL ) {
+			return( 1 );
+		}
+
 		for ( s = 0, d = 0; d < len; ) {
 			/*
 			 * This point is reached only if escapes 
@@ -1714,6 +1732,10 @@ IA52strval( const char *str, struct berval *val, const char **next, unsigned fla
 		ber_len_t	s, d;
 		
 		val->bv_val = LDAP_MALLOCX( len + 1, ctx );
+		if ( val->bv_val == NULL ) {
+			return( 1 );
+		}
+
 		for ( s = 0, d = 0; d < len; ) {
 			if ( LDAP_DN_ESCAPE( startPos[ s ] ) ) {
 				s++;
@@ -1804,6 +1826,10 @@ quotedIA52strval( const char *str, struct berval *val, const char **next, unsign
 		ber_len_t	s, d;
 		
 		val->bv_val = LDAP_MALLOCX( len + 1, ctx );
+		if ( val->bv_val == NULL ) {
+			return( 1 );
+		}
+
 		val->bv_len = len;
 
 		for ( s = d = 0; d < len; ) {
@@ -2536,6 +2562,8 @@ rdn2strlen( LDAPRDN rdn, unsigned flags, ber_len_t *len,
 			l += vl;
 		}
 	}
+	if ( !iAVA )
+		return( -1 );	/* RDN ::= SET SIZE (1..MAX) OF AVA */
 	
 	*len = l;
 	
@@ -2609,6 +2637,8 @@ rdn2DCEstrlen( LDAPRDN rdn, unsigned flags, ber_len_t *len )
 			l += vl;
 		}
 	}
+	if ( !iAVA )
+		return( -1 );	/* RDN ::= SET SIZE (1..MAX) OF AVA */
 	
 	*len = l;
 	
@@ -2690,6 +2720,8 @@ rdn2UFNstrlen( LDAPRDN rdn, unsigned flags, ber_len_t *len )
 			l += vl;
 		}
 	}
+	if ( !iAVA )
+		return( -1 );	/* RDN ::= SET SIZE (1..MAX) OF AVA */
 	
 	*len = l;
 	
@@ -2768,6 +2800,8 @@ rdn2ADstrlen( LDAPRDN rdn, unsigned flags, ber_len_t *len )
 			l += vl;
 		}
 	}
+	if ( !iAVA )
+		return( -1 );	/* RDN ::= SET SIZE (1..MAX) OF AVA */
 	
 	*len = l;
 	
@@ -2897,6 +2931,9 @@ ldap_rdn2bv_x( LDAPRDN rdn, struct berval *bv, unsigned flags, void *ctx )
 	}
 
 	bv->bv_val = LDAP_MALLOCX( l + 1, ctx );
+	if ( bv->bv_val == NULL ) {
+		return LDAP_NO_MEMORY;
+	}
 
 	switch ( LDAP_DN_FORMAT( flags ) ) {
 	case LDAP_DN_FORMAT_LDAPV3:
@@ -2987,7 +3024,7 @@ int ldap_dn2bv_x( LDAPDN dn, struct berval *bv, unsigned flags, void *ctx )
 	bv->bv_len = 0;
 	bv->bv_val = NULL;
 
-	Debug( LDAP_DEBUG_ARGS, "=> ldap_dn2bv(%u)\n", flags, 0, 0 );
+	Debug1( LDAP_DEBUG_ARGS, "=> ldap_dn2bv(%u)\n", flags );
 
 	/* 
 	 * a null dn means an empty dn string 
@@ -3204,7 +3241,7 @@ int ldap_dn2bv_x( LDAPDN dn, struct berval *bv, unsigned flags, void *ctx )
 		 * Sort of UFN for DCE DNs: a slash ('/') separated
 		 * global->local DN with no types; strictly speaking,
 		 * the naming context should be a domain, which is
-		 * written in DNS-style, e.g. dot-deparated.
+		 * written in DNS-style, e.g. dot-separated.
 		 * 
 		 * Example:
 		 * 
@@ -3296,7 +3333,7 @@ int ldap_dn2bv_x( LDAPDN dn, struct berval *bv, unsigned flags, void *ctx )
 		return LDAP_PARAM_ERROR;
 	}
 
-	Debug( LDAP_DEBUG_ARGS, "<= ldap_dn2bv(%s)=%d %s\n",
+	Debug3( LDAP_DEBUG_ARGS, "<= ldap_dn2bv(%s)=%d %s\n",
 		bv->bv_val, rc, rc ? ldap_err2string( rc ) : "" );
 
 return_results:;

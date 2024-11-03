@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1999-2018 The OpenLDAP Foundation.
+ * Copyright 1999-2024 The OpenLDAP Foundation.
  * Portions Copyright 1999-2003 Kurt D. Zeilenga.
  * All rights reserved.
  *
@@ -69,6 +69,8 @@ ldif_open_url(
 		}
 
 		p = ber_strdup( urlstr );
+		if ( p == NULL )
+			return NULL;
 
 		/* But we should convert to LDAP_DIRSEP before use */
 		if ( LDAP_DIRSEP[0] != '/' ) {

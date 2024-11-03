@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2000-2018 The OpenLDAP Foundation.
+ * Copyright 2000-2024 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -45,50 +45,8 @@ mdb_add(Operation *op, SlapReply *rs )
 	LDAPControl *ctrls[SLAP_MAX_RESPONSE_CONTROLS];
 	int num_ctrls = 0;
 
-#ifdef LDAP_X_TXN
-	int settle = 0;
-#endif
-
 	Debug(LDAP_DEBUG_ARGS, "==> " LDAP_XSTRING(mdb_add) ": %s\n",
-		op->ora_e->e_name.bv_val, 0, 0);
-
-#ifdef LDAP_X_TXN
-	if( op->o_txnSpec ) {
-		/* acquire connection lock */
-		ldap_pvt_thread_mutex_lock( &op->o_conn->c_mutex );
-		if( op->o_conn->c_txn == CONN_TXN_INACTIVE ) {
-			rs->sr_text = "invalid transaction identifier";
-			rs->sr_err = LDAP_X_TXN_ID_INVALID;
-			goto txnReturn;
-		} else if( op->o_conn->c_txn == CONN_TXN_SETTLE ) {
-			settle=1;
-			goto txnReturn;
-		}
-
-		if( op->o_conn->c_txn_backend == NULL ) {
-			op->o_conn->c_txn_backend = op->o_bd;
-
-		} else if( op->o_conn->c_txn_backend != op->o_bd ) {
-			rs->sr_text = "transaction cannot span multiple database contexts";
-			rs->sr_err = LDAP_AFFECTS_MULTIPLE_DSAS;
-			goto txnReturn;
-		}
-
-		/* insert operation into transaction */
-
-		rs->sr_text = "transaction specified";
-		rs->sr_err = LDAP_X_TXN_SPECIFY_OKAY;
-
-txnReturn:
-		/* release connection lock */
-		ldap_pvt_thread_mutex_unlock( &op->o_conn->c_mutex );
-
-		if( !settle ) {
-			send_ldap_result( op, rs );
-			return rs->sr_err;
-		}
-	}
-#endif
+		op->ora_e->e_name.bv_val );
 
 	ctrls[num_ctrls] = 0;
 
@@ -98,7 +56,7 @@ txnReturn:
 	if ( rs->sr_err != LDAP_SUCCESS ) {
 		Debug( LDAP_DEBUG_TRACE,
 			LDAP_XSTRING(mdb_add) ": entry failed schema check: "
-			"%s (%d)\n", rs->sr_text, rs->sr_err, 0 );
+			"%s (%d)\n", rs->sr_text, rs->sr_err );
 		goto return_results;
 	}
 
@@ -108,7 +66,7 @@ txnReturn:
 	if( rs->sr_err != 0 ) {
 		Debug( LDAP_DEBUG_TRACE,
 			LDAP_XSTRING(mdb_add) ": txn_begin failed: %s (%d)\n",
-			mdb_strerror(rs->sr_err), rs->sr_err, 0 );
+			mdb_strerror(rs->sr_err), rs->sr_err );
 		rs->sr_err = LDAP_OTHER;
 		rs->sr_text = "internal error";
 		goto return_results;
@@ -121,7 +79,7 @@ txnReturn:
 	if ( rs->sr_err != LDAP_SUCCESS ) {
 		Debug( LDAP_DEBUG_TRACE,
 			LDAP_XSTRING(mdb_add) ": entry failed op attrs add: "
-			"%s (%d)\n", rs->sr_text, rs->sr_err, 0 );
+			"%s (%d)\n", rs->sr_text, rs->sr_err );
 		goto return_results;
 	}
 
@@ -147,7 +105,7 @@ txnReturn:
 	if( rs->sr_err != 0 ) {
 		Debug( LDAP_DEBUG_TRACE,
 			LDAP_XSTRING(mdb_add) ": mdb_cursor_open failed (%d)\n",
-			rs->sr_err, 0, 0 );
+			rs->sr_err );
 		rs->sr_err = LDAP_OTHER;
 		rs->sr_text = "internal error";
 		goto return_results;
@@ -191,7 +149,7 @@ txnReturn:
 		p = NULL;
 		Debug( LDAP_DEBUG_TRACE,
 			LDAP_XSTRING(mdb_add) ": parent "
-			"does not exist\n", 0, 0, 0 );
+			"does not exist\n" );
 
 		rs->sr_err = LDAP_REFERRAL;
 		rs->sr_flags = REP_MATCHED_MUSTBEFREED | REP_REF_MUSTBEFREED;
@@ -207,8 +165,7 @@ txnReturn:
 		p = NULL;
 
 		Debug( LDAP_DEBUG_TRACE,
-			LDAP_XSTRING(mdb_add) ": no write access to parent\n",
-			0, 0, 0 );
+			LDAP_XSTRING(mdb_add) ": no write access to parent\n" );
 		rs->sr_err = LDAP_INSUFFICIENT_ACCESS;
 		rs->sr_text = "no write access to parent";
 		goto return_results;;
@@ -220,8 +177,7 @@ txnReturn:
 			p = NULL;
 			/* parent is a subentry, don't allow add */
 			Debug( LDAP_DEBUG_TRACE,
-				LDAP_XSTRING(mdb_add) ": parent is subentry\n",
-				0, 0, 0 );
+				LDAP_XSTRING(mdb_add) ": parent is subentry\n" );
 			rs->sr_err = LDAP_OBJECT_CLASS_VIOLATION;
 			rs->sr_text = "parent is a subentry";
 			goto return_results;;
@@ -232,8 +188,7 @@ txnReturn:
 			p = NULL;
 			/* parent is an alias, don't allow add */
 			Debug( LDAP_DEBUG_TRACE,
-				LDAP_XSTRING(mdb_add) ": parent is alias\n",
-				0, 0, 0 );
+				LDAP_XSTRING(mdb_add) ": parent is alias\n" );
 			rs->sr_err = LDAP_ALIAS_PROBLEM;
 			rs->sr_text = "parent is an alias";
 			goto return_results;;
@@ -250,8 +205,7 @@ txnReturn:
 			mdb_entry_return( op, p );
 			p = NULL;
 			Debug( LDAP_DEBUG_TRACE,
-				LDAP_XSTRING(mdb_add) ": parent is referral\n",
-				0, 0, 0 );
+				LDAP_XSTRING(mdb_add) ": parent is referral\n" );
 
 			rs->sr_err = LDAP_REFERRAL;
 			rs->sr_flags = REP_MATCHED_MUSTBEFREED | REP_REF_MUSTBEFREED;
@@ -298,8 +252,7 @@ txnReturn:
 
 	if ( ! rs->sr_err ) {
 		Debug( LDAP_DEBUG_TRACE,
-			LDAP_XSTRING(mdb_add) ": no write access to entry\n",
-			0, 0, 0 );
+			LDAP_XSTRING(mdb_add) ": no write access to entry\n" );
 		rs->sr_err = LDAP_INSUFFICIENT_ACCESS;
 		rs->sr_text = "no write access to entry";
 		goto return_results;;
@@ -310,8 +263,7 @@ txnReturn:
 	 */
 	if (!acl_check_modlist(op, oe, op->ora_modlist)) {
 		Debug( LDAP_DEBUG_TRACE,
-			LDAP_XSTRING(mdb_add) ": no write access to attribute\n",
-			0, 0, 0 );
+			LDAP_XSTRING(mdb_add) ": no write access to attribute\n" );
 		rs->sr_err = LDAP_INSUFFICIENT_ACCESS;
 		rs->sr_text = "no write access to attribute";
 		goto return_results;;
@@ -321,7 +273,7 @@ txnReturn:
 	if( rs->sr_err != 0 ) {
 		Debug( LDAP_DEBUG_TRACE,
 			LDAP_XSTRING(mdb_add) ": mdb_cursor_open failed (%d)\n",
-			rs->sr_err, 0, 0 );
+			rs->sr_err );
 		rs->sr_err = LDAP_OTHER;
 		rs->sr_text = "internal error";
 		goto return_results;
@@ -331,7 +283,7 @@ txnReturn:
 	if( rs->sr_err != 0 ) {
 		Debug( LDAP_DEBUG_TRACE,
 			LDAP_XSTRING(mdb_add) ": next_id failed (%d)\n",
-			rs->sr_err, 0, 0 );
+			rs->sr_err );
 		rs->sr_err = LDAP_OTHER;
 		rs->sr_text = "internal error";
 		goto return_results;
@@ -344,7 +296,7 @@ txnReturn:
 	if ( rs->sr_err != 0 ) {
 		Debug( LDAP_DEBUG_TRACE,
 			LDAP_XSTRING(mdb_add) ": dn2id_add failed: %s (%d)\n",
-			mdb_strerror(rs->sr_err), rs->sr_err, 0 );
+			mdb_strerror(rs->sr_err), rs->sr_err );
 
 		switch( rs->sr_err ) {
 		case MDB_KEYEXIST:
@@ -360,8 +312,7 @@ txnReturn:
 	rs->sr_err = mdb_index_entry_add( op, txn, op->ora_e );
 	if ( rs->sr_err != LDAP_SUCCESS ) {
 		Debug( LDAP_DEBUG_TRACE,
-			LDAP_XSTRING(mdb_add) ": index_entry_add failed\n",
-			0, 0, 0 );
+			LDAP_XSTRING(mdb_add) ": index_entry_add failed\n" );
 		rs->sr_err = LDAP_OTHER;
 		rs->sr_text = "index generation failed";
 		goto return_results;
@@ -371,10 +322,13 @@ txnReturn:
 	rs->sr_err = mdb_id2entry_add( op, txn, mc, op->ora_e );
 	if ( rs->sr_err != 0 ) {
 		Debug( LDAP_DEBUG_TRACE,
-			LDAP_XSTRING(mdb_add) ": id2entry_add failed\n",
-			0, 0, 0 );
-		rs->sr_err = LDAP_OTHER;
-		rs->sr_text = "entry store failed";
+			LDAP_XSTRING(mdb_add) ": id2entry_add failed\n" );
+		if ( rs->sr_err == LDAP_ADMINLIMIT_EXCEEDED ) {
+			rs->sr_text = "entry is too big";
+		} else {
+			rs->sr_err = LDAP_OTHER;
+			rs->sr_text = "entry store failed";
+		}
 		goto return_results;
 	}
 
@@ -389,7 +343,7 @@ txnReturn:
 		{
 			Debug( LDAP_DEBUG_TRACE,
 				"<=- " LDAP_XSTRING(mdb_add) ": post-read "
-				"failed!\n", 0, 0, 0 );
+				"failed!\n" );
 			if ( op->o_postread & SLAP_CONTROL_CRITICAL ) {
 				/* FIXME: is it correct to abort
 				 * operation if control fails? */

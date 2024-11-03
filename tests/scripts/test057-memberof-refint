@@ -2,7 +2,7 @@
 # $OpenLDAP$
 ## This work is part of OpenLDAP Software <http://www.openldap.org/>.
 ##
-## Copyright 1998-2018 The OpenLDAP Foundation.
+## Copyright 1998-2024 The OpenLDAP Foundation.
 ## Portions Copyright 2008 Red Hat, Inc. 
 ## All rights reserved.
 ##
@@ -20,15 +20,15 @@ echo "running defines.sh"
 if test $MEMBEROF = memberofno; then 
 	echo "Memberof overlay not available, test skipped"
 	exit 0
-fi 
+fi
 
 if test $REFINT = refintno; then 
 	echo "Referential Integrity overlay not available, test skipped"
 	exit 0
-fi 
+fi
 
-if test $BACKEND = bdb; then
-	echo "$BACKEND backend does not support subtree rename, test skipped"
+if test $BACKEND = wt ; then
+	echo "back-wt does not support subtree rename"
 	exit 0
 fi
 
@@ -38,8 +38,8 @@ $SLAPPASSWD -g -n >$CONFIGPWF
 echo "rootpw `$SLAPPASSWD -T $CONFIGPWF`" >$TESTDIR/configpw.conf
 
 echo "Starting slapd on TCP/IP port $PORT1..."
-. $CONFFILTER $BACKEND $MONITORDB < $NAKEDCONF > $CONF1
-$SLAPD -f $CONF1 -F $TESTDIR/confdir -h $URI1 -d $LVL $TIMING > $LOG1 2>&1 &
+. $CONFFILTER $BACKEND < $NAKEDCONF > $CONF1
+$SLAPD -f $CONF1 -F $TESTDIR/confdir -h $URI1 -d $LVL > $LOG1 2>&1 &
 PID=$!
 if test $WAIT != 0 ; then
     echo PID $PID
@@ -49,7 +49,7 @@ KILLPIDS="$PID"
 
 sleep 1
 for i in 0 1 2 3 4 5; do
-	$LDAPSEARCH -s base -b "$MONITOR" -h $LOCALHOST -p $PORT1 \
+	$LDAPSEARCH -s base -b "$MONITOR" -H $URI1 \
 		'objectclass=*' > /dev/null 2>&1
 	RC=$?
 	if test $RC = 0 ; then
@@ -66,11 +66,10 @@ fi
 
 cat /dev/null > $TESTOUT
 
-indexInclude="" mainInclude="" bdbInclude="# " nullExclude=""
+indexInclude="" mainInclude="" nullExclude=""
 test $INDEXDB = indexdb	|| indexInclude="# "
 test $MAINDB  = maindb	|| mainInclude="# "
 case $BACKEND in
-bdb | hdb) bdbInclude="" ;;
 null) nullExclude="# " ;;
 esac
 
@@ -93,7 +92,7 @@ EOF
 fi
 
 echo "Running ldapadd to build slapd config database..."
-$LDAPADD -h $LOCALHOST -p $PORT1 -D 'cn=config' -w `cat $CONFIGPWF` \
+$LDAPADD -H $URI1 -D 'cn=config' -w `cat $CONFIGPWF` \
 	>> $TESTOUT 2>&1 <<EOF
 dn: olcDatabase={1}$BACKEND,cn=config
 objectClass: olcDatabaseConfig
@@ -104,7 +103,6 @@ olcRootDN: cn=Manager,$BASEDN
 olcRootPW:: c2VjcmV0
 olcMonitoring: TRUE
 ${nullExclude}olcDbDirectory: $TESTDIR/db.1.a/
-${bdbInclude}olcDbCacheSize: 1000
 ${indexInclude}olcDbIndex: objectClass eq
 ${indexInclude}olcDbIndex: cn pres,eq,sub
 ${indexInclude}olcDbIndex: uid pres,eq,sub
@@ -114,7 +112,7 @@ ${mainInclude}olcDbMode: 384
 # {0}memberof, {1}$BACKEND, config
 dn: olcOverlay={0}memberof,olcDatabase={1}$BACKEND,cn=config
 objectClass: olcOverlayConfig
-objectClass: olcMemberOf
+objectClass: olcMemberOfConfig
 olcOverlay: {0}memberof
 olcMemberOfRefInt: TRUE
 olcMemberOfGroupOC: groupOfNames
@@ -137,7 +135,7 @@ if test $RC != 0 ; then
 fi
 
 echo "Running ldapadd to build slapd database..."
-$LDAPADD -h $LOCALHOST -p $PORT1 \
+$LDAPADD -H $URI1 \
 	-D "cn=Manager,$BASEDN" -w secret \
 	>> $TESTOUT 2>&1 << EOF
 dn: $BASEDN
@@ -179,7 +177,7 @@ fi
 
 echo "Search the entire database..."
 echo "# Search the entire database..." >> $SEARCHOUT
-$LDAPSEARCH -S "" -b "$BASEDN" -h $LOCALHOST -p $PORT1 \
+$LDAPSEARCH -S "" -b "$BASEDN" -H $URI1 \
 	'(objectClass=*)' '*' memberOf >> $SEARCHOUT 2>&1
 RC=$?
 if test $RC != 0 ; then
@@ -189,7 +187,7 @@ if test $RC != 0 ; then
 fi
 
 echo "Running ldapmodify to rename subtree..."
-$LDAPMODIFY -h $LOCALHOST -p $PORT1 \
+$LDAPMODIFY -H $URI1 \
 	-D "cn=Manager,$BASEDN" -w secret \
 	>> $TESTOUT 2>&1 << EOF
 dn: ou=People,$BASEDN
@@ -205,7 +203,7 @@ sleep $SLEEP0
 
 echo "Re-search the entire database..."
 echo "# Re-search the entire database..." >> $SEARCHOUT
-$LDAPSEARCH -S "" -b "$BASEDN" -h $LOCALHOST -p $PORT1 \
+$LDAPSEARCH -S "" -b "$BASEDN" -H $URI1 \
 	'(objectClass=*)' '*' memberOf >> $SEARCHOUT 2>&1
 RC=$?
 if test $RC != 0 ; then
@@ -215,7 +213,7 @@ if test $RC != 0 ; then
 fi
 
 echo "Running ldapmodify to rename subtree..."
-$LDAPMODIFY -h $LOCALHOST -p $PORT1 \
+$LDAPMODIFY -H $URI1 \
 	-D "cn=Manager,$BASEDN" -w secret \
 	>> $TESTOUT 2>&1 << EOF
 dn: ou=Groups,$BASEDN
@@ -229,7 +227,7 @@ sleep $SLEEP0
 
 echo "Re-search the entire database..."
 echo "# Re-search the entire database..." >> $SEARCHOUT
-$LDAPSEARCH -S "" -b "$BASEDN" -h $LOCALHOST -p $PORT1 \
+$LDAPSEARCH -S "" -b "$BASEDN" -H $URI1 \
 	'(objectClass=*)' '*' memberOf >> $SEARCHOUT 2>&1
 RC=$?
 if test $RC != 0 ; then
@@ -239,7 +237,7 @@ if test $RC != 0 ; then
 fi
 
 echo "Running ldapdelete to remove a member..."
-$LDAPMODIFY -h $LOCALHOST -p $PORT1 \
+$LDAPMODIFY -H $URI1 \
 	-D "cn=Manager,$BASEDN" -w secret \
 	>> $TESTOUT 2>&1 << EOF
 dn: cn=Baby Herman,ou=Toons,$BASEDN
@@ -250,7 +248,7 @@ sleep $SLEEP0
 
 echo "Re-search the entire database..."
 echo "# Re-search the entire database..." >> $SEARCHOUT
-$LDAPSEARCH -S "" -b "$BASEDN" -h $LOCALHOST -p $PORT1 \
+$LDAPSEARCH -S "" -b "$BASEDN" -H $URI1 \
 	'(objectClass=*)' '*' memberOf >> $SEARCHOUT 2>&1
 RC=$?
 if test $RC != 0 ; then

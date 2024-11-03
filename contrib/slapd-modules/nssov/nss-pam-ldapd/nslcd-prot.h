@@ -86,8 +86,10 @@ static void debug_dump(const void *ptr, size_t size)
   DEBUG_DUMP(ptr, size);                                                    \
   if (tio_write(fp, ptr, (size_t)size))                                     \
   {                                                                         \
+    char ebuf[128];                                                         \
+    int saved_errno = errno;                                                \
     DEBUG_PRINT("WRITE       : var="__STRING(ptr)" error: %s",              \
-                strerror(errno));                                           \
+                AC_STRERROR_R(saved_errno, ebuf, sizeof(ebuf)));            \
     ERROR_OUT_WRITEERROR(fp);                                               \
   }
 
@@ -161,8 +163,10 @@ static void debug_dump(const void *ptr, size_t size)
 #define READ(fp, ptr, size)                                                 \
   if (tio_read(fp, ptr, (size_t)size))                                      \
   {                                                                         \
+    char ebuf[128];                                                         \
+    int saved_errno = errno;                                                \
     DEBUG_PRINT("READ       : var="__STRING(ptr)" error: %s",               \
-                strerror(errno));                                           \
+                AC_STRERROR_R(saved_errno, ebuf, sizeof(ebuf)));            \
     ERROR_OUT_READERROR(fp);                                                \
   }                                                                         \
   DEBUG_PRINT("READ       : var="__STRING(ptr)" size=%d", (int)(size));     \
@@ -224,10 +228,10 @@ static void debug_dump(const void *ptr, size_t size)
 #define BUF_SKIP(sz)                                                        \
   bufptr += (size_t)(sz);
 
-/* move BUF_CUR foreward so that it is aligned to the specified
+/* move BUF_CUR forward so that it is aligned to the specified
    type width */
 #define BUF_ALIGN(fp, type)                                                 \
-  /* figure out number of bytes to skip foreward */                         \
+  /* figure out number of bytes to skip forward */                         \
   tmp2int32 = (sizeof(type) - ((BUF_CUR - (char *)NULL) % sizeof(type)))    \
               % sizeof(type);                                               \
   /* check and skip */                                                      \
@@ -275,7 +279,7 @@ static void debug_dump(const void *ptr, size_t size)
   (field) = BUF_CUR;                                                        \
   BUF_SKIP(tmpint32 + 1);
 
-/* read an array from a stram and store it as a null-terminated
+/* read an array from a stream and store it as a null-terminated
    array list (size for the array is allocated) */
 #define READ_BUF_STRINGLIST(fp, arr)                                        \
   /* read the number of entries */                                          \
@@ -295,13 +299,16 @@ static void debug_dump(const void *ptr, size_t size)
 
 /* SKIP macros for skipping over certain parts of the protocol stream. */
 
-/* skip a number of bytes foreward */
+/* skip a number of bytes forward */
 #define SKIP(fp, sz)                                                        \
   DEBUG_PRINT("READ       : skip %d bytes", (int)(sz));                     \
   /* read (skip) the specified number of bytes */                           \
   if (tio_skip(fp, sz))                                                     \
   {                                                                         \
-    DEBUG_PRINT("READ       : skip error: %s", strerror(errno));            \
+    char ebuf[128];                                                         \
+    int saved_errno = errno;                                                \
+    DEBUG_PRINT("READ       : skip error: %s",                              \
+                AC_STRERROR_R(saved_errno, ebuf, sizeof(ebuf)));            \
     ERROR_OUT_READERROR(fp);                                                \
   }
 
@@ -327,7 +334,7 @@ static void debug_dump(const void *ptr, size_t size)
   }
 
 
-/* These are functions and macors for performing common operations in
+/* These are functions and macros for performing common operations in
    the nslcd request/response protocol. */
 
 /* returns a socket to the server or NULL on error (see errno),
@@ -350,7 +357,10 @@ TFILE *nslcd_client_open(void)
   /* flush the stream */                                                    \
   if (tio_flush(fp) < 0)                                                    \
   {                                                                         \
-    DEBUG_PRINT("WRITE_FLUSH : error: %s", strerror(errno));                \
+    char ebuf[128];                                                         \
+    int saved_errno = errno;                                                \
+    DEBUG_PRINT("WRITE_FLUSH : error: %s",                                  \
+                AC_STRERROR_R(saved_errno, ebuf, sizeof(ebuf)));            \
     ERROR_OUT_WRITEERROR(fp);                                               \
   }                                                                         \
   /* read and check response version number */                              \

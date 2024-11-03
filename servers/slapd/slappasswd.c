@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2018 The OpenLDAP Foundation.
+ * Copyright 1998-2024 The OpenLDAP Foundation.
  * Portions Copyright 1998-2003 Kurt D. Zeilenga.
  * All rights reserved.
  *
@@ -37,11 +37,15 @@
 #include <lutil_sha1.h>
 
 #include "ldap_defaults.h"
-#include "slap.h"
 
-static int	verbose = 0;
+#include "slap.h"
+#include "slap-config.h"
+#include "slapcommon.h"
+
 static char	*modulepath = NULL;
 static char	*moduleload = NULL;
+static int	moduleargc = 0;
+static char	**moduleargv = NULL;
 
 static void
 usage(const char *s)
@@ -77,14 +81,20 @@ parse_slappasswdopt( void )
 	}
 
 	if ( strncasecmp( optarg, "module-path", len ) == 0 ) {
-		if ( modulepath )
-			ch_free( modulepath );
-		modulepath = ch_strdup( p );
+		modulepath = p;
 
 	} else if ( strncasecmp( optarg, "module-load", len ) == 0 ) {
-		if ( moduleload )
-			ch_free( moduleload );
-		moduleload = ch_strdup( p );
+		ConfigArgs c = { .line = p };
+
+		if ( config_fp_parse_line( &c ) ) {
+			return -1;
+		}
+		moduleload = c.argv[0];
+
+		moduleargc = c.argc - 1;
+		if ( moduleargc ) {
+			moduleargv = c.argv+1;
+		}
 
 	} else {
 		return -1;
@@ -112,7 +122,7 @@ slappasswd( int argc, char *argv[] )
 	int		i;
 	char		*newline = "\n";
 	struct berval passwd = BER_BVNULL;
-	struct berval hash;
+	struct berval hash = BER_BVNULL;
 
 #ifdef LDAP_DEBUG
 	/* tools default to "none", so that at least LDAP_DEBUG_ANY
@@ -151,7 +161,7 @@ slappasswd( int argc, char *argv[] )
 				return EXIT_FAILURE;
 
 			} else {
-				scheme = ch_strdup( optarg );
+				scheme = optarg;
 			}
 			break;
 
@@ -208,6 +218,7 @@ slappasswd( int argc, char *argv[] )
 			usage ( progname );
 		}
 	}
+	slapTool = SLAPPASSWD;
 
 	if( argc - optind != 0 ) {
 		usage( progname );
@@ -224,7 +235,7 @@ slappasswd( int argc, char *argv[] )
 		goto destroy;
 	}
 
-	if ( moduleload && module_load(moduleload, 0, NULL) ) {
+	if ( moduleload && module_load(moduleload, moduleargc, moduleargv) ) {
 		rc = EXIT_FAILURE;
 		goto destroy;
 	}
@@ -239,11 +250,16 @@ slappasswd( int argc, char *argv[] )
 		if( newpw == NULL ) {
 			/* prompt for new password */
 			char *cknewpw;
-			newpw = ch_strdup(getpassphrase("New password: "));
+			newpw = getpassphrase("New password: ");
+			if ( newpw == NULL ) { /* Allow EOF to exit. */
+				rc = EXIT_FAILURE;
+				goto destroy;
+			}
+			newpw = ch_strdup(newpw);
 			cknewpw = getpassphrase("Re-enter new password: ");
-	
-			if( strcmp( newpw, cknewpw )) {
-				fprintf( stderr, "Password values do not match\n" );
+			if( cknewpw == NULL || strcmp( newpw, cknewpw )) {
+				fprintf( stderr,
+				    "Password values do not match\n" );
 				rc = EXIT_FAILURE;
 				goto destroy;
 			}
@@ -257,7 +273,7 @@ slappasswd( int argc, char *argv[] )
 	}
 
 	lutil_passwd_hash( &passwd, scheme, &hash, &text );
-	if( hash.bv_val == NULL ) {
+	if ( BER_BVISNULL( &hash ) ) {
 		fprintf( stderr,
 			"Password generation failed for scheme %s: %s\n",
 			scheme, text ? text : "" );
@@ -279,6 +295,12 @@ destroy:;
 #ifdef SLAPD_MODULES
 	module_kill();
 #endif
+	if ( !BER_BVISNULL( &hash ) ) {
+		ber_memfree( hash.bv_val );
+	}
+	if ( passwd.bv_val != hash.bv_val && !BER_BVISNULL( &passwd ) ) {
+		ber_memfree( passwd.bv_val );
+	}
 
 	return rc;
 }

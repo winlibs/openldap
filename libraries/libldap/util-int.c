@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2018 The OpenLDAP Foundation.
+ * Copyright 1998-2024 The OpenLDAP Foundation.
  * Portions Copyright 1998 A. Hartgers.
  * All rights reserved.
  *
@@ -70,17 +70,12 @@ extern int h_errno;
 
 /* USE_GMTIME_R and USE_LOCALTIME_R defined in ldap_pvt.h */
 
-#ifdef LDAP_DEVEL
-	/* to be released with 2.5 */
 #if !defined( USE_GMTIME_R ) || !defined( USE_LOCALTIME_R )
 	/* we use the same mutex for gmtime(3) and localtime(3)
 	 * because implementations may use the same buffer
 	 * for both functions */
 	static ldap_pvt_thread_mutex_t ldap_int_gmtime_mutex;
 #endif
-#else /* ! LDAP_DEVEL */
-	ldap_pvt_thread_mutex_t ldap_int_gmtime_mutex;
-#endif /* ! LDAP_DEVEL */
 
 # if defined(HAVE_GETHOSTBYNAME_R) && \
 	(GETHOSTBYNAME_R_NARGS < 5) || (6 < GETHOSTBYNAME_R_NARGS)
@@ -183,139 +178,104 @@ static int _ldap_pvt_gt_subs;
 
 #ifdef _WIN32
 /* Windows SYSTEMTIME only has 10 millisecond resolution, so we
- * also need to use a high resolution timer to get microseconds.
+ * also need to use a high resolution timer to get nanoseconds.
  * This is pretty clunky.
  */
 static LARGE_INTEGER _ldap_pvt_gt_freq;
-static LARGE_INTEGER _ldap_pvt_gt_prev;
-static int _ldap_pvt_gt_offset;
+static LARGE_INTEGER _ldap_pvt_gt_start_count;
+static long _ldap_pvt_gt_start_sec;
+static long _ldap_pvt_gt_start_nsec;
+static double _ldap_pvt_gt_nanoticks;
 
 #define SEC_TO_UNIX_EPOCH 11644473600LL
 #define TICKS_PER_SECOND 10000000
+#define BILLION	1000000000L
 
 static int
-ldap_pvt_gettimeusec(int *sec)
+ldap_pvt_gettimensec(long *sec)
 {
 	LARGE_INTEGER count;
+	LARGE_INTEGER freq;
+	int nsec;
 
-	QueryPerformanceCounter( &count );
-
-	/* It shouldn't ever go backwards, but multiple CPUs might
-	 * be able to hit in the same tick.
-	 */
-	LDAP_MUTEX_LOCK( &ldap_int_gettime_mutex );
+	QueryPerformanceFrequency( &freq );
 	/* We assume Windows has at least a vague idea of
-	 * when a second begins. So we align our microsecond count
-	 * with the Windows millisecond count using this offset.
-	 * We retain the submillisecond portion of our own count.
-	 *
-	 * Note - this also assumes that the relationship between
-	 * the PerformanceCounter and SystemTime stays constant;
-	 * that assumption breaks if the SystemTime is adjusted by
-	 * an external action.
+	 * when a second begins. So we align our nanosecond count
+	 * with the Windows millisecond count.
 	 */
-	if ( !_ldap_pvt_gt_freq.QuadPart ) {
-		LARGE_INTEGER c2;
+	if ( freq.QuadPart != _ldap_pvt_gt_freq.QuadPart ) {
 		ULARGE_INTEGER ut;
 		FILETIME ft0, ft1;
-		long long t;
-		int usec;
-
-		/* Initialize our offset */
-		QueryPerformanceFrequency( &_ldap_pvt_gt_freq );
-
+		/* initialize */
+		LDAP_MUTEX_LOCK( &ldap_int_gettime_mutex );
 		/* Wait for a tick of the system time: 10-15ms */
 		GetSystemTimeAsFileTime( &ft0 );
 		do {
 			GetSystemTimeAsFileTime( &ft1 );
 		} while ( ft1.dwLowDateTime == ft0.dwLowDateTime );
+		QueryPerformanceCounter( &_ldap_pvt_gt_start_count );
 
 		ut.LowPart = ft1.dwLowDateTime;
 		ut.HighPart = ft1.dwHighDateTime;
-		QueryPerformanceCounter( &c2 );
-
-		/* get second and fraction portion of counter */
-		t = c2.QuadPart % (_ldap_pvt_gt_freq.QuadPart*10);
-
-		/* convert to microseconds */
-		t *= 1000000;
-		usec = t / _ldap_pvt_gt_freq.QuadPart;
-
-		ut.QuadPart /= 10;
-		ut.QuadPart %= 10000000;
-		_ldap_pvt_gt_offset = usec - ut.QuadPart;
-		count = c2;
+		_ldap_pvt_gt_start_nsec = ut.QuadPart % TICKS_PER_SECOND * 100;
+		_ldap_pvt_gt_start_sec = ut.QuadPart / TICKS_PER_SECOND - SEC_TO_UNIX_EPOCH;
+		_ldap_pvt_gt_freq = freq;
+		_ldap_pvt_gt_nanoticks = (double)BILLION / freq.QuadPart;
+		LDAP_MUTEX_UNLOCK( &ldap_int_gettime_mutex );
 	}
-	if ( count.QuadPart <= _ldap_pvt_gt_prev.QuadPart ) {
-		_ldap_pvt_gt_subs++;
-	} else {
-		_ldap_pvt_gt_subs = 0;
-		_ldap_pvt_gt_prev = count;
+	QueryPerformanceCounter( &count );
+	count.QuadPart -= _ldap_pvt_gt_start_count.QuadPart;
+	*sec = _ldap_pvt_gt_start_sec + count.QuadPart / freq.QuadPart;
+	nsec = _ldap_pvt_gt_start_nsec + (double)(count.QuadPart % freq.QuadPart) * _ldap_pvt_gt_nanoticks;
+	if ( nsec > BILLION) {
+		nsec -= BILLION;
+		(*sec)++;
 	}
-	LDAP_MUTEX_UNLOCK( &ldap_int_gettime_mutex );
-
-	/* convert to microseconds */
-	count.QuadPart %= _ldap_pvt_gt_freq.QuadPart*10;
-	count.QuadPart *= 1000000;
-	count.QuadPart /= _ldap_pvt_gt_freq.QuadPart;
-	count.QuadPart -= _ldap_pvt_gt_offset;
-
-	/* We've extracted the 1s and microseconds.
-	 * The 1sec digit is used to detect wraparound in microsecnds.
-	 */
-	if (count.QuadPart < 0)
-		count.QuadPart += 10000000;
-	else if (count.QuadPart >= 10000000)
-		count.QuadPart -= 10000000;
-
-	*sec = count.QuadPart / 1000000;
-	return count.QuadPart % 1000000;
+	return nsec;
 }
 
+/* emulate POSIX clock_gettime */
+int
+ldap_pvt_clock_gettime( int clk_id, struct timespec *tv )
+{
+	long sec;
+	tv->tv_nsec = ldap_pvt_gettimensec( &sec );
+	tv->tv_sec = sec;
+	return 0;
+}
 
 /* emulate POSIX gettimeofday */
 int
 ldap_pvt_gettimeofday( struct timeval *tv, void *unused )
 {
-	FILETIME ft;
-	ULARGE_INTEGER ut;
-	int sec, sec0;
-
-	GetSystemTimeAsFileTime( &ft );
-	ut.LowPart = ft.dwLowDateTime;
-	ut.HighPart = ft.dwHighDateTime;
-
-	/* convert to usec */
-	ut.QuadPart /= (TICKS_PER_SECOND / 1000000);
-
-	tv->tv_usec = ldap_pvt_gettimeusec(&sec);
-	tv->tv_sec = ut.QuadPart / 1000000 - SEC_TO_UNIX_EPOCH;
-
-	/* check for carry from microseconds */
-	sec0 = tv->tv_sec % 10;
-	if (sec0 < sec || (sec0 == 9 && !sec))
-		tv->tv_sec++;
-
+	struct timespec ts;
+	ldap_pvt_clock_gettime( 0, &ts );
+	tv->tv_sec = ts.tv_sec;
+	tv->tv_usec = ts.tv_nsec / 1000;
 	return 0;
 }
 
-/* return a broken out time, with microseconds
+static long _ldap_pvt_gt_prevsec;
+static int _ldap_pvt_gt_prevnsec;
+
+/* return a broken out time, with nanoseconds
  */
 void
 ldap_pvt_gettime( struct lutil_tm *tm )
 {
 	SYSTEMTIME st;
-	int sec, sec0;
-	static const char daysPerMonth[] = {
-	31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+	LARGE_INTEGER ft;
+	long sec;
 
-	GetSystemTime( &st );
-	tm->tm_usec = ldap_pvt_gettimeusec(&sec);
-	tm->tm_usub = _ldap_pvt_gt_subs;
+	/* Convert sec/nsec to Windows FILETIME,
+	 * then turn that into broken out SYSTEMTIME */
+	tm->tm_nsec = ldap_pvt_gettimensec(&sec);
+	ft.QuadPart = sec;
+	ft.QuadPart += SEC_TO_UNIX_EPOCH;
+	ft.QuadPart *= TICKS_PER_SECOND;
+	ft.QuadPart += tm->tm_nsec / 100;
+	FileTimeToSystemTime( (FILETIME *)&ft, &st );
 
-	/* any difference larger than microseconds is
-	 * already reflected in st
-	 */
 	tm->tm_sec = st.wSecond;
 	tm->tm_min = st.wMinute;
 	tm->tm_hour = st.wHour;
@@ -323,62 +283,51 @@ ldap_pvt_gettime( struct lutil_tm *tm )
 	tm->tm_mon = st.wMonth - 1;
 	tm->tm_year = st.wYear - 1900;
 
-	/* check for carry from microseconds */
-	sec0 = tm->tm_sec % 10;
-	if (sec0 < sec || (sec0 == 9 && !sec)) {
-		tm->tm_sec++;
-		/* FIXME: we don't handle leap seconds */
-		if (tm->tm_sec > 59) {
-			tm->tm_sec = 0;
-			tm->tm_min++;
-			if (tm->tm_min > 59) {
-				tm->tm_min = 0;
-				tm->tm_hour++;
-				if (tm->tm_hour > 23) {
-					int days = daysPerMonth[tm->tm_mon];
-					tm->tm_hour = 0;
-					tm->tm_mday++;
-
-					/* if it's February of a leap year,
-					 * add 1 day to this month
-					 */
-					if (tm->tm_mon == 1 &&
-						((!(st.wYear % 4) && (st.wYear % 100)) ||
-						!(st.wYear % 400)))
-						days++;
-
-					if (tm->tm_mday > days) {
-						tm->tm_mday = 1;
-						tm->tm_mon++;
-						if (tm->tm_mon > 11) {
-							tm->tm_mon = 0;
-							tm->tm_year++;
-						}
-					}
-				}
-			}
-		}
+	LDAP_MUTEX_LOCK( &ldap_int_gettime_mutex );
+	if ( tm->tm_sec < _ldap_pvt_gt_prevsec
+		|| ( tm->tm_sec == _ldap_pvt_gt_prevsec
+		&& tm->tm_nsec <= _ldap_pvt_gt_prevnsec )) {
+		_ldap_pvt_gt_subs++;
+	} else {
+		_ldap_pvt_gt_subs = 0;
+		_ldap_pvt_gt_prevsec = sec;
+		_ldap_pvt_gt_prevnsec = tm->tm_nsec;
 	}
+	LDAP_MUTEX_UNLOCK( &ldap_int_gettime_mutex );
+	tm->tm_usub = _ldap_pvt_gt_subs;
 }
 #else
 
+#ifdef HAVE_CLOCK_GETTIME
+static struct timespec _ldap_pvt_gt_prevTv;
+#else
 static struct timeval _ldap_pvt_gt_prevTv;
+#endif
 
 void
 ldap_pvt_gettime( struct lutil_tm *ltm )
 {
-	struct timeval tv;
-
 	struct tm tm;
 	time_t t;
+#ifdef HAVE_CLOCK_GETTIME
+#define	FRAC	tv_nsec
+#define	NSECS(x)	x
+	struct timespec tv;
+
+	clock_gettime( CLOCK_REALTIME, &tv );
+#else
+#define	FRAC	tv_usec
+#define	NSECS(x)	x * 1000
+	struct timeval tv;
 
 	gettimeofday( &tv, NULL );
+#endif
 	t = tv.tv_sec;
 
 	LDAP_MUTEX_LOCK( &ldap_int_gettime_mutex );
 	if ( tv.tv_sec < _ldap_pvt_gt_prevTv.tv_sec
 		|| ( tv.tv_sec == _ldap_pvt_gt_prevTv.tv_sec
-		&& tv.tv_usec <= _ldap_pvt_gt_prevTv.tv_usec )) {
+		&& tv.FRAC <= _ldap_pvt_gt_prevTv.FRAC )) {
 		_ldap_pvt_gt_subs++;
 	} else {
 		_ldap_pvt_gt_subs = 0;
@@ -396,7 +345,7 @@ ldap_pvt_gettime( struct lutil_tm *ltm )
 	ltm->tm_mday = tm.tm_mday;
 	ltm->tm_mon = tm.tm_mon;
 	ltm->tm_year = tm.tm_year;
-	ltm->tm_usec = tv.tv_usec;
+	ltm->tm_nsec = NSECS(tv.FRAC);
 }
 #endif
 
@@ -411,7 +360,7 @@ ldap_pvt_csnstr(char *buf, size_t len, unsigned int replica, unsigned int mod)
 	n = snprintf( buf, len,
 		"%4d%02d%02d%02d%02d%02d.%06dZ#%06x#%03x#%06x",
 		tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour,
-		tm.tm_min, tm.tm_sec, tm.tm_usec, tm.tm_usub, replica, mod );
+		tm.tm_min, tm.tm_sec, tm.tm_nsec / 1000, tm.tm_usub, replica, mod );
 
 	if( n < 0 ) return 0;
 	return ( (size_t) n < len ) ? n : 0;
@@ -450,12 +399,16 @@ int ldap_pvt_gethostbyname_a(
 		*result=gethostbyname_r( name, resbuf, *buf, buflen, herrno_ptr );
 		r = (*result == NULL) ?  -1 : 0;
 #else
-		r = gethostbyname_r( name, resbuf, *buf,
-			buflen, result, herrno_ptr );
+		while((r = gethostbyname_r( name, resbuf, *buf, buflen, result, herrno_ptr )) == ERANGE) {
+			/* Increase the buffer */
+			buflen*=2;
+			if (safe_realloc(buf, buflen) == NULL)
+				return -1;
+		}
 #endif
 
-		Debug( LDAP_DEBUG_TRACE, "ldap_pvt_gethostbyname_a: host=%s, r=%d\n",
-		       name, r, 0 );
+		Debug2( LDAP_DEBUG_TRACE, "ldap_pvt_gethostbyname_a: host=%s, r=%d\n",
+		       name, r );
 
 #ifdef NETDB_INTERNAL
 		if ((r<0) &&
@@ -715,9 +668,6 @@ void ldap_int_utils_init( void )
 
 	ldap_pvt_thread_mutex_init( &ldap_int_gettime_mutex );
 
-#ifdef HAVE_GSSAPI
-	ldap_pvt_thread_mutex_init( &ldap_int_gssapi_mutex );
-#endif
 #endif
 
 	/* call other module init functions here... */
@@ -834,10 +784,15 @@ static char *safe_realloc( char **buf, int len )
 
 char * ldap_pvt_get_fqdn( char *name )
 {
-	char *fqdn, *ha_buf;
-	char hostbuf[MAXHOSTNAMELEN+1];
+#ifdef HAVE_GETADDRINFO
+	struct addrinfo hints, *res;
+#else
+	char *ha_buf;
 	struct hostent *hp, he_buf;
-	int rc, local_h_errno;
+	int local_h_errno;
+#endif
+	int rc;
+	char *fqdn, hostbuf[MAXHOSTNAMELEN+1];
 
 	if( name == NULL ) {
 		if( gethostname( hostbuf, MAXHOSTNAMELEN ) == 0 ) {
@@ -848,6 +803,22 @@ char * ldap_pvt_get_fqdn( char *name )
 		}
 	}
 
+#ifdef HAVE_GETADDRINFO
+	memset( &hints, 0, sizeof( hints ));
+	hints.ai_family = AF_UNSPEC;
+	hints.ai_flags = AI_CANONNAME;
+
+	LDAP_MUTEX_LOCK( &ldap_int_resolv_mutex );
+	rc = getaddrinfo( name, NULL, &hints, &res );
+	LDAP_MUTEX_UNLOCK( &ldap_int_resolv_mutex );
+	if ( rc == 0 && res->ai_canonname ) {
+		fqdn = LDAP_STRDUP( res->ai_canonname );
+	} else {
+		fqdn = LDAP_STRDUP( name );
+	}
+	if ( rc == 0 )
+		freeaddrinfo( res );
+#else
 	rc = ldap_pvt_gethostbyname_a( name,
 		&he_buf, &ha_buf, &hp, &local_h_errno );
 
@@ -858,6 +829,7 @@ char * ldap_pvt_get_fqdn( char *name )
 	}
 
 	LDAP_FREE( ha_buf );
+#endif
 	return fqdn;
 }
 
@@ -899,3 +871,84 @@ char *ldap_pvt_gai_strerror (int code) {
 	return _("Unknown error");
 }
 #endif
+
+/* format a socket address as a string */
+
+#ifdef HAVE_TCPD
+# include <tcpd.h>
+# define SOCKADDR_STRING_UNKNOWN	STRING_UNKNOWN
+#else /* ! TCP Wrappers */
+# define SOCKADDR_STRING_UNKNOWN	"unknown"
+#endif /* ! TCP Wrappers */
+
+void
+ldap_pvt_sockaddrstr( Sockaddr *sa, struct berval *addrbuf )
+{
+	char *addr;
+	switch( sa->sa_addr.sa_family ) {
+#ifdef LDAP_PF_LOCAL
+	case AF_LOCAL:
+		addrbuf->bv_len = snprintf( addrbuf->bv_val, addrbuf->bv_len,
+			"PATH=%s", sa->sa_un_addr.sun_path );
+		break;
+#endif
+#ifdef LDAP_PF_INET6
+	case AF_INET6:
+		strcpy(addrbuf->bv_val, "IP=");
+		if ( IN6_IS_ADDR_V4MAPPED(&sa->sa_in6_addr.sin6_addr) ) {
+#if defined( HAVE_GETADDRINFO ) && defined( HAVE_INET_NTOP )
+			addr = (char *)inet_ntop( AF_INET,
+			   ((struct in_addr *)&sa->sa_in6_addr.sin6_addr.s6_addr[12]),
+			   addrbuf->bv_val+3, addrbuf->bv_len-3 );
+#else /* ! HAVE_GETADDRINFO || ! HAVE_INET_NTOP */
+			addr = inet_ntoa( *((struct in_addr *)
+					&sa->sa_in6_addr.sin6_addr.s6_addr[12]) );
+#endif /* ! HAVE_GETADDRINFO || ! HAVE_INET_NTOP */
+			if ( !addr ) addr = SOCKADDR_STRING_UNKNOWN;
+			if ( addr != addrbuf->bv_val+3 ) {
+				addrbuf->bv_len = sprintf( addrbuf->bv_val+3, "%s:%d", addr,
+				 (unsigned) ntohs( sa->sa_in6_addr.sin6_port ) ) + 3;
+			} else {
+				int len = strlen( addr );
+				addrbuf->bv_len = sprintf( addr+len, ":%d",
+				 (unsigned) ntohs( sa->sa_in6_addr.sin6_port ) ) + len + 3;
+			}
+		} else {
+			addr = (char *)inet_ntop( AF_INET6,
+				      &sa->sa_in6_addr.sin6_addr,
+				      addrbuf->bv_val+4, addrbuf->bv_len-4 );
+			if ( !addr ) addr = SOCKADDR_STRING_UNKNOWN;
+			if ( addr != addrbuf->bv_val+4 ) {
+				addrbuf->bv_len = sprintf( addrbuf->bv_val+3, "[%s]:%d", addr,
+				 (unsigned) ntohs( sa->sa_in6_addr.sin6_port ) ) + 3;
+			} else {
+				int len = strlen( addr );
+				addrbuf->bv_val[3] = '[';
+				addrbuf->bv_len = sprintf( addr+len, "]:%d",
+				 (unsigned) ntohs( sa->sa_in6_addr.sin6_port ) ) + len + 4;
+			}
+		}
+		break;
+#endif /* LDAP_PF_INET6 */
+	case AF_INET:
+		strcpy(addrbuf->bv_val, "IP=");
+#if defined( HAVE_GETADDRINFO ) && defined( HAVE_INET_NTOP )
+		addr = (char *)inet_ntop( AF_INET, &sa->sa_in_addr.sin_addr,
+			   addrbuf->bv_val+3, addrbuf->bv_len-3 );
+#else /* ! HAVE_GETADDRINFO || ! HAVE_INET_NTOP */
+		addr = inet_ntoa( sa->sa_in_addr.sin_addr );
+#endif /* ! HAVE_GETADDRINFO || ! HAVE_INET_NTOP */
+		if ( !addr ) addr = SOCKADDR_STRING_UNKNOWN;
+		if ( addr != addrbuf->bv_val+3 ) {
+			addrbuf->bv_len = sprintf( addrbuf->bv_val+3, "%s:%d", addr,
+			 (unsigned) ntohs( sa->sa_in_addr.sin_port ) ) + 3;
+		} else {
+			int len = strlen( addr );
+			addrbuf->bv_len = sprintf( addr+len, ":%d",
+			 (unsigned) ntohs( sa->sa_in_addr.sin_port ) ) + len + 3;
+		}
+		break;
+	default:
+		addrbuf->bv_val[0] = '\0';
+	}
+}

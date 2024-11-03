@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2018 The OpenLDAP Foundation.
+ * Copyright 1998-2024 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -53,6 +53,22 @@ ava_free(
 	if ( freeit ) op->o_tmpfree( (char *) ava, op->o_tmpmemctx );
 }
 
+AttributeAssertion *
+ava_dup(
+	AttributeAssertion *ava,
+	void *memctx )
+{
+	BerMemoryFunctions *mf = &slap_sl_mfuncs;
+	AttributeAssertion *nava;
+
+	nava = mf->bmf_malloc( sizeof(AttributeAssertion), memctx );
+	*nava = *ava;
+	if ( ava->aa_desc->ad_flags & SLAP_DESC_TEMPORARY )
+		nava->aa_desc = slap_bv2tmp_ad( &ava->aa_desc->ad_cname, memctx );
+	ber_dupbv_x( &nava->aa_value, &ava->aa_value, memctx );
+	return nava;
+}
+
 int
 get_ava(
 	Operation *op,
@@ -72,7 +88,7 @@ get_ava(
 	rtag = ber_scanf( ber, "{mm}", &type, &value );
 
 	if( rtag == LBER_ERROR ) {
-		Debug( LDAP_DEBUG_ANY, "  get_ava ber_scanf\n", 0, 0, 0 );
+		Debug( LDAP_DEBUG_ANY, "  get_ava ber_scanf\n" );
 		*text = "Error decoding attribute value assertion";
 		return SLAPD_DISCONNECT;
 	}
@@ -94,7 +110,7 @@ get_ava(
 
 		if( rc != LDAP_SUCCESS ) {
 			Debug( LDAP_DEBUG_FILTER,
-			"get_ava: unknown attributeType %s\n", type.bv_val, 0, 0 );
+			"get_ava: unknown attributeType %s\n", type.bv_val );
 			aa->aa_desc = slap_bv2tmp_ad( &type, op->o_tmpmemctx );
 			ber_dupbv_x( &aa->aa_value, &value, op->o_tmpmemctx );
 			f->f_ava = aa;
@@ -109,7 +125,7 @@ get_ava(
 	if( rc != LDAP_SUCCESS ) {
 		f->f_choice |= SLAPD_FILTER_UNDEFINED;
 		Debug( LDAP_DEBUG_FILTER,
-		"get_ava: illegal value for attributeType %s\n", type.bv_val, 0, 0 );
+		"get_ava: illegal value for attributeType %s\n", type.bv_val );
 		ber_dupbv_x( &aa->aa_value, &value, op->o_tmpmemctx );
 		*text = NULL;
 		rc = LDAP_SUCCESS;
@@ -122,7 +138,7 @@ get_ava(
 			rc = get_aliased_filter_aa ( op, aa, a_alias, text );
 			if( rc != LDAP_SUCCESS ) {
 				Debug( LDAP_DEBUG_FILTER,
-						"get_ava: Invalid Attribute Aliasing\n", 0, 0, 0 );
+						"get_ava: Invalid Attribute Aliasing\n" );
 				return rc;
 			}
 		}

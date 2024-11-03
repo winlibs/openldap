@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2018 The OpenLDAP Foundation.
+ * Copyright 1998-2024 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -34,7 +34,7 @@
 #include <sys/stat.h>
 
 #include "slap.h"
-#include "config.h"
+#include "slap-config.h"
 #include "lutil.h"
 #include "lber_pvt.h"
 
@@ -78,6 +78,8 @@ backend_init_controls( BackendInfo *bi )
 	return 0;
 }
 
+extern int syncrepl_monitor_init(void);
+
 int backend_init(void)
 {
 	int rc = -1;
@@ -86,7 +88,7 @@ int backend_init(void)
 	if((nBackendInfo != 0) || !LDAP_STAILQ_EMPTY(&backendInfo)) {
 		/* already initialized */
 		Debug( LDAP_DEBUG_ANY,
-			"backend_init: already initialized\n", 0, 0, 0 );
+			"backend_init: already initialized\n" );
 		return -1;
 	}
 
@@ -98,7 +100,7 @@ int backend_init(void)
 		if(rc != 0) {
 			Debug( LDAP_DEBUG_ANY,
 				"backend_init: initialized for type \"%s\"\n",
-				bi->bi_type, 0, 0 );
+				bi->bi_type );
 			/* destroy those we've already inited */
 			for( nBackendInfo--;
 				nBackendInfo >= 0 ;
@@ -114,6 +116,8 @@ int backend_init(void)
 
 		LDAP_STAILQ_INSERT_TAIL(&backendInfo, bi, bi_next);
 	}
+	/* HACK: need schema defined in deterministic order */
+	syncrepl_monitor_init();
 
 	if ( nBackendInfo > 0) {
 		return 0;
@@ -124,8 +128,7 @@ int backend_init(void)
 #else
 
 	Debug( LDAP_DEBUG_ANY,
-		"backend_init: failed\n",
-		0, 0, 0 );
+		"backend_init: failed\n" );
 
 	return rc;
 #endif /* SLAPD_MODULES */
@@ -138,7 +141,7 @@ int backend_add(BackendInfo *aBackendInfo)
 	if ( aBackendInfo->bi_init == NULL ) {
 		Debug( LDAP_DEBUG_ANY, "backend_add: "
 			"backend type \"%s\" does not have the (mandatory)init function\n",
-			aBackendInfo->bi_type, 0, 0 );
+			aBackendInfo->bi_type );
 		return -1;
 	}
 
@@ -146,7 +149,7 @@ int backend_add(BackendInfo *aBackendInfo)
 	if ( rc != 0) {
 		Debug( LDAP_DEBUG_ANY,
 			"backend_add:  initialization for type \"%s\" failed\n",
-			aBackendInfo->bi_type, 0, 0 );
+			aBackendInfo->bi_type );
 		return rc;
 	}
 
@@ -196,15 +199,11 @@ int backend_startup_one(Backend *be, ConfigReply *cr)
 
 	assert( be != NULL );
 
-	be->be_pending_csn_list = (struct be_pcl *)
-		ch_calloc( 1, sizeof( struct be_pcl ) );
-
-	LDAP_TAILQ_INIT( be->be_pending_csn_list );
+	LDAP_TAILQ_INIT( &be->be_pcsn_st.be_pcsn_list );
 
 	Debug( LDAP_DEBUG_TRACE,
 		"backend_startup_one: starting \"%s\"\n",
-		be->be_suffix ? be->be_suffix[0].bv_val : "(unknown)",
-		0, 0 );
+		be->be_suffix ? be->be_suffix[0].bv_val : "(unknown)" );
 
 	/* set database controls */
 	(void)backend_set_controls( be );
@@ -224,6 +223,7 @@ int backend_startup_one(Backend *be, ConfigReply *cr)
 		rc = be->bd_info->bi_db_open( be, cr );
 		if ( rc == 0 ) {
 			(void)backend_set_controls( be );
+			be->be_flags |= SLAP_DBFLAG_OPEN;
 
 		} else {
 			char *type = be->bd_info->bi_type;
@@ -259,17 +259,19 @@ int backend_startup(Backend *be)
 		/* no databases */
 		Debug( LDAP_DEBUG_ANY,
 			"backend_startup: %d databases to startup.\n",
-			nBackendDB, 0, 0 );
+			nBackendDB );
 		return 1;
 	}
 
 	if(be != NULL) {
+		/* silent noop if disabled */
+		if ( SLAP_DBDISABLED( be ))
+			return 0;
 		if ( be->bd_info->bi_open ) {
 			rc = be->bd_info->bi_open( be->bd_info );
 			if ( rc != 0 ) {
 				Debug( LDAP_DEBUG_ANY,
-					"backend_startup: bi_open failed!\n",
-					0, 0, 0 );
+					"backend_startup: bi_open failed!\n" );
 
 				return rc;
 			}
@@ -284,9 +286,10 @@ int backend_startup(Backend *be)
 		if ( rc != 0 ) {
 			Debug( LDAP_DEBUG_ANY,
 				"backend_startup: bi_db_open(frontend) failed! (%d)\n",
-				rc, 0, 0 );
+				rc );
 			return rc;
 		}
+		frontendDB->be_flags |= SLAP_DBFLAG_OPEN;
 	}
 
 	/* open each backend type */
@@ -303,7 +306,7 @@ int backend_startup(Backend *be)
 			if ( rc != 0 ) {
 				Debug( LDAP_DEBUG_ANY,
 					"backend_startup: bi_open %d (%s) failed!\n",
-					i, bi->bi_type, 0 );
+					i, bi->bi_type );
 				return rc;
 			}
 		}
@@ -315,11 +318,13 @@ int backend_startup(Backend *be)
 	i = -1;
 	LDAP_STAILQ_FOREACH(be, &backendDB, be_next) {
 		i++;
+		if ( SLAP_DBDISABLED( be ))
+			continue;
 		if ( be->be_suffix == NULL ) {
 			Debug( LDAP_DEBUG_ANY,
 				"backend_startup: warning, database %d (%s) "
 				"has no suffix\n",
-				i, be->bd_info->bi_type, 0 );
+				i, be->bd_info->bi_type );
 		}
 
 		rc = backend_startup_one( be, &cr );
@@ -359,6 +364,7 @@ int backend_shutdown( Backend *be )
 
 		if ( be->bd_info->bi_db_close ) {
 			rc = be->bd_info->bi_db_close( be, NULL );
+			be->be_flags &= ~SLAP_DBFLAG_OPEN;
 			if ( rc ) return rc;
 		}
 
@@ -372,14 +378,17 @@ int backend_shutdown( Backend *be )
 
 	/* close each backend database */
 	LDAP_STAILQ_FOREACH( be, &backendDB, be_next ) {
+		if ( SLAP_DBDISABLED( be ))
+			continue;
 		if ( be->bd_info->bi_db_close ) {
 			be->bd_info->bi_db_close( be, NULL );
+			be->be_flags &= ~SLAP_DBFLAG_OPEN;
 		}
 
 		if(rc != 0) {
 			Debug( LDAP_DEBUG_ANY,
 				"backend_close: bi_db_close %s failed!\n",
-				be->be_type, 0, 0 );
+				be->be_type );
 		}
 	}
 
@@ -398,10 +407,11 @@ int backend_shutdown( Backend *be )
 	/* close frontend, if required */
 	if ( frontendDB->bd_info->bi_db_close ) {
 		rc = frontendDB->bd_info->bi_db_close ( frontendDB, NULL );
+		frontendDB->be_flags &= ~SLAP_DBFLAG_OPEN;
 		if ( rc != 0 ) {
 			Debug( LDAP_DEBUG_ANY,
 				"backend_startup: bi_db_close(frontend) failed! (%d)\n",
-				rc, 0, 0 );
+				rc );
 		}
 	}
 
@@ -420,18 +430,15 @@ int backend_shutdown( Backend *be )
 void
 backend_stopdown_one( BackendDB *bd )
 {
-	if ( bd->be_pending_csn_list ) {
-		struct slap_csn_entry *csne;
-		csne = LDAP_TAILQ_FIRST( bd->be_pending_csn_list );
-		while ( csne ) {
-			struct slap_csn_entry *tmp_csne = csne;
+	struct slap_csn_entry *csne;
+	csne = LDAP_TAILQ_FIRST( &bd->be_pcsn_st.be_pcsn_list );
+	while ( csne ) {
+		struct slap_csn_entry *tmp_csne = csne;
 
-			LDAP_TAILQ_REMOVE( bd->be_pending_csn_list, csne, ce_csn_link );
-			ch_free( csne->ce_csn.bv_val );
-			csne = LDAP_TAILQ_NEXT( csne, ce_csn_link );
-			ch_free( tmp_csne );
-		}
-		ch_free( bd->be_pending_csn_list );
+		LDAP_TAILQ_REMOVE( &bd->be_pcsn_st.be_pcsn_list, csne, ce_csn_link );
+		ch_free( csne->ce_csn.bv_val );
+		csne = LDAP_TAILQ_NEXT( csne, ce_csn_link );
+		ch_free( tmp_csne );
 	}
 
 	if ( bd->bd_info->bi_db_destroy ) {
@@ -474,7 +481,7 @@ void backend_destroy_one( BackendDB *bd, int dynamic )
 		ber_bvarray_free( bd->be_update_refs );
 	}
 
-	ldap_pvt_thread_mutex_destroy( &bd->be_pcl_mutex );
+	ldap_pvt_thread_mutex_destroy( &bd->be_pcsn_st.be_pcsn_mutex );
 
 	if ( dynamic ) {
 		free( bd );
@@ -611,7 +618,8 @@ backend_db_init(
 	be->be_requires = frontendDB->be_requires;
 	be->be_ssf_set = frontendDB->be_ssf_set;
 
-	ldap_pvt_thread_mutex_init( &be->be_pcl_mutex );
+	ldap_pvt_thread_mutex_init( &be->be_pcsn_st.be_pcsn_mutex );
+	be->be_pcsn_p = &be->be_pcsn_st;
 
  	/* assign a default depth limit for alias deref */
 	be->be_max_deref_depth = SLAPD_DEFAULT_MAXDEREFDEPTH; 
@@ -625,7 +633,7 @@ backend_db_init(
 		/* If we created and linked this be, remove it and free it */
 		if ( !b0 ) {
 			LDAP_STAILQ_REMOVE(&backendDB, be, BackendDB, be_next);
-			ldap_pvt_thread_mutex_destroy( &be->be_pcl_mutex );
+			ldap_pvt_thread_mutex_destroy( &be->be_pcsn_st.be_pcsn_mutex );
 			ch_free( be );
 			be = NULL;
 			nbackends--;
@@ -647,6 +655,7 @@ be_db_close( void )
 	LDAP_STAILQ_FOREACH( be, &backendDB, be_next ) {
 		if ( be->bd_info->bi_db_close ) {
 			be->bd_info->bi_db_close( be, NULL );
+			be->be_flags &= ~SLAP_DBFLAG_OPEN;
 		}
 	}
 
@@ -666,7 +675,7 @@ select_backend(
 	Backend		*be;
 
 	LDAP_STAILQ_FOREACH( be, &backendDB, be_next ) {
-		if ( be->be_nsuffix == NULL || SLAP_DBHIDDEN( be )) {
+		if ( be->be_nsuffix == NULL || SLAP_DBHIDDEN( be ) || SLAP_DBDISABLED( be )) {
 			continue;
 		}
 
@@ -875,6 +884,69 @@ send_result:;
 	return rc;
 }
 
+/* Inlined in proto-slap.h, sans assertions, when !(USE_RS_ASSERT) */
+int
+(slap_bi_op)(
+	BackendInfo *bi,
+	slap_operation_t which,
+	Operation *op,
+	SlapReply *rs )
+{
+	int rc;
+#ifndef slap_bi_op
+	void (*rsCheck)( const SlapReply *rs ) =
+		which < op_aux_operational ? rs_assert_ready : rs_assert_ok;
+#else
+#	define rsCheck(rs) ((void) 0)
+#endif
+	BI_op_func *fn;
+
+	assert( bi != NULL );
+	assert( (unsigned) which < (unsigned) op_last );
+
+	fn = (&bi->bi_op_bind)[ which ];
+
+	assert( op != NULL );
+	assert( rs != NULL );
+	assert( fn != 0 );
+	rsCheck( rs );
+
+	rc = fn( op, rs );
+
+#ifndef slap_bi_op
+	if ( rc != SLAP_CB_CONTINUE && rc != SLAP_CB_BYPASS ) {
+		int err = rs->sr_err;
+
+		if ( 0 )	/* TODO */
+		if ( err == LDAP_COMPARE_TRUE || err == LDAP_COMPARE_FALSE ) {
+			assert( which == op_compare );
+			assert( rc == LDAP_SUCCESS );
+		}
+
+		rsCheck = which < op_extended ? rs_assert_done : rs_assert_ok;
+		if ( which == op_aux_chk_referrals ) {
+			if      ( rc == LDAP_SUCCESS  ) rsCheck = rs_assert_ready;
+			else if ( rc == LDAP_REFERRAL ) rsCheck = rs_assert_done;
+		} else if ( which == op_bind ) {
+			if      ( rc == LDAP_SUCCESS  ) rsCheck = rs_assert_ok;
+		}
+
+		/* TODO: Just what is the relation between rc and rs->sr_err? */
+		if ( rc != err &&
+			(rc != LDAP_SUCCESS ||
+			 (err != LDAP_COMPARE_TRUE && err != LDAP_COMPARE_FALSE)) )
+		{
+			rs->sr_err = rc;
+			rsCheck( rs );
+			rs->sr_err = err;
+		}
+	}
+	rsCheck( rs );
+#endif
+
+	return rc;
+}
+
 int
 be_entry_release_rw(
 	Operation *op,
@@ -955,12 +1027,12 @@ backend_check_controls(
 					/* should not be reachable */ 
 					Debug( LDAP_DEBUG_ANY, "backend_check_controls: "
 						"unrecognized critical control: %s\n",
-						(*ctrls)->ldctl_oid, 0, 0 );
+						(*ctrls)->ldctl_oid );
 					assert( 0 );
 				} else {
 					Debug( LDAP_DEBUG_TRACE, "backend_check_controls: "
 						"unrecognized non-critical control: %s\n",
-						(*ctrls)->ldctl_oid, 0, 0 );
+						(*ctrls)->ldctl_oid );
 				}
 				break;
 
@@ -992,7 +1064,7 @@ backend_check_controls(
 				/* unreachable */
 				Debug( LDAP_DEBUG_ANY,
 					"backend_check_controls: unable to check control: %s\n",
-					(*ctrls)->ldctl_oid, 0, 0 );
+					(*ctrls)->ldctl_oid );
 				assert( 0 );
 
 				rs->sr_text = "unable to check control";
@@ -1500,7 +1572,7 @@ fe_acl_group(
 					 * or if filter parsing fails.
 					 * In the latter case,
 					 * we should give up. */
-					if ( ludp->lud_filter != NULL && ludp->lud_filter != '\0') {
+					if ( ludp->lud_filter != NULL && *ludp->lud_filter != '\0') {
 						filter = str2filter_x( op, ludp->lud_filter );
 						if ( filter == NULL ) {
 							/* give up... */
@@ -1521,7 +1593,7 @@ fe_acl_group(
 							if ( rc2 != 0 ) {
 								/* give up... */
 								rc = (rc2 == LDAP_NO_SUCH_OBJECT) ? rc2 : LDAP_OTHER;
-								goto loopit;
+								goto nouser;
 							}
 						}
 
@@ -1530,6 +1602,7 @@ fe_acl_group(
 						{
 							rc = 0;
 						}
+nouser:
 						filter_free_x( op, filter, 1 );
 					}
 loopit:

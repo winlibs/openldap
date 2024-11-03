@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2004-2018 The OpenLDAP Foundation.
+ * Copyright 2004-2024 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -141,7 +141,7 @@ denyop_config(
 			Debug( LDAP_DEBUG_ANY, "%s: line %d: "
 				"operation list missing in "
 				"\"denyop <op-list>\" line.\n",
-				fname, lineno, 0 );
+				fname, lineno );
 			return( 1 );
 		}
 
@@ -229,6 +229,7 @@ denyop_initialize( void )
 {
 	memset( &denyop, 0, sizeof( slap_overinst ) );
 	denyop.on_bi.bi_type = "denyop";
+	denyop.on_bi.bi_flags = SLAPO_BFLAG_SINGLE;
 	denyop.on_bi.bi_db_init = denyop_over_init;
 	denyop.on_bi.bi_db_config = denyop_config;
 	denyop.on_bi.bi_db_destroy = denyop_destroy;

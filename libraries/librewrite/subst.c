@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2000-2018 The OpenLDAP Foundation.
+ * Copyright 2000-2024 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -32,7 +32,7 @@ rewrite_subst_compile(
 {
 	size_t subs_len;
 	struct berval *subs = NULL, *tmps;
-	struct rewrite_submatch *submatch = NULL;
+	struct rewrite_submatch *submatch = NULL, *tmpsm;
 
 	struct rewrite_subst *s = NULL;
 
@@ -71,7 +71,16 @@ rewrite_subst_compile(
 			goto cleanup;
 		}
 		subs = tmps;
-		
+		subs[ nsub ].bv_val = NULL;
+
+		tmpsm = ( struct rewrite_submatch * )realloc( submatch,
+				sizeof( struct rewrite_submatch )*( nsub + 1 ) );
+		if ( tmpsm == NULL ) {
+			goto cleanup;
+		}
+		submatch = tmpsm;
+		submatch[ nsub ].ls_map = NULL;
+
 		/*
 		 * I think an `if l > 0' at runtime is better outside than
 		 * inside a function call ...
@@ -95,19 +104,12 @@ rewrite_subst_compile(
 		 * Substitution pattern
 		 */
 		if ( isdigit( (unsigned char) p[ 1 ] ) ) {
-			struct rewrite_submatch *tmpsm;
 			int d = p[ 1 ] - '0';
 
 			/*
 			 * Add a new value substitution scheme
 			 */
 
-			tmpsm = ( struct rewrite_submatch * )realloc( submatch,
-					sizeof( struct rewrite_submatch )*( nsub + 1 ) );
-			if ( tmpsm == NULL ) {
-				goto cleanup;
-			}
-			submatch = tmpsm;
 			submatch[ nsub ].ls_submatch = d;
 
 			/*
@@ -140,7 +142,6 @@ rewrite_subst_compile(
 		 */
 		} else if ( p[ 1 ] == '{' ) {
 			struct rewrite_map *map;
-			struct rewrite_submatch *tmpsm;
 
 			map = rewrite_map_parse( info, p + 2,
 					(const char **)&begin );
@@ -152,13 +153,6 @@ rewrite_subst_compile(
 			/*
 			 * Add a new value substitution scheme
 			 */
-			tmpsm = ( struct rewrite_submatch * )realloc( submatch,
-					sizeof( struct rewrite_submatch )*( nsub + 1 ) );
-			if ( tmpsm == NULL ) {
-				rewrite_map_destroy( &map );
-				goto cleanup;
-			}
-			submatch = tmpsm;
 			submatch[ nsub ].ls_type =
 				REWRITE_SUBMATCH_MAP_W_ARG;
 			submatch[ nsub ].ls_map = map;
@@ -357,7 +351,7 @@ rewrite_subst_apply(
 			break;
 
 		default:
-			Debug( LDAP_DEBUG_ANY, "Not Implemented\n", 0, 0, 0 );
+			Debug( LDAP_DEBUG_ANY, "Not Implemented\n" );
 			rc = REWRITE_ERR;
 			break;
 		}

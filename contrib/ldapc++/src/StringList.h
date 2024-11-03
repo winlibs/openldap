@@ -1,6 +1,6 @@
 // $OpenLDAP$
 /*
- * Copyright 2000-2018 The OpenLDAP Foundation, All Rights Reserved.
+ * Copyright 2000-2024 The OpenLDAP Foundation, All Rights Reserved.
  * COPYING RESTRICTIONS APPLY, see COPYRIGHT file
  */
 
@@ -35,7 +35,7 @@ class StringList{
          * For internal use only
          *
          * This constructor is used by the library internally to create a
-         * list of string from a array for c-Strings (char*)thar was
+         * list of string from an array for c-Strings (char*)that was
          * returned by the C-API
          */
         StringList(char** values);

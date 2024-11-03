@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2003-2018 The OpenLDAP Foundation.
+ * Copyright 2003-2024 The OpenLDAP Foundation.
  * Portions Copyright 2003 IBM Corporation.
  * All rights reserved.
  *
@@ -50,13 +50,13 @@ slap_get_commit_csn(
 		*foundit = 0;
 	}
 
-	ldap_pvt_thread_mutex_lock( &be->be_pcl_mutex );
-
 	if ( !BER_BVISEMPTY( &op->o_csn )) {
 		sid = slap_parse_csn_sid( &op->o_csn );
 	}
 
-	LDAP_TAILQ_FOREACH( csne, be->be_pending_csn_list, ce_csn_link ) {
+	ldap_pvt_thread_mutex_lock( &be->be_pcsn_p->be_pcsn_mutex );
+
+	LDAP_TAILQ_FOREACH( csne, &be->be_pcsn_p->be_pcsn_list, ce_csn_link ) {
 		if ( csne->ce_op == op ) {
 			csne->ce_state = SLAP_CSN_COMMIT;
 			if ( foundit ) *foundit = 1;
@@ -64,7 +64,7 @@ slap_get_commit_csn(
 		}
 	}
 
-	LDAP_TAILQ_FOREACH( csne, be->be_pending_csn_list, ce_csn_link ) {
+	LDAP_TAILQ_FOREACH( csne, &be->be_pcsn_p->be_pcsn_list, ce_csn_link ) {
 		if ( sid != -1 && sid == csne->ce_sid ) {
 			if ( csne->ce_state == SLAP_CSN_COMMIT ) committed_csne = csne;
 			if ( csne->ce_state == SLAP_CSN_PENDING ) break;
@@ -82,7 +82,7 @@ slap_get_commit_csn(
 			maxcsn->bv_val[0] = 0;
 		}
 	}
-	ldap_pvt_thread_mutex_unlock( &be->be_pcl_mutex );
+	ldap_pvt_thread_mutex_unlock( &be->be_pcsn_p->be_pcsn_mutex );
 }
 
 void
@@ -91,16 +91,16 @@ slap_rewind_commit_csn( Operation *op )
 	struct slap_csn_entry *csne;
 	BackendDB *be = op->o_bd->bd_self;
 
-	ldap_pvt_thread_mutex_lock( &be->be_pcl_mutex );
+	ldap_pvt_thread_mutex_lock( &be->be_pcsn_p->be_pcsn_mutex );
 
-	LDAP_TAILQ_FOREACH( csne, be->be_pending_csn_list, ce_csn_link ) {
+	LDAP_TAILQ_FOREACH( csne, &be->be_pcsn_p->be_pcsn_list, ce_csn_link ) {
 		if ( csne->ce_op == op ) {
 			csne->ce_state = SLAP_CSN_PENDING;
 			break;
 		}
 	}
 
-	ldap_pvt_thread_mutex_unlock( &be->be_pcl_mutex );
+	ldap_pvt_thread_mutex_unlock( &be->be_pcsn_p->be_pcsn_mutex );
 }
 
 void
@@ -113,14 +113,14 @@ slap_graduate_commit_csn( Operation *op )
 	if ( op->o_bd == NULL ) return;
 	be = op->o_bd->bd_self;
 
-	ldap_pvt_thread_mutex_lock( &be->be_pcl_mutex );
+	ldap_pvt_thread_mutex_lock( &be->be_pcsn_p->be_pcsn_mutex );
 
-	LDAP_TAILQ_FOREACH( csne, be->be_pending_csn_list, ce_csn_link ) {
+	LDAP_TAILQ_FOREACH( csne, &be->be_pcsn_p->be_pcsn_list, ce_csn_link ) {
 		if ( csne->ce_op == op ) {
-			LDAP_TAILQ_REMOVE( be->be_pending_csn_list,
+			LDAP_TAILQ_REMOVE( &be->be_pcsn_p->be_pcsn_list,
 				csne, ce_csn_link );
 			Debug( LDAP_DEBUG_SYNC, "slap_graduate_commit_csn: removing %p %s\n",
-				csne, csne->ce_csn.bv_val, 0 );
+				csne, csne->ce_csn.bv_val );
 			if ( op->o_csn.bv_val == csne->ce_csn.bv_val ) {
 				BER_BVZERO( &op->o_csn );
 			}
@@ -130,7 +130,7 @@ slap_graduate_commit_csn( Operation *op )
 		}
 	}
 
-	ldap_pvt_thread_mutex_unlock( &be->be_pcl_mutex );
+	ldap_pvt_thread_mutex_unlock( &be->be_pcsn_p->be_pcsn_mutex );
 
 	return;
 }
@@ -186,18 +186,18 @@ slap_queue_csn(
 	pending = (struct slap_csn_entry *) ch_calloc( 1,
 			sizeof( struct slap_csn_entry ));
 
-	Debug( LDAP_DEBUG_SYNC, "slap_queue_csn: queueing %p %s\n", pending, csn->bv_val, 0 );
-
-	ldap_pvt_thread_mutex_lock( &be->be_pcl_mutex );
+	Debug( LDAP_DEBUG_SYNC, "slap_queue_csn: queueing %p %s\n", pending, csn->bv_val );
 
 	ber_dupbv( &pending->ce_csn, csn );
 	ber_bvreplace_x( &op->o_csn, &pending->ce_csn, op->o_tmpmemctx );
 	pending->ce_sid = slap_parse_csn_sid( csn );
 	pending->ce_op = op;
 	pending->ce_state = SLAP_CSN_PENDING;
-	LDAP_TAILQ_INSERT_TAIL( be->be_pending_csn_list,
+
+	ldap_pvt_thread_mutex_lock( &be->be_pcsn_p->be_pcsn_mutex );
+	LDAP_TAILQ_INSERT_TAIL( &be->be_pcsn_p->be_pcsn_list,
 		pending, ce_csn_link );
-	ldap_pvt_thread_mutex_unlock( &be->be_pcl_mutex );
+	ldap_pvt_thread_mutex_unlock( &be->be_pcsn_p->be_pcsn_mutex );
 }
 
 int
@@ -209,6 +209,8 @@ slap_get_csn(
 	if ( csn == NULL ) return LDAP_OTHER;
 
 	csn->bv_len = ldap_pvt_csnstr( csn->bv_val, csn->bv_len, slap_serverID, 0 );
+	Debug( LDAP_DEBUG_SYNC, "slap_get_csn: %s generated new csn=%s manage=%d\n",
+		op->o_log_prefix, csn->bv_val, manage_ctxcsn );
 	if ( manage_ctxcsn )
 		slap_queue_csn( op, csn );
 

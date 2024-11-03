@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2018 The OpenLDAP Foundation.
+ * Copyright 1998-2024 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -43,7 +43,11 @@ static int last_incr;
 
 void slap_op_init(void)
 {
+	struct timeval tv;
 	ldap_pvt_thread_mutex_init( &slap_op_mutex );
+	gettimeofday( &tv, NULL );
+	last_time = tv.tv_sec;
+	last_incr = tv.tv_usec;
 }
 
 void slap_op_destroy(void)
@@ -159,8 +163,10 @@ slap_op_free( Operation *op, void *ctx )
 void
 slap_op_time(time_t *t, int *nop)
 {
+	struct timeval tv;
 	ldap_pvt_thread_mutex_lock( &slap_op_mutex );
-	*t = slap_get_time();
+	gettimeofday( &tv, NULL );
+	*t = tv.tv_sec;
 	if ( *t == last_time ) {
 		*nop = ++last_incr;
 	} else {
@@ -169,6 +175,7 @@ slap_op_time(time_t *t, int *nop)
 		*nop = 0;
 	}
 	ldap_pvt_thread_mutex_unlock( &slap_op_mutex );
+	nop[1] = tv.tv_usec;
 }
 
 Operation *

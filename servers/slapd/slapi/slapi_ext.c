@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2003-2018 The OpenLDAP Foundation.
+ * Copyright 2003-2024 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -295,7 +295,7 @@ int slapi_int_free_object_extensions(int objecttype, void *object)
 
 	eblock = (struct slapi_extension_block *)*peblock;
 
-	if ( eblock->extensions != NULL ) {
+	if ( eblock != NULL && eblock->extensions != NULL ) {
 		for ( i = registered_extensions.extensions[objecttype].count - 1; i >= 0; --i ) {
 			free_extension( eblock, objecttype, object, parent, i );
 		}

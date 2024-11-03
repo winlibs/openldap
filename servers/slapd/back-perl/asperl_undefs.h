@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1999-2018 The OpenLDAP Foundation.
+ * Copyright 1999-2024 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -18,7 +18,7 @@
 
 /* This file is necessary because both PERL headers */
 /* and OpenLDAP define a number of macros without   */
-/* checking wether they're already defined */
+/* checking whether they're already defined */
 
 #ifndef ASPERL_UNDEFS_H
 #define ASPERL_UNDEFS_H

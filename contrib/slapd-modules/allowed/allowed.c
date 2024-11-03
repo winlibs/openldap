@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2006-2018 The OpenLDAP Foundation.
+ * Copyright 2006-2024 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,7 +27,7 @@
  * Caveats:
  * - right now, the overlay assumes that all values of the objectClass
  *   attribute will be returned in rs->sr_entry; this may not be true
- *   in general, but it usually is for back-bdb/back-hdb.  To generalize,
+ *   in general, but it usually is for back-mdb.  To generalize,
  *   the search request should be analyzed, and if allowedAttributes or
  *   allowedAttributesEffective are requested, add objectClass to the
  *   requested attributes
@@ -277,10 +277,10 @@ aa_operational( Operation *op, SlapReply *rs )
 			/* just count */ ;
 	
 		if ( got & GOT_A ) {
-			bv_allowed = ber_memalloc( sizeof( struct berval ) * ( i + 1 ) );
+			bv_allowed = ch_calloc( i + 1,  sizeof( struct berval ) );
 		}
 		if ( got & GOT_AE ) {
-			bv_effective = ber_memalloc( sizeof( struct berval ) * ( i + 1 ) );
+			bv_effective = ch_calloc( i + 1, sizeof( struct berval ) );
 		}
 
 		for ( i = 0, ja = 0, je = 0; atp[ i ] != NULL; i++ ) {
@@ -310,7 +310,6 @@ aa_operational( Operation *op, SlapReply *rs )
 		ch_free( atp );
 
 		if ( ( got & GOT_A ) && ja > 0 ) {
-			BER_BVZERO( &bv_allowed[ ja ] );
 			*ap = attr_alloc( ad_allowedAttributes );
 			(*ap)->a_vals = bv_allowed;
 			(*ap)->a_nvals = bv_allowed;
@@ -319,7 +318,6 @@ aa_operational( Operation *op, SlapReply *rs )
 		}
 
 		if ( ( got & GOT_AE ) && je > 0 ) {
-			BER_BVZERO( &bv_effective[ je ] );
 			*ap = attr_alloc( ad_allowedAttributesEffective );
 			(*ap)->a_vals = bv_effective;
 			(*ap)->a_nvals = bv_effective;
@@ -338,7 +336,7 @@ do_oc:;
 
 		ObjectClass	*oc;
 
-		for ( oc_start( &oc ); oc != NULL; oc_next( &oc ) ) {
+		for ( i = 0, oc_start( &oc ); oc != NULL; oc_next( &oc ) ) {
 			/* we can only add AUXILIARY objectClasses */
 			if ( oc->soc_kind != LDAP_SCHEMA_AUXILIARY ) {
 				continue;
@@ -348,10 +346,10 @@ do_oc:;
 		}
 
 		if ( got & GOT_C ) {
-			bv_allowed = ber_memalloc( sizeof( struct berval ) * ( i + 1 ) );
+			bv_allowed = ch_calloc( i + 1,  sizeof( struct berval ) );
 		}
 		if ( got & GOT_CE ) {
-			bv_effective = ber_memalloc( sizeof( struct berval ) * ( i + 1 ) );
+			bv_effective = ch_calloc( i + 1, sizeof( struct berval ) );
 		}
 
 		for ( oc_start( &oc ); oc != NULL; oc_next( &oc ) ) {
@@ -398,7 +396,6 @@ done_ce:;
 		}
 
 		if ( ( got & GOT_C ) && ja > 0 ) {
-			BER_BVZERO( &bv_allowed[ ja ] );
 			*ap = attr_alloc( ad_allowedChildClasses );
 			(*ap)->a_vals = bv_allowed;
 			(*ap)->a_nvals = bv_allowed;
@@ -407,7 +404,6 @@ done_ce:;
 		}
 
 		if ( ( got & GOT_CE ) && je > 0 ) {
-			BER_BVZERO( &bv_effective[ je ] );
 			*ap = attr_alloc( ad_allowedChildClassesEffective );
 			(*ap)->a_vals = bv_effective;
 			(*ap)->a_nvals = bv_effective;
@@ -462,7 +458,7 @@ register_at( char *def, AttributeDescription **rad, int dupok )
 	}
 	if ( code ) {
 		Debug( LDAP_DEBUG_ANY, "register_at: AttributeType \"%s\": %s\n",
-			def, err, 0 );
+			def, err );
 	}
 	if ( rad ) *rad = ad;
 	return code;
@@ -479,6 +475,7 @@ aa_initialize( void )
 
 	aa.on_bi.bi_type = "allowed";
 
+	aa.on_bi.bi_flags = SLAPO_BFLAG_SINGLE;
 	aa.on_bi.bi_operational = aa_operational;
 
 	/* aa schema integration */
@@ -488,7 +485,7 @@ aa_initialize( void )
 		code = register_at( aa_attrs[i].at, aa_attrs[i].ad, 0 );
 		if ( code ) {
 			Debug( LDAP_DEBUG_ANY,
-				"aa_initialize: register_at failed\n", 0, 0, 0 );
+				"aa_initialize: register_at failed\n" );
 			return -1;
 		}
 	}

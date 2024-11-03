@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2000-2018 The OpenLDAP Foundation.
+ * Copyright 2000-2024 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -36,9 +36,14 @@
 #define LDAP_DEFINE_LDAP_DEBUG
 #include <ldap_log.h>
 #include <lutil.h>
-#include <avl.h>
+#include <ldap_avl.h>
 
 #include <rewrite.h>
+
+#ifndef NO_THREADS
+#define USE_REWRITE_LDAP_PVT_THREADS
+#include <ldap_pvt_thread.h>
+#endif
 
 #define malloc(x)	ber_memalloc(x)
 #define calloc(x,y)	ber_memcalloc(x,y)
@@ -46,10 +51,6 @@
 #define free(x)	ber_memfree(x)
 #undef strdup
 #define	strdup(x)	ber_strdup(x)
-
-/* Uncomment to use ldap pvt threads */
-#define USE_REWRITE_LDAP_PVT_THREADS
-#include <ldap_pvt_thread.h>
 
 /*
  * For details, see RATIONALE.

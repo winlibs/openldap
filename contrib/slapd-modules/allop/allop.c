@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2005-2018 The OpenLDAP Foundation.
+ * Copyright 2005-2024 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -39,7 +39,7 @@ allop-URI	<ldapURI>
 #include <ac/string.h>
 
 #include "slap.h"
-#include "config.h"
+#include "slap-config.h"
 
 #define	SLAP_OVER_VERSION_REQUIRE(major,minor,patch) \
 	( \
@@ -245,6 +245,7 @@ allop_init()
 {
 	allop.on_bi.bi_type = "allop";
 
+	allop.on_bi.bi_flags = SLAPO_BFLAG_SINGLE;
 	allop.on_bi.bi_db_config = allop_db_config;
 	allop.on_bi.bi_db_destroy = allop_db_destroy;
 

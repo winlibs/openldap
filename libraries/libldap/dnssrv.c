@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2018 The OpenLDAP Foundation.
+ * Copyright 1998-2024 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -216,35 +216,26 @@ static void srv_shuffle(srv_record *a, int n) {
 	for (i=0; i<n; i++)
 		total += a[i].weight;
 
-	/* all weights are zero, do a straight Fisher-Yates shuffle */
-	if (!total) {
-		while (n) {
-			srv_record t;
-			i = srv_rand() * n--;
-			t = a[n];
-			a[n] = a[i];
-			a[i] = t;
-		}
-		return;
-	}
-
 	/* Do a shuffle per RFC2782 Page 4 */
-	p = n;
-	for (i=0; i<n-1; i++) {
-		r = srv_rand() * total;
-		for (j=0; j<p; j++) {
-			r -= a[j].weight;
-			if (r <= 0) {
-				if (j) {
-					srv_record t = a[0];
-					a[0] = a[j];
-					a[j] = t;
+	for (p=n; p>1; a++, p--) {
+		if (!total) {
+			/* all remaining weights are zero,
+			   do a straight Fisher-Yates shuffle */
+			j = srv_rand() * p;
+		} else {
+			r = srv_rand() * total;
+			for (j=0; j<p; j++) {
+				r -= a[j].weight;
+				if (r < 0) {
+					total -= a[j].weight;
+					break;
 				}
-				total -= a[0].weight;
-				a++;
-				p--;
-				break;
 			}
+		}
+		if (j && j<p) {
+			srv_record t = a[0];
+			a[0] = a[j];
+			a[j] = t;
 		}
 	}
 }

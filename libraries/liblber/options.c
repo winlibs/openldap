@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2018 The OpenLDAP Foundation.
+ * Copyright 1998-2024 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -49,7 +49,7 @@ ber_get_option(
 			return LBER_OPT_SUCCESS;
 
 		case LBER_OPT_MEMORY_INUSE:
-			/* The memory inuse is a global variable on kernal implementations.
+			/* The memory inuse is a global variable on kernel implementations.
 			 * This means that memory debug is shared by all LDAP processes
 			 * so for this variable to have much meaning, only one LDAP process
 			 * should be running and memory inuse should be initialized to zero
@@ -65,6 +65,10 @@ ber_get_option(
 
 		case LBER_OPT_LOG_PRINT_FILE:
 			*((FILE**)outvalue) = (FILE*)ber_pvt_err_file;
+			return LBER_OPT_SUCCESS;
+
+		case LBER_OPT_LOG_PRINT_FN:
+			*(BER_LOG_PRINT_FN *)outvalue = ber_pvt_log_print;
 			return LBER_OPT_SUCCESS;
 		}
 
@@ -145,7 +149,7 @@ ber_set_option(
 			return LBER_OPT_SUCCESS;
 
 		case LBER_OPT_MEMORY_INUSE:
-			/* The memory inuse is a global variable on kernal implementations.
+			/* The memory inuse is a global variable on kernel implementations.
 			 * This means that memory debug is shared by all LDAP processes
 			 * so for this variable to have much meaning, only one LDAP process
 			 * should be running and memory inuse should be initialized to zero

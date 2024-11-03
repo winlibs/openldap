@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2018 The OpenLDAP Foundation.
+ * Copyright 1998-2024 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -109,6 +109,7 @@ struct berval * UTF8bvnormalize(
 	void *ctx )
 {
 	int i, j, len, clen, outpos, ucsoutlen, outsize, last;
+	int didnewbv = 0;
 	char *out, *outtmp, *s;
 	ac_uint4 *ucs, *p, *ucsout;
 
@@ -132,6 +133,7 @@ struct berval * UTF8bvnormalize(
 	if ( !newbv ) {
 		newbv = ber_memalloc_x( sizeof(struct berval), ctx );
 		if ( !newbv ) return NULL;
+		didnewbv = 1;
 	}
 
 	/* Should first check to see if string is already in proper
@@ -145,6 +147,9 @@ struct berval * UTF8bvnormalize(
 			outsize = len + 7;
 			out = (char *) ber_memalloc_x( outsize, ctx );
 			if ( out == NULL ) {
+fail:
+				if ( didnewbv )
+					ber_memfree_x( newbv, ctx );
 				return NULL;
 			}
 			outpos = 0;
@@ -171,7 +176,7 @@ struct berval * UTF8bvnormalize(
 			outsize = len + 7;
 			out = (char *) ber_memalloc_x( outsize, ctx );
 			if ( out == NULL ) {
-				return NULL;
+				goto fail;
 			}
 			outpos = i - 1;
 			memcpy(out, s, outpos);
@@ -180,7 +185,7 @@ struct berval * UTF8bvnormalize(
 		outsize = len + 7;
 		out = (char *) ber_memalloc_x( outsize, ctx );
 		if ( out == NULL ) {
-			return NULL;
+			goto fail;
 		}
 		outpos = 0;
 		i = 0;
@@ -189,7 +194,7 @@ struct berval * UTF8bvnormalize(
 	p = ucs = ber_memalloc_x( len * sizeof(*ucs), ctx );
 	if ( ucs == NULL ) {
 		ber_memfree_x(out, ctx);
-		return NULL;
+		goto fail;
 	}
 
 	/* convert character before first non-ascii to ucs-4 */
@@ -207,7 +212,7 @@ struct berval * UTF8bvnormalize(
 			if ( clen == 0 ) {
 				ber_memfree_x( ucs, ctx );
 				ber_memfree_x( out, ctx );
-				return NULL;
+				goto fail;
 			}
 			if ( clen == 1 ) {
 				/* ascii */
@@ -219,7 +224,7 @@ struct berval * UTF8bvnormalize(
 				if ( (s[i] & 0xc0) != 0x80 ) {
 					ber_memfree_x( ucs, ctx );
 					ber_memfree_x( out, ctx );
-					return NULL;
+					goto fail;
 				}
 				*p <<= 6;
 				*p |= s[i] & 0x3f;
@@ -235,6 +240,17 @@ struct berval * UTF8bvnormalize(
 		if ( approx ) {
 			for ( j = 0; j < ucsoutlen; j++ ) {
 				if ( ucsout[j] < 0x80 ) {
+					if ( outpos >= outsize ) {
+						outsize += ( ucsoutlen - j ) + 1;
+						outtmp = (char *) ber_memrealloc_x( out, outsize, ctx );
+						if ( outtmp == NULL ) {
+							ber_memfree_x( ucsout, ctx );
+							ber_memfree_x( ucs, ctx );
+							ber_memfree_x( out, ctx );
+							goto fail;
+						}
+						out = outtmp;
+					}
 					out[outpos++] = ucsout[j];
 				}
 			}
@@ -251,7 +267,7 @@ struct berval * UTF8bvnormalize(
 						ber_memfree_x( ucsout, ctx );
 						ber_memfree_x( ucs, ctx );
 						ber_memfree_x( out, ctx );
-						return NULL;
+						goto fail;
 					}
 					out = outtmp;
 				}
@@ -275,7 +291,7 @@ struct berval * UTF8bvnormalize(
 			if (outtmp == NULL) {
 				ber_memfree_x( ucs, ctx );
 				ber_memfree_x( out, ctx );
-				return NULL;
+				goto fail;
 			}
 			out = outtmp;
 		}

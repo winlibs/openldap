@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2018 The OpenLDAP Foundation.
+ * Copyright 1998-2024 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -100,9 +100,9 @@ ldap_back_map_init ( struct ldapmap *lm, struct ldapmapping **m )
 	mapping[1].src = mapping[0].src;
 	mapping[1].dst = mapping[0].dst;
 
-	avl_insert( &lm->map, (caddr_t)&mapping[0], 
+	ldap_avl_insert( &lm->map, (caddr_t)&mapping[0], 
 			mapping_cmp, mapping_dup );
-	avl_insert( &lm->remap, (caddr_t)&mapping[1], 
+	ldap_avl_insert( &lm->remap, (caddr_t)&mapping[1], 
 			mapping_cmp, mapping_dup );
 	*m = mapping;
 }
@@ -133,7 +133,7 @@ ldap_back_mapping ( struct ldapmap *map, struct berval *s, struct ldapmapping **
 	}
 
 	fmapping.src = *s;
-	*m = (struct ldapmapping *)avl_find( tree, (caddr_t)&fmapping, mapping_cmp );
+	*m = (struct ldapmapping *)ldap_avl_find( tree, (caddr_t)&fmapping, mapping_cmp );
 	if ( *m == NULL ) {
 		return map->drop_missing;
 	}
@@ -280,9 +280,7 @@ map_attr_value(
 	{
 		dncookie fdc = *dc;
 
-#ifdef ENABLE_REWRITE
 		fdc.ctx = "searchFilterAttrDN";
-#endif
 
 		switch ( ldap_back_dn_massage( &fdc, value, &vtmp ) ) {
 		case LDAP_SUCCESS:
@@ -381,6 +379,10 @@ ldap_back_int_filter_map_rewrite(
 		fstr->bv_len = atmp.bv_len + vtmp.bv_len
 			+ ( sizeof("(=)") - 1 );
 		fstr->bv_val = ber_memalloc_x( fstr->bv_len + 1, memctx );
+		if ( !fstr->bv_val ) {
+			ber_memfree_x( vtmp.bv_val, memctx );
+			return LDAP_NO_MEMORY;
+		}
 
 		snprintf( fstr->bv_val, fstr->bv_len + 1, "(%s=%s)",
 			atmp.bv_val, vtmp.bv_len ? vtmp.bv_val : "" );
@@ -398,6 +400,10 @@ ldap_back_int_filter_map_rewrite(
 		fstr->bv_len = atmp.bv_len + vtmp.bv_len
 			+ ( sizeof("(>=)") - 1 );
 		fstr->bv_val = ber_memalloc_x( fstr->bv_len + 1, memctx );
+		if ( !fstr->bv_val ) {
+			ber_memfree_x( vtmp.bv_val, memctx );
+			return LDAP_NO_MEMORY;
+		}
 
 		snprintf( fstr->bv_val, fstr->bv_len + 1, "(%s>=%s)",
 			atmp.bv_val, vtmp.bv_len ? vtmp.bv_val : "" );
@@ -415,6 +421,10 @@ ldap_back_int_filter_map_rewrite(
 		fstr->bv_len = atmp.bv_len + vtmp.bv_len
 			+ ( sizeof("(<=)") - 1 );
 		fstr->bv_val = ber_memalloc_x( fstr->bv_len + 1, memctx );
+		if ( !fstr->bv_val ) {
+			ber_memfree_x( vtmp.bv_val, memctx );
+			return LDAP_NO_MEMORY;
+		}
 
 		snprintf( fstr->bv_val, fstr->bv_len + 1, "(%s<=%s)",
 			atmp.bv_val, vtmp.bv_len ? vtmp.bv_val : "" );
@@ -432,6 +442,10 @@ ldap_back_int_filter_map_rewrite(
 		fstr->bv_len = atmp.bv_len + vtmp.bv_len
 			+ ( sizeof("(~=)") - 1 );
 		fstr->bv_val = ber_memalloc_x( fstr->bv_len + 1, memctx );
+		if ( !fstr->bv_val ) {
+			ber_memfree_x( vtmp.bv_val, memctx );
+			return LDAP_NO_MEMORY;
+		}
 
 		snprintf( fstr->bv_val, fstr->bv_len + 1, "(%s~=%s)",
 			atmp.bv_val, vtmp.bv_len ? vtmp.bv_val : "" );
@@ -450,17 +464,27 @@ ldap_back_int_filter_map_rewrite(
 
 		fstr->bv_len = atmp.bv_len + ( STRLENOF( "(=*)" ) );
 		fstr->bv_val = ber_memalloc_x( fstr->bv_len + 128, memctx ); /* FIXME: why 128 ? */
+		if ( !fstr->bv_val ) {
+			return LDAP_NO_MEMORY;
+		}
 
 		snprintf( fstr->bv_val, fstr->bv_len + 1, "(%s=*)",
 			atmp.bv_val );
 
 		if ( !BER_BVISNULL( &f->f_sub_initial ) ) {
+			char *tmp;
+
 			len = fstr->bv_len;
 
 			filter_escape_value_x( &f->f_sub_initial, &vtmp, memctx );
 
 			fstr->bv_len += vtmp.bv_len;
-			fstr->bv_val = ber_memrealloc_x( fstr->bv_val, fstr->bv_len + 1, memctx );
+			tmp = ber_memrealloc_x( fstr->bv_val, fstr->bv_len + 1, memctx );
+			if ( !tmp ) {
+				ber_memfree_x( vtmp.bv_val, memctx );
+				return LDAP_NO_MEMORY;
+			}
+			fstr->bv_val = tmp;
 
 			snprintf( &fstr->bv_val[len - 2], vtmp.bv_len + 3,
 				/* "(attr=" */ "%s*)",
@@ -471,11 +495,18 @@ ldap_back_int_filter_map_rewrite(
 
 		if ( f->f_sub_any != NULL ) {
 			for ( i = 0; !BER_BVISNULL( &f->f_sub_any[i] ); i++ ) {
+				char *tmp;
+
 				len = fstr->bv_len;
 				filter_escape_value_x( &f->f_sub_any[i], &vtmp, memctx );
 
 				fstr->bv_len += vtmp.bv_len + 1;
-				fstr->bv_val = ber_memrealloc_x( fstr->bv_val, fstr->bv_len + 1, memctx );
+				tmp = ber_memrealloc_x( fstr->bv_val, fstr->bv_len + 1, memctx );
+				if ( !tmp ) {
+					ber_memfree_x( vtmp.bv_val, memctx );
+					return LDAP_NO_MEMORY;
+				}
+				fstr->bv_val = tmp;
 
 				snprintf( &fstr->bv_val[len - 1], vtmp.bv_len + 3,
 					/* "(attr=[init]*[any*]" */ "%s*)",
@@ -485,12 +516,19 @@ ldap_back_int_filter_map_rewrite(
 		}
 
 		if ( !BER_BVISNULL( &f->f_sub_final ) ) {
+			char *tmp;
+
 			len = fstr->bv_len;
 
 			filter_escape_value_x( &f->f_sub_final, &vtmp, memctx );
 
 			fstr->bv_len += vtmp.bv_len;
-			fstr->bv_val = ber_memrealloc_x( fstr->bv_val, fstr->bv_len + 1, memctx );
+			tmp = ber_memrealloc_x( fstr->bv_val, fstr->bv_len + 1, memctx );
+			if ( !tmp ) {
+				ber_memfree_x( vtmp.bv_val, memctx );
+				return LDAP_NO_MEMORY;
+			}
+			fstr->bv_val = tmp;
 
 			snprintf( &fstr->bv_val[len - 1], vtmp.bv_len + 3,
 				/* "(attr=[init*][any*]" */ "%s)",
@@ -510,6 +548,9 @@ ldap_back_int_filter_map_rewrite(
 
 		fstr->bv_len = atmp.bv_len + ( STRLENOF( "(=*)" ) );
 		fstr->bv_val = ber_memalloc_x( fstr->bv_len + 1, memctx );
+		if ( !fstr->bv_val ) {
+			return LDAP_NO_MEMORY;
+		}
 
 		snprintf( fstr->bv_val, fstr->bv_len + 1, "(%s=*)",
 			atmp.bv_val );
@@ -537,6 +578,10 @@ ldap_back_int_filter_map_rewrite(
 			
 			fstr->bv_len += vtmp.bv_len;
 			fstr->bv_val = ber_memrealloc_x( fstr->bv_val, fstr->bv_len + 1, memctx );
+			if ( !fstr->bv_val ) {
+				ber_memfree_x( vtmp.bv_val, memctx );
+				return LDAP_NO_MEMORY;
+			}
 
 			snprintf( &fstr->bv_val[len-1], vtmp.bv_len + 2, 
 				/*"("*/ "%s)", vtmp.bv_len ? vtmp.bv_val : "" );
@@ -565,6 +610,10 @@ ldap_back_int_filter_map_rewrite(
 			( !BER_BVISEMPTY( &f->f_mr_rule_text ) ? f->f_mr_rule_text.bv_len + 1 : 0 ) +
 			vtmp.bv_len + ( STRLENOF( "(:=)" ) );
 		fstr->bv_val = ber_memalloc_x( fstr->bv_len + 1, memctx );
+		if ( !fstr->bv_val ) {
+			ber_memfree_x( vtmp.bv_val, memctx );
+			return LDAP_NO_MEMORY;
+		}
 
 		snprintf( fstr->bv_val, fstr->bv_len + 1, "(%s%s%s%s:=%s)",
 			atmp.bv_val,
@@ -633,7 +682,6 @@ ldap_back_filter_map_rewrite(
 
 	rc = ldap_back_int_filter_map_rewrite( dc, f, fstr, remap, memctx );
 
-#ifdef ENABLE_REWRITE
 	if ( rc != LDAP_SUCCESS ) {
 		return rc;
 	}
@@ -690,7 +738,6 @@ ldap_back_filter_map_rewrite(
 		ch_free( fstr->bv_val );
 		*fstr = ftmp;
 	}
-#endif /* ENABLE_REWRITE */
 
 	return rc;
 }

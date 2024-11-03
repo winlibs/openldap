@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2003-2018 The OpenLDAP Foundation.
+ * Copyright 2003-2024 The OpenLDAP Foundation.
  * Portions Copyright 2003 IBM Corporation.
  * Portions Copyright 2003-2009 Symas Corporation.
  * All rights reserved.
@@ -31,13 +31,12 @@
 #include "slap.h"
 #include "lutil.h"
 #include "ldap_rq.h"
-#include "avl.h"
+#include "ldap_avl.h"
 
 #include "../back-monitor/back-monitor.h"
 
-#include "config.h"
+#include "slap-config.h"
 
-#ifdef LDAP_DEVEL
 /*
  * Control that allows to access the private DB
  * instead of the public one
@@ -53,7 +52,6 @@
  * Monitoring
  */
 #define PCACHE_MONITOR
-#endif
 
 /* query cache structs */
 /* query */
@@ -67,7 +65,7 @@ typedef struct Query_s {
 struct query_template_s;
 
 typedef struct Qbase_s {
-	Avlnode *scopes[4];		/* threaded AVL trees of cached queries */
+	TAvlnode *scopes[4];		/* threaded AVL trees of cached queries */
 	struct berval base;
 	int queries;
 } Qbase;
@@ -87,6 +85,7 @@ typedef struct cached_query_s {
 	int						bind_refcnt;	/* number of bind operation referencing this query */
 	unsigned long			answerable_cnt; /* how many times it was answerable */
 	int						refcnt;	/* references since last refresh */
+	int						in_lru;	/* query is in LRU list */
 	ldap_pvt_thread_mutex_t		answerable_cnt_mutex;
 	struct cached_query_s  		*next;  	/* next query in the template */
 	struct cached_query_s  		*prev;  	/* previous query in the template */
@@ -1044,6 +1043,7 @@ add_query_on_top (query_manager* qm, CachedQuery* qc)
 {
 	CachedQuery* top = qm->lru_top;
 
+	qc->in_lru = 1;
 	qm->lru_top = qc;
 
 	if (top)
@@ -1054,7 +1054,7 @@ add_query_on_top (query_manager* qm, CachedQuery* qc)
 	qc->lru_down = top;
 	qc->lru_up = NULL;
 	Debug( pcache_debug, "Base of added query = %s\n",
-			qc->qbase->base.bv_val, 0, 0 );
+			qc->qbase->base.bv_val );
 }
 
 /* remove_query from LRU list */
@@ -1065,9 +1065,10 @@ remove_query (query_manager* qm, CachedQuery* qc)
 	CachedQuery* up;
 	CachedQuery* down;
 
-	if (!qc)
+	if (!qc || !qc->in_lru)
 		return;
 
+	qc->in_lru = 0;
 	up = qc->lru_up;
 	down = qc->lru_down;
 
@@ -1274,14 +1275,14 @@ typedef struct fstack {
 } fstack;
 
 static CachedQuery *
-find_filter( Operation *op, Avlnode *root, Filter *inputf, Filter *first )
+find_filter( Operation *op, TAvlnode *root, Filter *inputf, Filter *first )
 {
 	Filter* fs;
 	Filter* fi;
 	MatchingRule* mrule = NULL;
 	int res=0, eqpass= 0;
 	int ret, rc, dir;
-	Avlnode *ptr;
+	TAvlnode *ptr;
 	CachedQuery cq, *qc;
 	fstack *stack = NULL, *fsp;
 
@@ -1292,10 +1293,10 @@ find_filter( Operation *op, Avlnode *root, Filter *inputf, Filter *first )
 	 * walk the entire list.
 	 */
 	if ( first->f_choice == LDAP_FILTER_SUBSTRINGS ) {
-		ptr = tavl_end( root, 1 );
+		ptr = ldap_tavl_end( root, 1 );
 		dir = TAVL_DIR_LEFT;
 	} else {
-		ptr = tavl_find3( root, &cq, pcache_query_cmp, &ret );
+		ptr = ldap_tavl_find3( root, &cq, pcache_query_cmp, &ret );
 		dir = (first->f_choice == LDAP_FILTER_GE) ? TAVL_DIR_LEFT :
 			TAVL_DIR_RIGHT;
 	}
@@ -1319,7 +1320,7 @@ find_filter( Operation *op, Avlnode *root, Filter *inputf, Filter *first )
 			if ( eqpass == 0 ) {
 				if ( qc->first->f_choice != LDAP_FILTER_EQUALITY ) {
 nextpass:			eqpass = 1;
-					ptr = tavl_end( root, 1 );
+					ptr = ldap_tavl_end( root, 1 );
 					dir = TAVL_DIR_LEFT;
 					continue;
 				}
@@ -1428,7 +1429,7 @@ nextpass:			eqpass = 1;
 
 		if ( res )
 			return qc;
-		ptr = tavl_next( ptr, dir );
+		ptr = ldap_tavl_next( ptr, dir );
 	}
 	return NULL;
 }
@@ -1450,7 +1451,7 @@ query_containment(Operation *op, query_manager *qm,
 		Filter *first;
 
 		Debug( pcache_debug, "Lock QC index = %p\n",
-				(void *) templa, 0, 0 );
+				(void *) templa );
 		qbase.base = query->base;
 
 		first = filter_first( query->filter );
@@ -1458,7 +1459,7 @@ query_containment(Operation *op, query_manager *qm,
 		ldap_pvt_thread_rdwr_rlock(&templa->t_rwlock);
 		for( ;; ) {
 			/* Find the base */
-			qbptr = avl_find( templa->qbase, &qbase, pcache_dn_cmp );
+			qbptr = ldap_avl_find( templa->qbase, &qbase, pcache_dn_cmp );
 			if ( qbptr ) {
 				tscope = query->scope;
 				/* Find a matching scope:
@@ -1530,7 +1531,7 @@ query_containment(Operation *op, query_manager *qm,
 
 		Debug( pcache_debug,
 			"Not answerable: Unlock QC index=%p\n",
-			(void *) templa, 0, 0 );
+			(void *) templa );
 		ldap_pvt_thread_rdwr_runlock(&templa->t_rwlock);
 	}
 	return NULL;
@@ -1602,7 +1603,7 @@ add_query(
 	new_cached_query->lru_down = NULL;
 	Debug( pcache_debug, "Added query expires at %ld (%s)\n",
 			(long) new_cached_query->expiry_time,
-			pc_caching_reason_str[ why ], 0 );
+			pc_caching_reason_str[ why ] );
 
 	new_cached_query->scope = query->scope;
 	new_cached_query->filter = query->filter;
@@ -1616,22 +1617,22 @@ add_query(
 
 	/* Adding a query    */
 	Debug( pcache_debug, "Lock AQ index = %p\n",
-			(void *) templ, 0, 0 );
+			(void *) templ );
 	ldap_pvt_thread_rdwr_wlock(&templ->t_rwlock);
-	qbase = avl_find( templ->qbase, &qb, pcache_dn_cmp );
+	qbase = ldap_avl_find( templ->qbase, &qb, pcache_dn_cmp );
 	if ( !qbase ) {
 		qbase = ch_calloc( 1, sizeof(Qbase) + qb.base.bv_len + 1 );
 		qbase->base.bv_len = qb.base.bv_len;
 		qbase->base.bv_val = (char *)(qbase+1);
 		memcpy( qbase->base.bv_val, qb.base.bv_val, qb.base.bv_len );
 		qbase->base.bv_val[qbase->base.bv_len] = '\0';
-		avl_insert( &templ->qbase, qbase, pcache_dn_cmp, avl_dup_error );
+		ldap_avl_insert( &templ->qbase, qbase, pcache_dn_cmp, ldap_avl_dup_error );
 	}
 	new_cached_query->next = templ->query;
 	new_cached_query->prev = NULL;
 	new_cached_query->qbase = qbase;
-	rc = tavl_insert( &qbase->scopes[query->scope], new_cached_query,
-		pcache_query_cmp, avl_dup_error );
+	rc = ldap_tavl_insert( &qbase->scopes[query->scope], new_cached_query,
+		pcache_query_cmp, ldap_avl_dup_error );
 	if ( rc == 0 ) {
 		qbase->queries++;
 		if (templ->query == NULL)
@@ -1652,7 +1653,7 @@ add_query(
 		query->filter = NULL;
 	}
 	Debug( pcache_debug, "TEMPLATE %p QUERIES++ %d\n",
-			(void *) templ, templ->no_of_queries, 0 );
+			(void *) templ, templ->no_of_queries );
 
 	/* Adding on top of LRU list  */
 	if ( rc == 0 ) {
@@ -1661,7 +1662,7 @@ add_query(
 		ldap_pvt_thread_mutex_unlock(&qm->lru_mutex);
 	}
 	Debug( pcache_debug, "Unlock AQ index = %p \n",
-			(void *) templ, 0, 0 );
+			(void *) templ );
 	ldap_pvt_thread_rdwr_wunlock(&templ->t_rwlock);
 
 	return rc == 0 ? new_cached_query : NULL;
@@ -1682,10 +1683,10 @@ remove_from_template (CachedQuery* qc, QueryTemplate* template)
 		qc->next->prev = qc->prev;
 		qc->prev->next = qc->next;
 	}
-	tavl_delete( &qc->qbase->scopes[qc->scope], qc, pcache_query_cmp );
+	ldap_tavl_delete( &qc->qbase->scopes[qc->scope], qc, pcache_query_cmp );
 	qc->qbase->queries--;
 	if ( qc->qbase->queries == 0 ) {
-		avl_delete( &template->qbase, qc->qbase, pcache_dn_cmp );
+		ldap_avl_delete( &template->qbase, qc->qbase, pcache_dn_cmp );
 		ch_free( qc->qbase );
 		qc->qbase = NULL;
 	}
@@ -1715,7 +1716,7 @@ cache_replacement(query_manager* qm, struct berval *result)
 		if (!bottom) {
 			Debug ( pcache_debug,
 				"Cache replacement invoked without "
-				"any query in LRU list\n", 0, 0, 0 );
+				"any query in LRU list\n" );
 			ldap_pvt_thread_mutex_unlock(&qm->lru_mutex);
 			return;
 		}
@@ -1733,7 +1734,7 @@ cache_replacement(query_manager* qm, struct berval *result)
 		if ( !bottom ) {
 			Debug ( pcache_debug,
 				"Could not find query with uuid=\"%s\""
-				"in LRU list\n", result->bv_val, 0, 0 );
+				"in LRU list\n", result->bv_val );
 			ldap_pvt_thread_mutex_unlock(&qm->lru_mutex);
 			BER_BVZERO( result );
 			return;
@@ -1747,12 +1748,12 @@ cache_replacement(query_manager* qm, struct berval *result)
 	*result = bottom->q_uuid;
 	BER_BVZERO( &bottom->q_uuid );
 
-	Debug( pcache_debug, "Lock CR index = %p\n", (void *) temp, 0, 0 );
+	Debug( pcache_debug, "Lock CR index = %p\n", (void *) temp );
 	ldap_pvt_thread_rdwr_wlock(&temp->t_rwlock);
 	remove_from_template(bottom, temp);
 	Debug( pcache_debug, "TEMPLATE %p QUERIES-- %d\n",
-		(void *) temp, temp->no_of_queries, 0 );
-	Debug( pcache_debug, "Unlock CR index = %p\n", (void *) temp, 0, 0 );
+		(void *) temp, temp->no_of_queries );
+	Debug( pcache_debug, "Unlock CR index = %p\n", (void *) temp );
 	ldap_pvt_thread_rdwr_wunlock(&temp->t_rwlock);
 	free_query(bottom);
 }
@@ -1838,7 +1839,7 @@ remove_query_data(
 
 		if ( qi->del ) {
 			Debug( pcache_debug, "DELETING ENTRY TEMPLATE=%s\n",
-				query_uuid->bv_val, 0, 0 );
+				query_uuid->bv_val );
 
 			op->o_tag = LDAP_REQ_DELETE;
 
@@ -1863,7 +1864,7 @@ remove_query_data(
 			mod.sml_next = NULL;
 			Debug( pcache_debug,
 				"REMOVING TEMP ATTR : TEMPLATE=%s\n",
-				query_uuid->bv_val, 0, 0 );
+				query_uuid->bv_val );
 
 			op->orm_modlist = &mod;
 
@@ -2024,22 +2025,22 @@ remove_query_and_data(
 
 		Debug( pcache_debug,
 			"Removing query UUID %s\n",
-			uuid->bv_val, 0, 0 );
+			uuid->bv_val );
 		return_val = remove_query_data( op, uuid );
 		Debug( pcache_debug,
 			"QUERY REMOVED, SIZE=%d\n",
-			return_val, 0, 0);
+			return_val );
 		ldap_pvt_thread_mutex_lock( &cm->cache_mutex );
 		cm->cur_entries -= return_val;
 		cm->num_cached_queries--;
 		Debug( pcache_debug,
 			"STORED QUERIES = %lu\n",
-			cm->num_cached_queries, 0, 0 );
+			cm->num_cached_queries );
 		ldap_pvt_thread_mutex_unlock( &cm->cache_mutex );
 		Debug( pcache_debug,
 			"QUERY REMOVED, CACHE ="
 			"%d entries\n",
-			cm->cur_entries, 0, 0 );
+			cm->cur_entries );
 	}
 }
 
@@ -2319,7 +2320,7 @@ cache_entries(
 	op_tmp->o_ndn = cm->db.be_rootndn;
 
 	Debug( pcache_debug, "UUID for query being added = %s\n",
-			uuidbuf, 0, 0 );
+			uuidbuf );
 
 	for ( e=si->head; e; e=si->head ) {
 		si->head = e->e_private;
@@ -2334,7 +2335,7 @@ cache_entries(
 		cm->cur_entries += return_val;
 		Debug( pcache_debug,
 			"ENTRY ADDED/MERGED, CACHED ENTRIES=%d\n",
-			cm->cur_entries, 0, 0 );
+			cm->cur_entries );
 		return_val = 0;
 		ldap_pvt_thread_mutex_unlock(&cm->cache_mutex);
 	}
@@ -2400,7 +2401,7 @@ pcache_op_cleanup( Operation *op, SlapReply *rs ) {
 				ldap_pvt_thread_mutex_lock(&cm->cache_mutex);
 				cm->num_cached_queries++;
 				Debug( pcache_debug, "STORED QUERIES = %lu\n",
-						cm->num_cached_queries, 0, 0 );
+						cm->num_cached_queries );
 				ldap_pvt_thread_mutex_unlock(&cm->cache_mutex);
 
 				/* If the consistency checker suspended itself,
@@ -2469,7 +2470,7 @@ pcache_response(
 			 * attributes/objectClasses (ITS#5680) */
 			if ( cm->check_cacheability && test_filter( op, rs->sr_entry, si->query.filter ) != LDAP_COMPARE_TRUE ) {
 				Debug( pcache_debug, "%s: query not cacheable because of schema issues in DN \"%s\"\n",
-					op->o_log_prefix, rs->sr_entry->e_name.bv_val, 0 );
+					op->o_log_prefix, rs->sr_entry->e_name.bv_val );
 				goto over;
 			}
 
@@ -2589,7 +2590,7 @@ pc_setpw( Operation *op, struct berval *pwd, cache_manager *cm )
 		slap_passwd_hash( pwd, &vals[0], &text );
 		if ( BER_BVISEMPTY( &vals[0] )) {
 			Debug( pcache_debug, "pc_setpw: hash failed %s\n",
-				text, 0, 0 );
+				text );
 			return LDAP_OTHER;
 		}
 	}
@@ -2618,7 +2619,7 @@ pc_setpw( Operation *op, struct berval *pwd, cache_manager *cm )
 		op->o_ndn = op->o_bd->be_rootndn;
 		op->o_callback = &cb;
 		Debug( pcache_debug, "pc_setpw: CACHING BIND for %s\n",
-			op->o_req_dn.bv_val, 0, 0 );
+			op->o_req_dn.bv_val );
 		rc = op->o_bd->be_modify( op, &sr );
 		ch_free( vals[0].bv_val );
 		return rc;
@@ -2729,7 +2730,7 @@ pc_bind_search( Operation *op, SlapReply *rs )
 			} else {
 				Debug( pcache_debug, "pc_bind_search: cache is stale, "
 					"reftime: %ld, current time: %ld\n",
-					pbi->bi_cq->bindref_time, op->o_time, 0 );
+					pbi->bi_cq->bindref_time, op->o_time );
 			}
 		} else if ( pbi->bi_si ) {
 			/* This search result is going into the cache */
@@ -2801,17 +2802,16 @@ pcache_op_privdb(
 	/* map tag to operation */
 	type = slap_req2op( op->o_tag );
 	if ( type != SLAP_OP_LAST ) {
-		BI_op_func	**func;
+		BackendInfo	*bi = cm->db.bd_info;
 		int		rc;
 
 		/* execute, if possible */
-		func = &cm->db.be_bind;
-		if ( func[ type ] != NULL ) {
+		if ( (&bi->bi_op_bind)[ type ] ) {
 			Operation	op2 = *op;
 	
 			op2.o_bd = &cm->db;
 
-			rc = func[ type ]( &op2, rs );
+			rc = (&bi->bi_op_bind)[ type ]( &op2, rs );
 			if ( type == SLAP_OP_BIND && rc == LDAP_SUCCESS ) {
 				op->o_conn->c_authz_cookie = cm->db.be_private;
 			}
@@ -2914,7 +2914,7 @@ pcache_op_bind(
 		op->o_bd = &cm->db;
 
 		Debug( pcache_debug, "pcache_op_bind: CACHED BIND for %s\n",
-			op->o_req_dn.bv_val, 0, 0 );
+			op->o_req_dn.bv_val );
 
 		if ( op->o_bd->be_bind( op, rs ) == LDAP_SUCCESS ) {
 			op->o_conn->c_authz_cookie = cm->db.be_private;
@@ -3026,7 +3026,7 @@ pcache_op_search(
 		}
 
 		Debug( pcache_debug, "query template of incoming query = %s\n",
-						tempstr.bv_val, 0, 0 );
+						tempstr.bv_val );
 
 		/* find attr set */
 		attr_set = get_attr_set(op->ors_attrs, qm, cm->numattrsets);
@@ -3044,7 +3044,7 @@ pcache_op_search(
 				cacheable = 1;
 				qtemp = qt;
 				Debug( pcache_debug, "Entering QC, querystr = %s\n",
-						op->ors_filterstr.bv_val, 0, 0 );
+						op->ors_filterstr.bv_val );
 				answerable = qm->qcfunc(op, qm, &query, qt);
 
 				/* if != NULL, rlocks qtemp->t_rwlock */
@@ -3064,7 +3064,7 @@ pcache_op_search(
 		if ( answerable->refresh_time )
 			answerable->refcnt++;
 		Debug( pcache_debug, "QUERY ANSWERABLE (answered %lu times)\n",
-			answerable->answerable_cnt, 0, 0 );
+			answerable->answerable_cnt );
 		ldap_pvt_thread_mutex_unlock( &answerable->answerable_cnt_mutex );
 
 		ldap_pvt_thread_rdwr_wlock(&answerable->rwlock);
@@ -3107,7 +3107,7 @@ pcache_op_search(
 		return i;
 	}
 
-	Debug( pcache_debug, "QUERY NOT ANSWERABLE\n", 0, 0, 0 );
+	Debug( pcache_debug, "QUERY NOT ANSWERABLE\n" );
 
 	ldap_pvt_thread_mutex_lock(&cm->cache_mutex);
 	if (cm->num_cached_queries >= cm->max_queries) {
@@ -3122,7 +3122,7 @@ pcache_op_search(
 		slap_callback		*cb;
 		struct search_info	*si;
 
-		Debug( pcache_debug, "QUERY CACHEABLE\n", 0, 0, 0 );
+		Debug( pcache_debug, "QUERY CACHEABLE\n" );
 		query.filter = filter_dup(op->ors_filter, NULL);
 
 		cb = op->o_tmpalloc( sizeof(*cb) + sizeof(*si), op->o_tmpmemctx );
@@ -3170,8 +3170,7 @@ pcache_op_search(
 		}
 
 	} else {
-		Debug( pcache_debug, "QUERY NOT CACHEABLE\n",
-					0, 0, 0);
+		Debug( pcache_debug, "QUERY NOT CACHEABLE\n" );
 	}
 
 	return SLAP_CB_CONTINUE;
@@ -3515,6 +3514,7 @@ consistency_check(
 	Operation *op;
 
 	CachedQuery *query, *qprev;
+	CachedQuery *expires;
 	int return_val, pause = PCACHE_CC_PAUSED;
 	QueryTemplate *templ;
 
@@ -3537,6 +3537,7 @@ consistency_check(
 		time_t ttl;
 		if ( !templ->query_last ) continue;
 		pause = 0;
+		expires = NULL;
 		op->o_time = slap_get_time();
 		if ( !templ->ttr ) {
 			ttl = templ->ttl;
@@ -3548,6 +3549,9 @@ consistency_check(
 			ttl += op->o_time;
 		}
 
+		Debug( pcache_debug, "Lock CR index = %p\n",
+				(void *) templ );
+		ldap_pvt_thread_rdwr_wlock(&templ->t_rwlock);
 		for ( query=templ->query_last; query; query=qprev ) {
 			qprev = query->prev;
 			if ( query->refresh_time && query->refresh_time < op->o_time ) {
@@ -3559,56 +3563,29 @@ consistency_check(
 				if ( query->refcnt )
 					query->expiry_time = op->o_time + templ->ttl;
 				if ( query->expiry_time > op->o_time ) {
-					refresh_query( op, query, on );
+					/* perform actual refresh below */
 					continue;
 				}
 			}
 
 			if (query->expiry_time < op->o_time) {
 				int rem = 0;
-				Debug( pcache_debug, "Lock CR index = %p\n",
-						(void *) templ, 0, 0 );
-				ldap_pvt_thread_rdwr_wlock(&templ->t_rwlock);
-				if ( query == templ->query_last ) {
-					rem = 1;
-					remove_from_template(query, templ);
-					Debug( pcache_debug, "TEMPLATE %p QUERIES-- %d\n",
-							(void *) templ, templ->no_of_queries, 0 );
-					Debug( pcache_debug, "Unlock CR index = %p\n",
-							(void *) templ, 0, 0 );
-				}
-				if ( !rem ) {
-					ldap_pvt_thread_rdwr_wunlock(&templ->t_rwlock);
+				if ( query != templ->query_last )
 					continue;
-				}
 				ldap_pvt_thread_mutex_lock(&qm->lru_mutex);
-				remove_query(qm, query);
-				ldap_pvt_thread_mutex_unlock(&qm->lru_mutex);
-				if ( BER_BVISNULL( &query->q_uuid ))
-					return_val = 0;
-				else
-					return_val = remove_query_data(op, &query->q_uuid);
-				Debug( pcache_debug, "STALE QUERY REMOVED, SIZE=%d\n",
-							return_val, 0, 0 );
-				ldap_pvt_thread_mutex_lock(&cm->cache_mutex);
-				cm->cur_entries -= return_val;
-				cm->num_cached_queries--;
-				Debug( pcache_debug, "STORED QUERIES = %lu\n",
-						cm->num_cached_queries, 0, 0 );
-				ldap_pvt_thread_mutex_unlock(&cm->cache_mutex);
-				Debug( pcache_debug,
-					"STALE QUERY REMOVED, CACHE ="
-					"%d entries\n",
-					cm->cur_entries, 0, 0 );
-				ldap_pvt_thread_rdwr_wlock( &query->rwlock );
-				if ( query->bind_refcnt-- ) {
-					rem = 0;
-				} else {
+				if (query->in_lru) {
+					remove_query(qm, query);
 					rem = 1;
 				}
-				ldap_pvt_thread_rdwr_wunlock( &query->rwlock );
-				if ( rem ) free_query(query);
-				ldap_pvt_thread_rdwr_wunlock(&templ->t_rwlock);
+				ldap_pvt_thread_mutex_unlock(&qm->lru_mutex);
+				if (!rem)
+					continue;
+				remove_from_template(query, templ);
+				Debug( pcache_debug, "TEMPLATE %p QUERIES-- %d\n",
+						(void *) templ, templ->no_of_queries );
+				query->prev = expires;
+				expires = query;
+				query->qtemp = NULL;
 			} else if ( !templ->ttr && query->expiry_time > ttl ) {
 				/* We don't need to check for refreshes, and this
 				 * query's expiry is too new, and all subsequent queries
@@ -3619,6 +3596,57 @@ consistency_check(
 				 */
 				break;
 			}
+		}
+		Debug( pcache_debug, "Unlock CR index = %p\n",
+				(void *) templ );
+		ldap_pvt_thread_rdwr_wunlock(&templ->t_rwlock);
+		for ( query=expires; query; query=qprev ) {
+			int rem;
+			qprev = query->prev;
+			if ( BER_BVISNULL( &query->q_uuid ))
+				return_val = 0;
+			else
+				return_val = remove_query_data(op, &query->q_uuid);
+			Debug( pcache_debug, "STALE QUERY REMOVED, SIZE=%d\n",
+						return_val );
+			ldap_pvt_thread_mutex_lock(&cm->cache_mutex);
+			cm->cur_entries -= return_val;
+			cm->num_cached_queries--;
+			Debug( pcache_debug, "STORED QUERIES = %lu\n",
+					cm->num_cached_queries );
+			ldap_pvt_thread_mutex_unlock(&cm->cache_mutex);
+			Debug( pcache_debug,
+				"STALE QUERY REMOVED, CACHE ="
+				"%d entries\n",
+				cm->cur_entries );
+			ldap_pvt_thread_rdwr_wlock( &query->rwlock );
+			if ( query->bind_refcnt-- ) {
+				rem = 0;
+			} else {
+				rem = 1;
+			}
+			ldap_pvt_thread_rdwr_wunlock( &query->rwlock );
+			if ( rem ) free_query(query);
+		}
+
+		/* handle refreshes that we skipped earlier */
+		if ( templ->ttr ) {
+			ldap_pvt_thread_rdwr_rlock(&templ->t_rwlock);
+			for ( query=templ->query_last; query; query=qprev ) {
+				qprev = query->prev;
+				if ( query->refresh_time && query->refresh_time < op->o_time ) {
+					/* A refresh will extend the expiry if the query has been
+					 * referenced, but not if it's unreferenced. If the
+					 * expiration has been hit, then skip the refresh since
+					 * we're just going to discard the result anyway.
+					 */
+					if ( query->expiry_time > op->o_time ) {
+						refresh_query( op, query, on );
+						query->refresh_time = op->o_time + templ->ttr;
+					}
+				}
+			}
+			ldap_pvt_thread_rdwr_runlock(&templ->t_rwlock);
 		}
 	}
 
@@ -3660,6 +3688,7 @@ static ConfigTable pccfg[] = {
 		6, 6, 0, ARG_MAGIC|ARG_NO_DELETE|PC_MAIN, pc_cf_gen,
 		"( OLcfgOvAt:2.1 NAME ( 'olcPcache' 'olcProxyCache' ) "
 			"DESC 'Proxy Cache basic parameters' "
+			"EQUALITY caseIgnoreMatch "
 			"SYNTAX OMsDirectoryString SINGLE-VALUE )", NULL, NULL },
 	{ "pcacheAttrset", "index> <attributes...",
 		2, 0, 0, ARG_MAGIC|PC_ATTR, pc_cf_gen,
@@ -3680,26 +3709,31 @@ static ConfigTable pccfg[] = {
 		2, 2, 0, ARG_MAGIC|PC_RESP, pc_cf_gen,
 		"( OLcfgOvAt:2.4 NAME 'olcPcachePosition' "
 			"DESC 'Response callback position in overlay stack' "
+			"EQUALITY caseIgnoreMatch "
 			"SYNTAX OMsDirectoryString SINGLE-VALUE )", NULL, NULL },
 	{ "pcacheMaxQueries", "queries",
 		2, 2, 0, ARG_INT|ARG_MAGIC|PC_QUERIES, pc_cf_gen,
 		"( OLcfgOvAt:2.5 NAME ( 'olcPcacheMaxQueries' 'olcProxyCacheQueries' ) "
 			"DESC 'Maximum number of queries to cache' "
+			"EQUALITY integerMatch "
 			"SYNTAX OMsInteger SINGLE-VALUE )", NULL, NULL },
 	{ "pcachePersist", "TRUE|FALSE",
 		2, 2, 0, ARG_ON_OFF|ARG_OFFSET, (void *)offsetof(cache_manager, save_queries),
 		"( OLcfgOvAt:2.6 NAME ( 'olcPcachePersist' 'olcProxySaveQueries' ) "
 			"DESC 'Save cached queries for hot restart' "
+			"EQUALITY booleanMatch "
 			"SYNTAX OMsBoolean SINGLE-VALUE )", NULL, NULL },
 	{ "pcacheValidate", "TRUE|FALSE",
 		2, 2, 0, ARG_ON_OFF|ARG_OFFSET, (void *)offsetof(cache_manager, check_cacheability),
 		"( OLcfgOvAt:2.7 NAME ( 'olcPcacheValidate' 'olcProxyCheckCacheability' ) "
 			"DESC 'Check whether the results of a query are cacheable, e.g. for schema issues' "
+			"EQUALITY booleanMatch "
 			"SYNTAX OMsBoolean SINGLE-VALUE )", NULL, NULL },
 	{ "pcacheOffline", "TRUE|FALSE",
 		2, 2, 0, ARG_ON_OFF|ARG_MAGIC|PC_OFFLINE, pc_cf_gen,
 		"( OLcfgOvAt:2.8 NAME 'olcPcacheOffline' "
 			"DESC 'Set cache to offline mode and disable expiration' "
+			"EQUALITY booleanMatch "
 			"SYNTAX OMsBoolean SINGLE-VALUE )", NULL, NULL },
 	{ "pcacheBind", "filter> <attrset-index> <TTR> <scope> <base",
 		6, 6, 0, ARG_MAGIC|PC_BIND, pc_cf_gen,
@@ -3750,7 +3784,8 @@ static ConfigOCs pcocs[] = {
 	{ "( OLcfgOvOc:2.2 "
 		"NAME 'olcPcacheDatabase' "
 		"DESC 'Cache database configuration' "
-		"AUXILIARY )", Cft_Misc, olcDatabaseDummy, pc_ldadd },
+		/* co_table is initialized in pcache_initialize */
+		"AUXILIARY )", Cft_Misc, NULL, pc_ldadd },
 	{ NULL, 0, NULL }
 };
 
@@ -3778,7 +3813,7 @@ pc_ldadd( CfEntryInfo *p, Entry *e, ConfigArgs *ca )
 	ca->be = &cm->db;
 	/* Defer open if this is an LDAPadd */
 	if ( CONFIG_ONLINE_ADD( ca ))
-		ca->cleanup = pc_ldadd_cleanup;
+		config_push_cleanup( ca, pc_ldadd_cleanup );
 	else
 		cm->defer_db_open = 0;
 	ca->ca_private = on;
@@ -3806,8 +3841,8 @@ pc_cfadd( Operation *op, SlapReply *rs, Entry *p, ConfigArgs *ca )
 
 	/* We can only create this entry if the database is table-driven
 	 */
-	if ( cm->db.bd_info->bi_cf_ocs )
-		config_build_entry( op, rs, pe, ca, &bv, cm->db.bd_info->bi_cf_ocs,
+	if ( cm->db.be_cf_ocs )
+		config_build_entry( op, rs, pe, ca, &bv, cm->db.be_cf_ocs,
 			&pcocs[1] );
 
 	return 0;
@@ -3961,93 +3996,93 @@ pc_cf_gen( ConfigArgs *c )
 	case PC_MAIN:
 		if ( cm->numattrsets > 0 ) {
 			snprintf( c->cr_msg, sizeof( c->cr_msg ), "\"pcache\" directive already provided" );
-			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg, 0 );
+			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg );
 			return( 1 );
 		}
 
 		if ( lutil_atoi( &cm->numattrsets, c->argv[3] ) != 0 ) {
 			snprintf( c->cr_msg, sizeof( c->cr_msg ), "unable to parse num attrsets=\"%s\" (arg #3)",
 				c->argv[3] );
-			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg, 0 );
+			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg );
 			return( 1 );
 		}
 		if ( cm->numattrsets <= 0 ) {
 			snprintf( c->cr_msg, sizeof( c->cr_msg ), "numattrsets (arg #3) must be positive" );
-			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg, 0 );
+			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg );
 			return( 1 );
 		}
 		if ( cm->numattrsets > MAX_ATTR_SETS ) {
 			snprintf( c->cr_msg, sizeof( c->cr_msg ), "numattrsets (arg #3) must be <= %d", MAX_ATTR_SETS );
-			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg, 0 );
+			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg );
 			return( 1 );
 		}
 
 		if ( !backend_db_init( c->argv[1], &cm->db, -1, NULL )) {
 			snprintf( c->cr_msg, sizeof( c->cr_msg ), "unknown backend type (arg #1)" );
-			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg, 0 );
+			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg );
 			return( 1 );
 		}
 
 		if ( lutil_atoi( &cm->max_entries, c->argv[2] ) != 0 ) {
 			snprintf( c->cr_msg, sizeof( c->cr_msg ), "unable to parse max entries=\"%s\" (arg #2)",
 				c->argv[2] );
-			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg, 0 );
+			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg );
 			return( 1 );
 		}
 		if ( cm->max_entries <= 0 ) {
 			snprintf( c->cr_msg, sizeof( c->cr_msg ), "max entries (arg #2) must be positive.\n" );
-			Debug( LDAP_DEBUG_CONFIG, "%s: %s\n", c->log, c->cr_msg, 0 );
+			Debug( LDAP_DEBUG_CONFIG, "%s: %s\n", c->log, c->cr_msg );
 			return( 1 );
 		}
 
 		if ( lutil_atoi( &cm->num_entries_limit, c->argv[4] ) != 0 ) {
 			snprintf( c->cr_msg, sizeof( c->cr_msg ), "unable to parse entry limit=\"%s\" (arg #4)",
 				c->argv[4] );
-			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg, 0 );
+			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg );
 			return( 1 );
 		}
 		if ( cm->num_entries_limit <= 0 ) {
 			snprintf( c->cr_msg, sizeof( c->cr_msg ), "entry limit (arg #4) must be positive" );
-			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg, 0 );
+			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg );
 			return( 1 );
 		}
 		if ( cm->num_entries_limit > cm->max_entries ) {
 			snprintf( c->cr_msg, sizeof( c->cr_msg ), "entry limit (arg #4) must be less than max entries %d (arg #2)", cm->max_entries );
-			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg, 0 );
+			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg );
 			return( 1 );
 		}
 
 		if ( lutil_parse_time( c->argv[5], &t ) != 0 ) {
 			snprintf( c->cr_msg, sizeof( c->cr_msg ), "unable to parse period=\"%s\" (arg #5)",
 				c->argv[5] );
-			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg, 0 );
+			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg );
 			return( 1 );
 		}
 
 		cm->cc_period = (time_t)t;
 		Debug( pcache_debug,
 				"Total # of attribute sets to be cached = %d.\n",
-				cm->numattrsets, 0, 0 );
+				cm->numattrsets );
 		qm->attr_sets = ( struct attr_set * )ch_calloc( cm->numattrsets,
 			    			sizeof( struct attr_set ) );
 		break;
 	case PC_ATTR:
 		if ( cm->numattrsets == 0 ) {
 			snprintf( c->cr_msg, sizeof( c->cr_msg ), "\"pcache\" directive not provided yet" );
-			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg, 0 );
+			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg );
 			return( 1 );
 		}
 		if ( lutil_atoi( &num, c->argv[1] ) != 0 ) {
 			snprintf( c->cr_msg, sizeof( c->cr_msg ), "unable to parse attrset #=\"%s\"",
 				c->argv[1] );
-			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg, 0 );
+			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg );
 			return( 1 );
 		}
 
 		if ( num < 0 || num >= cm->numattrsets ) {
 			snprintf( c->cr_msg, sizeof( c->cr_msg ), "attrset index %d out of bounds (must be %s%d)",
 				num, cm->numattrsets > 1 ? "0->" : "", cm->numattrsets - 1 );
-			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg, 0 );
+			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg );
 			return 1;
 		}
 		qm->attr_sets[num].flags |= PC_CONFIGURED;
@@ -4055,7 +4090,7 @@ pc_cf_gen( ConfigArgs *c )
 			/* assume "1.1" */
 			snprintf( c->cr_msg, sizeof( c->cr_msg ),
 				"need an explicit attr in attrlist; use \"*\" to indicate all attrs" );
-			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg, 0 );
+			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg );
 			return 1;
 
 		} else if ( c->argc == 3 ) {
@@ -4105,7 +4140,7 @@ pc_cf_gen( ConfigArgs *c )
 					snprintf( c->cr_msg, sizeof( c->cr_msg ),
 						"invalid attr #%d \"%s\" in attrlist",
 						i - 2, c->argv[i] );
-					Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg, 0 );
+					Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg );
 					ch_free( qm->attr_sets[num].attrs );
 					qm->attr_sets[num].attrs = NULL;
 					qm->attr_sets[num].count = 0;
@@ -4125,7 +4160,7 @@ pc_cf_gen( ConfigArgs *c )
 
 					} else if ( slap_str2ad( c->argv[i], &attr_name->an_desc, &text ) ) {
 						strcpy( c->cr_msg, text );
-						Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg, 0 );
+						Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg );
 						ch_free( qm->attr_sets[num].attrs );
 						qm->attr_sets[num].attrs = NULL;
 						qm->attr_sets[num].count = 0;
@@ -4145,20 +4180,20 @@ pc_cf_gen( ConfigArgs *c )
 			if ( i > 4 && all_user && all_op ) {
 				snprintf( c->cr_msg, sizeof( c->cr_msg ),
 					"warning: attribute list contains \"*\" and \"+\"" );
-				Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg, 0 );
+				Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg );
 			}
 		}
 		break;
 	case PC_TEMP:
 		if ( cm->numattrsets == 0 ) {
 			snprintf( c->cr_msg, sizeof( c->cr_msg ), "\"pcache\" directive not provided yet" );
-			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg, 0 );
+			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg );
 			return( 1 );
 		}
 		if ( lutil_atoi( &i, c->argv[2] ) != 0 ) {
 			snprintf( c->cr_msg, sizeof( c->cr_msg ), "unable to parse template #=\"%s\"",
 				c->argv[2] );
-			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg, 0 );
+			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg );
 			return( 1 );
 		}
 
@@ -4166,7 +4201,7 @@ pc_cf_gen( ConfigArgs *c )
 			!(qm->attr_sets[i].flags & PC_CONFIGURED )) {
 			snprintf( c->cr_msg, sizeof( c->cr_msg ), "template index %d invalid (%s%d)",
 				i, cm->numattrsets > 1 ? "0->" : "", cm->numattrsets - 1 );
-			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg, 0 );
+			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg );
 			return 1;
 		}
 		{
@@ -4176,7 +4211,7 @@ pc_cf_gen( ConfigArgs *c )
 			if ( cnt < 0 ) {
 				snprintf( c->cr_msg, sizeof( c->cr_msg ), "unable to parse template: %s",
 					text );
-				Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg, 0 );
+				Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg );
 				return 1;
 			}
 			temp = ch_calloc( 1, sizeof( QueryTemplate ));
@@ -4191,7 +4226,7 @@ pc_cf_gen( ConfigArgs *c )
 			snprintf( c->cr_msg, sizeof( c->cr_msg ),
 				"unable to parse template ttl=\"%s\"",
 				c->argv[3] );
-			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg, 0 );
+			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg );
 pc_temp_fail:
 			ch_free( temp->t_attrs.attrs );
 			ch_free( temp );
@@ -4207,7 +4242,7 @@ pc_temp_fail:
 				snprintf( c->cr_msg, sizeof( c->cr_msg ),
 					"unable to parse template ttr=\"%s\"",
 					c->argv[6] );
-				Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg, 0 );
+				Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg );
 				goto pc_temp_fail;
 			}
 			temp->ttr = (time_t)t;
@@ -4218,7 +4253,7 @@ pc_temp_fail:
 				snprintf( c->cr_msg, sizeof( c->cr_msg ),
 					"unable to parse template sizelimit ttl=\"%s\"",
 					c->argv[5] );
-				Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg, 0 );
+				Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg );
 				goto pc_temp_fail;
 			}
 			temp->limitttl = (time_t)t;
@@ -4229,7 +4264,7 @@ pc_temp_fail:
 				snprintf( c->cr_msg, sizeof( c->cr_msg ),
 					"unable to parse template negative ttl=\"%s\"",
 					c->argv[4] );
-				Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg, 0 );
+				Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg );
 				goto pc_temp_fail;
 			}
 			temp->negttl = (time_t)t;
@@ -4239,30 +4274,30 @@ pc_temp_fail:
 		temp->no_of_queries = 0;
 
 		ber_str2bv( c->argv[1], 0, 1, &temp->querystr );
-		Debug( pcache_debug, "Template:\n", 0, 0, 0 );
+		Debug( pcache_debug, "Template:\n" );
 		Debug( pcache_debug, "  query template: %s\n",
-				temp->querystr.bv_val, 0, 0 );
+				temp->querystr.bv_val );
 		temp->attr_set_index = i;
 		qm->attr_sets[i].flags |= PC_REFERENCED;
 		temp->qtnext = qm->attr_sets[i].templates;
 		qm->attr_sets[i].templates = temp;
-		Debug( pcache_debug, "  attributes: \n", 0, 0, 0 );
+		Debug( pcache_debug, "  attributes: \n" );
 		if ( ( attrarray = qm->attr_sets[i].attrs ) != NULL ) {
 			for ( i=0; attrarray[i].an_name.bv_val; i++ )
 				Debug( pcache_debug, "\t%s\n",
-					attrarray[i].an_name.bv_val, 0, 0 );
+					attrarray[i].an_name.bv_val );
 		}
 		break;
 	case PC_BIND:
 		if ( !qm->templates ) {
 			snprintf( c->cr_msg, sizeof( c->cr_msg ), "\"pcacheTemplate\" directive not provided yet" );
-			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg, 0 );
+			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg );
 			return( 1 );
 		}
 		if ( lutil_atoi( &i, c->argv[2] ) != 0 ) {
 			snprintf( c->cr_msg, sizeof( c->cr_msg ), "unable to parse Bind index #=\"%s\"",
 				c->argv[2] );
-			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg, 0 );
+			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg );
 			return( 1 );
 		}
 
@@ -4270,7 +4305,7 @@ pc_temp_fail:
 			!(qm->attr_sets[i].flags & PC_CONFIGURED )) {
 			snprintf( c->cr_msg, sizeof( c->cr_msg ), "Bind index %d invalid (%s%d)",
 				i, cm->numattrsets > 1 ? "0->" : "", cm->numattrsets - 1 );
-			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg, 0 );
+			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg );
 			return 1;
 		}
 		{	struct berval bv, tempbv;
@@ -4281,7 +4316,7 @@ pc_temp_fail:
 			if ( ndescs < 0 ) {
 				snprintf( c->cr_msg, sizeof( c->cr_msg ), "unable to parse template: %s",
 					text );
-				Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg, 0 );
+				Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg );
 				return 1;
 			}
 			for ( temp = qm->templates; temp; temp=temp->qmnext ) {
@@ -4294,7 +4329,7 @@ pc_temp_fail:
 				ch_free( descs );
 				snprintf( c->cr_msg, sizeof( c->cr_msg ), "Bind template %s %d invalid",
 					c->argv[1], i );
-				Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg, 0 );
+				Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg );
 				return 1;
 			}
 			ber_dupbv( &temp->bindftemp, &bv );
@@ -4305,7 +4340,7 @@ pc_temp_fail:
 			snprintf( c->cr_msg, sizeof( c->cr_msg ),
 				"unable to parse bind ttr=\"%s\"",
 				c->argv[3] );
-			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg, 0 );
+			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg );
 pc_bind_fail:
 			ch_free( temp->bindfattrs );
 			temp->bindfattrs = NULL;
@@ -4318,7 +4353,7 @@ pc_bind_fail:
 			snprintf( c->cr_msg, sizeof( c->cr_msg ),
 				"unable to parse bind scope=\"%s\"",
 				c->argv[4] );
-			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg, 0 );
+			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg );
 			goto pc_bind_fail;
 		}
 		{
@@ -4329,7 +4364,7 @@ pc_bind_fail:
 				snprintf( c->cr_msg, sizeof( c->cr_msg ),
 					"invalid bind baseDN=\"%s\"",
 					c->argv[5] );
-				Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg, 0 );
+				Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg );
 				goto pc_bind_fail;
 			}
 			if ( temp->bindbase.bv_val )
@@ -4365,7 +4400,7 @@ pc_bind_fail:
 				ch_free( bv.bv_val );
 				snprintf( c->cr_msg, sizeof( c->cr_msg ),
 					"unable to parse bindfilter=\"%s\"", bv.bv_val );
-				Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg, 0 );
+				Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg );
 				ch_free( temp->bindbase.bv_val );
 				BER_BVZERO( &temp->bindbase );
 				goto pc_bind_fail;
@@ -4391,14 +4426,14 @@ pc_bind_fail:
 
 		} else {
 			snprintf( c->cr_msg, sizeof( c->cr_msg ), "unknown specifier" );
-			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg, 0 );
+			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg );
 			return 1;
 		}
 		break;
 	case PC_QUERIES:
 		if ( c->value_int <= 0 ) {
 			snprintf( c->cr_msg, sizeof( c->cr_msg ), "max queries must be positive" );
-			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg, 0 );
+			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg );
 			return( 1 );
 		}
 		cm->max_queries = c->value_int;
@@ -4413,7 +4448,7 @@ pc_bind_fail:
 		if ( cm->db.be_private == NULL ) {
 			snprintf( c->cr_msg, sizeof( c->cr_msg ),
 				"private database must be defined before setting database specific options" );
-			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg, 0 );
+			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg );
 			return( 1 );
 		}
 
@@ -4429,7 +4464,7 @@ pc_bind_fail:
 				snprintf( c->cr_msg, sizeof( c->cr_msg ),
 					"private database does not recognize specific option '%s'",
 					c->argv[ 0 ] );
-				Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg, 0 );
+				Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg );
 				rc = 1;
 
 			} else {
@@ -4456,7 +4491,7 @@ pc_bind_fail:
 		} else {
 			snprintf( c->cr_msg, sizeof( c->cr_msg ),
 				"no means to set private database specific options" );
-			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg, 0 );
+			Debug( LDAP_DEBUG_CONFIG, "%s: %s.\n", c->log, c->cr_msg );
 			return 1;
 		}
 		break;
@@ -4613,7 +4648,7 @@ pcache_db_open2(
 				"    serving naming context \"%s\"\n"
 				"    has no \"rootdn\", required by \"pcache\".\n",
 				on->on_info->oi_orig->bi_type,
-				cm->db.be_suffix[0].bv_val, 0 );
+				cm->db.be_suffix[0].bv_val );
 			return 1;
 		}
 
@@ -4717,24 +4752,24 @@ pcache_db_open(
 	for ( i = 0; i < cm->numattrsets; i++) {
 		if ( !( qm->attr_sets[i].flags & PC_CONFIGURED ) ) {
 			if ( qm->attr_sets[i].flags & PC_REFERENCED ) {
-				Debug( LDAP_DEBUG_CONFIG, "pcache: attr set #%d not configured but referenced.\n", i, 0, 0 );
+				Debug( LDAP_DEBUG_CONFIG, "pcache: attr set #%d not configured but referenced.\n", i );
 				rf++;
 
 			} else {
-				Debug( LDAP_DEBUG_CONFIG, "pcache: warning, attr set #%d not configured.\n", i, 0, 0 );
+				Debug( LDAP_DEBUG_CONFIG, "pcache: warning, attr set #%d not configured.\n", i );
 			}
 			ncf++;
 
 		} else if ( !( qm->attr_sets[i].flags & PC_REFERENCED ) ) {
-			Debug( LDAP_DEBUG_CONFIG, "pcache: attr set #%d configured but not referenced.\n", i, 0, 0 );
+			Debug( LDAP_DEBUG_CONFIG, "pcache: attr set #%d configured but not referenced.\n", i );
 			nrf++;
 		}
 	}
 
 	if ( ncf || rf || nrf ) {
-		Debug( LDAP_DEBUG_CONFIG, "pcache: warning, %d attr sets configured but not referenced.\n", nrf, 0, 0 );
-		Debug( LDAP_DEBUG_CONFIG, "pcache: warning, %d attr sets not configured.\n", ncf, 0, 0 );
-		Debug( LDAP_DEBUG_CONFIG, "pcache: %d attr sets not configured but referenced.\n", rf, 0, 0 );
+		Debug( LDAP_DEBUG_CONFIG, "pcache: warning, %d attr sets configured but not referenced.\n", nrf );
+		Debug( LDAP_DEBUG_CONFIG, "pcache: warning, %d attr sets not configured.\n", ncf );
+		Debug( LDAP_DEBUG_CONFIG, "pcache: %d attr sets not configured but referenced.\n", rf );
 
 		if ( rf > 0 ) {
 			return 1;
@@ -4774,7 +4809,7 @@ pcache_free_qbase( void *v )
 	int i;
 
 	for (i=0; i<3; i++)
-		tavl_free( qb->scopes[i], NULL );
+		ldap_tavl_free( qb->scopes[i], NULL );
 	ch_free( qb );
 }
 
@@ -4857,7 +4892,7 @@ pcache_db_close(
 		mod.sml_next = NULL;
 		Debug( pcache_debug,
 			"%sSETTING CACHED QUERY URLS\n",
-			vals == NULL ? "RE" : "", 0, 0 );
+			vals == NULL ? "RE" : "" );
 
 		op->orm_modlist = &mod;
 
@@ -4906,7 +4941,7 @@ pcache_db_destroy(
 			qn = qc->next;
 			free_query( qc );
 		}
-		avl_free( tm->qbase, pcache_free_qbase );
+		ldap_avl_free( tm->qbase, pcache_free_qbase );
 		free( tm->querystr.bv_val );
 		free( tm->bindfattrs );
 		free( tm->bindftemp.bv_val );
@@ -5087,8 +5122,7 @@ pcache_parse_query_delete(
 
 	if ( tag == LBER_ERROR ) {
 		Debug( LDAP_DEBUG_TRACE,
-			"pcache_parse_query_delete: decoding error.\n",
-			0, 0, 0 );
+			"pcache_parse_query_delete: decoding error.\n" );
 		goto decoding_error;
 	}
 
@@ -5104,8 +5138,7 @@ pcache_parse_query_delete(
 			tag = ber_scanf( ber, "m", &dn );
 			if ( tag == LBER_ERROR ) {
 				Debug( LDAP_DEBUG_TRACE,
-					"pcache_parse_query_delete: DN parse failed.\n",
-					0, 0, 0 );
+					"pcache_parse_query_delete: DN parse failed.\n" );
 				goto decoding_error;
 			}
 
@@ -5133,15 +5166,14 @@ pcache_parse_query_delete(
 			tag = ber_scanf( ber, "m", &bv );
 			if ( tag == LBER_ERROR ) {
 				Debug( LDAP_DEBUG_TRACE,
-					"pcache_parse_query_delete: UUID parse failed.\n",
-					0, 0, 0 );
+					"pcache_parse_query_delete: UUID parse failed.\n" );
 				goto decoding_error;
 			}
 
 			if ( bv.bv_len != 16 ) {
 				Debug( LDAP_DEBUG_TRACE,
 					"pcache_parse_query_delete: invalid UUID length %lu.\n",
-					(unsigned long)bv.bv_len, 0, 0 );
+					(unsigned long)bv.bv_len );
 				goto decoding_error;
 			}
 
@@ -5163,7 +5195,7 @@ pcache_parse_query_delete(
 			if ( len != 16 ) {
 				Debug( LDAP_DEBUG_TRACE,
 					"pcache_parse_query_delete: invalid UUID length %lu.\n",
-					(unsigned long)len, 0, 0 );
+					(unsigned long)len );
 				goto decoding_error;
 			}
 		}
@@ -5174,8 +5206,7 @@ pcache_parse_query_delete(
 	if ( tag != LBER_DEFAULT || len != 0 ) {
 decoding_error:;
 		Debug( LDAP_DEBUG_TRACE,
-			"pcache_parse_query_delete: decoding error\n",
-			0, 0, 0 );
+			"pcache_parse_query_delete: decoding error\n" );
 		rc = LDAP_PROTOCOL_ERROR;
 		*text = "queryDelete data decoding error";
 
@@ -5231,7 +5262,7 @@ pcache_exop_query_delete(
 		}
 
 		Debug( LDAP_DEBUG_STATS, "%s QUERY DELETE%s\n",
-			op->o_log_prefix, buf, 0 );
+			op->o_log_prefix, buf );
 	}
 	op->o_req_dn = op->o_req_ndn;
 
@@ -5554,10 +5585,9 @@ pcache_monitor_db_open( BackendDB *be )
 		static int warning = 0;
 
 		if ( warning++ == 0 ) {
-			Debug( LDAP_DEBUG_ANY, "pcache_monitor_db_open: "
+			Debug( LDAP_DEBUG_CONFIG, "pcache_monitor_db_open: "
 				"monitoring disabled; "
-				"configure monitor database to enable\n",
-				0, 0, 0 );
+				"configure monitor database to enable\n" );
 		}
 
 		return 0;
@@ -5616,7 +5646,7 @@ cleanup:;
 	cm->monitor_cb = (void *)cb;
 
 	/* we don't need to keep track of the attributes, because
-	 * bdb_monitor_free() takes care of everything */
+	 * mdb_monitor_free() takes care of everything */
 	if ( a != NULL ) {
 		attrs_free( a );
 	}
@@ -5630,15 +5660,16 @@ pcache_monitor_db_close( BackendDB *be )
 	slap_overinst *on = (slap_overinst *)be->bd_info;
 	cache_manager *cm = on->on_bi.bi_private;
 
-	if ( cm->monitor_cb != NULL ) {
+	if ( !BER_BVISNULL( &cm->monitor_ndn )) {
 		BackendInfo		*mi = backend_info( "monitor" );
 		monitor_extra_t		*mbe;
 
-		if ( mi && &mi->bi_extra ) {
+		if ( mi && mi->bi_extra ) {
+			struct berval dummy = BER_BVNULL;
 			mbe = mi->bi_extra;
 			mbe->unregister_entry_callback( &cm->monitor_ndn,
 				(monitor_callback_t *)cm->monitor_cb,
-				NULL, 0, NULL );
+				&dummy, 0, &dummy );
 		}
 	}
 
@@ -5671,6 +5702,13 @@ pcache_initialize()
 	ConfigArgs c;
 	char *argv[ 4 ];
 
+        /* olcDatabaseDummy is defined in slapd, and Windows
+           will not let us initialize a struct element with a data pointer
+           from another library, so we have to initialize this element
+           "by hand".  */
+        pcocs[1].co_table = olcDatabaseDummy;
+
+
 	code = slap_loglevel_get( &debugbv, &pcache_debug );
 	if ( code ) {
 		return code;
@@ -5683,7 +5721,7 @@ pcache_initialize()
 	if ( code != LDAP_SUCCESS ) {
 		Debug( LDAP_DEBUG_ANY,
 			"pcache_initialize: failed to register control %s (%d)\n",
-			PCACHE_CONTROL_PRIVDB, code, 0 );
+			PCACHE_CONTROL_PRIVDB, code );
 		return code;
 	}
 #endif /* PCACHE_CONTROL_PRIVDB */
@@ -5695,12 +5733,12 @@ pcache_initialize()
 	if ( code != LDAP_SUCCESS ) {
 		Debug( LDAP_DEBUG_ANY,
 			"pcache_initialize: unable to register queryDelete exop: %d.\n",
-			code, 0, 0 );
+			code );
 		return code;
 	}
 #endif /* PCACHE_EXOP_QUERY_DELETE */
 
-	argv[ 0 ] = "back-bdb/back-hdb monitor";
+	argv[ 0 ] = "back-mdb monitor";
 	c.argv = argv;
 	c.argc = 3;
 	c.fname = argv[0];
@@ -5713,7 +5751,7 @@ pcache_initialize()
 		if ( parse_oidm( &c, 0, NULL ) != 0 ) {
 			Debug( LDAP_DEBUG_ANY, "pcache_initialize: "
 				"unable to add objectIdentifier \"%s=%s\"\n",
-				s_oid[ i ].name, s_oid[ i ].oid, 0 );
+				s_oid[ i ].name, s_oid[ i ].oid );
 			return 1;
 		}
 	}
@@ -5722,7 +5760,7 @@ pcache_initialize()
 		code = register_at( s_ad[i].desc, s_ad[i].adp, 0 );
 		if ( code ) {
 			Debug( LDAP_DEBUG_ANY,
-				"pcache_initialize: register_at #%d failed\n", i, 0, 0 );
+				"pcache_initialize: register_at #%d failed\n", i );
 			return code;
 		}
 		(*s_ad[i].adp)->ad_type->sat_flags |= SLAP_AT_HIDE;
@@ -5732,7 +5770,7 @@ pcache_initialize()
 		code = register_oc( s_oc[i].desc, s_oc[i].ocp, 0 );
 		if ( code ) {
 			Debug( LDAP_DEBUG_ANY,
-				"pcache_initialize: register_oc #%d failed\n", i, 0, 0 );
+				"pcache_initialize: register_oc #%d failed\n", i );
 			return code;
 		}
 		(*s_oc[i].ocp)->soc_flags |= SLAP_OC_HIDE;

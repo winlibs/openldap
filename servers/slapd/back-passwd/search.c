@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2018 The OpenLDAP Foundation.
+ * Copyright 1998-2024 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -113,7 +113,7 @@ passwd_back_search(
 			 * DN that was configured for this backend, but it's
 			 * better than nothing.
 			 *
-			 * should be a configuratable item
+			 * should be a configurable item
 			 */
 			BER_BVSTR( &val, "organizationalUnit" );
 			attr_merge_one( &e, ad_objectClass, &val, NULL );
@@ -291,7 +291,7 @@ pw2entry( Backend *be, struct passwd *pw, Entry *e )
 	val.bv_len = STRLENOF("uid=,") + ( pwlen + be->be_suffix[0].bv_len );
 	val.bv_val = ch_malloc( val.bv_len + 1 );
 
-	/* rdn attribute type should be a configuratable item */
+	/* rdn attribute type should be a configurable item */
 	sprintf( val.bv_val, "uid=%s,%s",
 		pw->pw_name, be->be_suffix[0].bv_val );
 
@@ -321,34 +321,50 @@ pw2entry( Backend *be, struct passwd *pw, Entry *e )
 
 #ifdef HAVE_STRUCT_PASSWD_PW_GECOS
 	/*
-	 * if gecos is present, add it as a cn. first process it
+	 * if gecos is present, add user's full name as a cn. first process it
 	 * according to standard BSD usage. If the processed cn has
 	 * a space, use the tail as the surname.
 	 */
 	if (pw->pw_gecos[0]) {
 		char *s;
+		char buf[1024];
 
 		ber_str2bv( pw->pw_gecos, 0, 0, &val );
 		attr_merge_normalize_one( e, ad_desc, &val, NULL );
 
-		s = ber_bvchr( &val, ',' );
-		if ( s ) *s = '\0';
-
-		s = ber_bvchr( &val, '&' );
+		s = strchr( val.bv_val, (unsigned char)',' );
 		if ( s ) {
-			char buf[1024];
-
-			if( val.bv_len + pwlen < sizeof(buf) ) {
-				int i = s - val.bv_val;
-				strncpy( buf, val.bv_val, i );
-				s = buf + i;
-				strcpy( s, pw->pw_name );
-				*s = TOUPPER((unsigned char)*s);
-				strcat( s, val.bv_val + i + 1 );
-				val.bv_val = buf;
-			}
+			*s = '\0';
+			val.bv_len = s - val.bv_val;
 		}
-		val.bv_len = strlen( val.bv_val );
+
+		s = strchr( val.bv_val, (unsigned char)'&' );
+		if ( s ) {
+			unsigned r = sizeof buf;
+			/* if name with expanded `&` fits in buf */
+			if ( val.bv_len + pwlen <= r ) {
+				char * d = buf;
+
+				for (;;) {
+					size_t const i = s - val.bv_val;
+					memcpy( d, val.bv_val, i );
+					d += i;
+					memcpy( d, pw->pw_name, pwlen );
+					*d = TOUPPER((unsigned char)*pw->pw_name);
+					d += pwlen;
+					r -= pwlen + i;
+					val.bv_len -= i + 1;
+					val.bv_val  = s + 1;
+
+					s = strchr( val.bv_val, (unsigned char)'&' );
+					if (!(s && ( val.bv_len + pwlen <= r )))
+						break;
+				}
+				strcpy( d, val.bv_val );
+				val.bv_len = d - buf + val.bv_len;
+				val.bv_val = buf;
+			} // 1st fits
+		} // 1st &
 
 		if ( val.bv_len && strcasecmp( val.bv_val, pw->pw_name ) ) {
 			attr_merge_normalize_one( e, slap_schema.si_ad_cn, &val, NULL );
