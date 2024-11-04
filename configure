@@ -25019,19 +25019,19 @@ rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
 	LIBSRCS="$LIBSRCS getpeereid.c"
 fi
 
-if test "$ac_cv_func_snprintf" != yes ||
-   test "$ac_cv_func_vsnprintf" != yes; then
-	if test "$ac_cv_func_snprintf" != yes; then
+# if test "$ac_cv_func_snprintf" != yes ||
+#    test "$ac_cv_func_vsnprintf" != yes; then
+# 	if test "$ac_cv_func_snprintf" != yes; then
 
-$as_echo "#define snprintf ber_pvt_snprintf" >>confdefs.h
+# $as_echo "#define snprintf ber_pvt_snprintf" >>confdefs.h
 
-	fi
-	if test "$ac_cv_func_vsnprintf" != yes; then
+# 	fi
+# 	if test "$ac_cv_func_vsnprintf" != yes; then
 
-$as_echo "#define vsnprintf ber_pvt_vsnprintf" >>confdefs.h
+# $as_echo "#define vsnprintf ber_pvt_vsnprintf" >>confdefs.h
 
-	fi
-fi
+# 	fi
+# fi
 
 
 if test "$ol_enable_slapi" != no ; then
