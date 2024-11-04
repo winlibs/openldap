@@ -18204,7 +18204,7 @@ then :
   printf %s "(cached) " >&6
 else $as_nop
   ac_check_lib_save_LIBS=$LIBS
-LIBS="-lssl -lcrypto $LIBS"
+LIBS="-llibssl -llibcrypto $LIBS"
 cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
 
@@ -18249,7 +18249,7 @@ fi
 printf "%s\n" "#define HAVE_OPENSSL 1" >>confdefs.h
 
 
-			TLS_LIBS="-lssl -lcrypto"
+			TLS_LIBS="-llibssl -llibcrypto"
 		fi
 	fi
 fi
@@ -23813,7 +23813,7 @@ then :
   printf %s "(cached) " >&6
 else $as_nop
   ac_check_lib_save_LIBS=$LIBS
-LIBS="-lsasl  $LIBS"
+LIBS="-llibsasl  $LIBS"
 cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
 
@@ -23843,7 +23843,7 @@ fi
 printf "%s\n" "$ac_cv_lib_sasl_sasl_client_init" >&6; }
 if test "x$ac_cv_lib_sasl_sasl_client_init" = xyes
 then :
-  ol_link_sasl="-lsasl"
+  ol_link_sasl="-llibsasl"
 fi
 
 fi
