@@ -98,6 +98,7 @@
 #		define tcp_close( s )		closesocket( s )
 #	endif
 
+/* The following may be defined by errno.h, so we make sure they are not. */
 #undef EWOULDBLOCK
 #undef ENOTCONN
 #undef EINPROGRESS
