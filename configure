@@ -26152,19 +26152,19 @@ rm -f core conftest.err conftest.$ac_objext conftest.beam conftest.$ac_ext
 	LIBSRCS="$LIBSRCS getpeereid.c"
 fi
 
-if test "$ac_cv_func_snprintf" != yes ||
-   test "$ac_cv_func_vsnprintf" != yes; then
-	if test "$ac_cv_func_snprintf" != yes; then
+# if test "$ac_cv_func_snprintf" != yes ||
+#    test "$ac_cv_func_vsnprintf" != yes; then
+# 	if test "$ac_cv_func_snprintf" != yes; then
 
-printf "%s\n" "#define snprintf ber_pvt_snprintf" >>confdefs.h
+# printf "%s\n" "#define snprintf ber_pvt_snprintf" >>confdefs.h
 
-	fi
-	if test "$ac_cv_func_vsnprintf" != yes; then
+# 	fi
+# 	if test "$ac_cv_func_vsnprintf" != yes; then
 
-printf "%s\n" "#define vsnprintf ber_pvt_vsnprintf" >>confdefs.h
+# printf "%s\n" "#define vsnprintf ber_pvt_vsnprintf" >>confdefs.h
 
-	fi
-fi
+# 	fi
+# fi
 
 
 if test "$ol_enable_slapi" != no ; then
@@ -29348,4 +29348,3 @@ if test -n "$ac_unrecognized_opts" && test "$enable_option_checking" != no; then
   { printf "%s\n" "$as_me:${as_lineno-$LINENO}: WARNING: unrecognized options: $ac_unrecognized_opts" >&5
 printf "%s\n" "$as_me: WARNING: unrecognized options: $ac_unrecognized_opts" >&2;}
 fi
-
