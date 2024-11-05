@@ -13,7 +13,7 @@
 ## top-level directory of the distribution or, alternatively, at
 ## <http://www.OpenLDAP.org/license.html>.
 
-LIBRARY	= liblutil.a
+LIBRARY	= liblutil.lib
 
 LDAP_INCDIR= ../../include       
 LDAP_LIBDIR= ../../libraries

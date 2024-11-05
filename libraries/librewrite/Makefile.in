@@ -26,7 +26,7 @@ OBJS = config.o context.o info.o ldapmap.o map.o params.o rule.o \
 LDAP_INCDIR= ../../include       
 LDAP_LIBDIR= ../../libraries
 
-LIBRARY = librewrite.a
+LIBRARY = librewrite.lib
 PROGRAMS	= rewrite
 XLIBS = $(LIBRARY) $(LDAP_LIBLUTIL_A) \
 	$(LDAP_LIBLDAP_LA) $(LDAP_LIBLBER_LA)
