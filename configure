@@ -17331,7 +17331,7 @@ return regfree ();
   return 0;
 }
 _ACEOF
-for ac_lib in '' regex gnuregex
+for ac_lib in '' libregex gnuregex
 do
   if test -z "$ac_lib"; then
     ac_res="none required"
@@ -29348,5 +29348,4 @@ if test -n "$ac_unrecognized_opts" && test "$enable_option_checking" != no; then
   { printf "%s\n" "$as_me:${as_lineno-$LINENO}: WARNING: unrecognized options: $ac_unrecognized_opts" >&5
 printf "%s\n" "$as_me: WARNING: unrecognized options: $ac_unrecognized_opts" >&2;}
 fi
-
 
