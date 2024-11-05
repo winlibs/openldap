@@ -173,9 +173,9 @@ LEVENT_LIBS = @LEVENT_LIBS@
 LDAP_LIBLBER_LA = $(LDAP_LIBDIR)/liblber/liblber.la
 LDAP_LIBLDAP_LA = $(LDAP_LIBDIR)/libldap/libldap.la
 
-LDAP_LIBREWRITE_A = $(LDAP_LIBDIR)/librewrite/librewrite.a
-LDAP_LIBLUNICODE_A = $(LDAP_LIBDIR)/liblunicode/liblunicode.a
-LDAP_LIBLUTIL_A = $(LDAP_LIBDIR)/liblutil/liblutil.a
+LDAP_LIBREWRITE_A = $(LDAP_LIBDIR)/librewrite/librewrite.lib
+LDAP_LIBLUNICODE_A = $(LDAP_LIBDIR)/liblunicode/liblunicode.lib
+LDAP_LIBLUTIL_A = $(LDAP_LIBDIR)/liblutil/liblutil.lib
 
 LDAP_L = $(LDAP_LIBLUTIL_A) \
 	$(LDAP_LIBLDAP_LA) $(LDAP_LIBLBER_LA)
