@@ -16604,7 +16604,7 @@ return regfree ();
   return 0;
 }
 _ACEOF
-for ac_lib in '' regex gnuregex; do
+for ac_lib in '' libregex gnuregex; do
   if test -z "$ac_lib"; then
     ac_res="none required"
   else
