@@ -26136,7 +26136,7 @@ for ac_i in : $LIBOBJS; do test "x$ac_i" = x: && continue
   ac_i=`$as_echo "$ac_i" | sed "$ac_script"`
   # 2. Prepend LIBOBJDIR.  When used with automake>=1.10 LIBOBJDIR
   #    will be set to the directory where LIBOBJS objects are built.
-  as_fn_append ac_libobjs " \${LIBOBJDIR}$ac_i\$U.$ac_objext"
+  as_fn_append ac_libobjs " \${LIBOBJDIR}$ac_i\$U.o"
   as_fn_append ac_ltlibobjs " \${LIBOBJDIR}$ac_i"'$U.lo'
 done
 LIBOBJS=$ac_libobjs
