@@ -13,7 +13,7 @@
 ## top-level directory of the distribution or, alternatively, at
 ## <http://www.OpenLDAP.org/license.html>.
 
-LIBRARY = liblunicode.a
+LIBRARY = liblunicode.lib
 
 XXDIR = $(srcdir)/ucdata/
 XXHEADERS = ucdata.h ure.h uctable.h
