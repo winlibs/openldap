@@ -13,7 +13,7 @@
 ## top-level directory of the distribution or, alternatively, at
 ## <http://www.OpenLDAP.org/license.html>.
 
-LIBRARY = libldap.la
+LIBRARY = oldap32_a.lib
 
 PROGRAMS = apitest dntest ftest ltest urltest testavl
 
