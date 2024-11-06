@@ -13,7 +13,7 @@
 ## top-level directory of the distribution or, alternatively, at
 ## <http://www.OpenLDAP.org/license.html>.
 
-LIBRARY = liblber.la
+LIBRARY = olber32_a.lib
 
 NT_SRCS = nt_err.c
 NT_OBJS = nt_err.lo

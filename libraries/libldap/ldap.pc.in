@@ -9,5 +9,5 @@ URL: https://www.openldap.org
 Version: @VERSION@
 Requires: lber
 Cflags: -I${includedir}
-Libs: -L${libdir} -lldap
+Libs: -L${libdir} -loldap32_a
 Libs.private: @LIBS@ @SASL_LIBS@ @TLS_LIBS@ @AUTH_LIBS@
