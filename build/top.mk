@@ -170,8 +170,8 @@ WT_LIBS = @WT_LIBS@
 
 LEVENT_LIBS = @LEVENT_LIBS@
 
-LDAP_LIBLBER_LA = $(LDAP_LIBDIR)/liblber/liblber.la
-LDAP_LIBLDAP_LA = $(LDAP_LIBDIR)/libldap/libldap.la
+LDAP_LIBLBER_LA = $(LDAP_LIBDIR)/liblber/olber32_a.lib
+LDAP_LIBLDAP_LA = $(LDAP_LIBDIR)/libldap/oldap32_a.lib
 
 LDAP_LIBREWRITE_A = $(LDAP_LIBDIR)/librewrite/librewrite.lib
 LDAP_LIBLUNICODE_A = $(LDAP_LIBDIR)/liblunicode/liblunicode.lib
