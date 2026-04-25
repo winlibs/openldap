@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2018 The OpenLDAP Foundation.
+ * Copyright 1998-2026 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -67,7 +67,7 @@ get_mra(
 	rtag = ber_scanf( ber, "{t" /*"}"*/, &tag );
 
 	if( rtag == LBER_ERROR ) {
-		Debug( LDAP_DEBUG_ANY, "  get_mra ber_scanf\n", 0, 0, 0 );
+		Debug( LDAP_DEBUG_ANY, "  get_mra ber_scanf\n" );
 
 		*text = "Error parsing matching rule assertion";
 		return SLAPD_DISCONNECT;
@@ -76,7 +76,7 @@ get_mra(
 	if ( tag == LDAP_FILTER_EXT_OID ) {
 		rtag = ber_scanf( ber, "m", &rule_text );
 		if ( rtag == LBER_ERROR ) {
-			Debug( LDAP_DEBUG_ANY, "  get_mra ber_scanf for mr\n", 0, 0, 0 );
+			Debug( LDAP_DEBUG_ANY, "  get_mra ber_scanf for mr\n" );
 
 			*text = "Error parsing matching rule in matching rule assertion";
 			return SLAPD_DISCONNECT;
@@ -84,7 +84,7 @@ get_mra(
 
 		rtag = ber_scanf( ber, "t", &tag );
 		if( rtag == LBER_ERROR ) {
-			Debug( LDAP_DEBUG_ANY, "  get_mra ber_scanf\n", 0, 0, 0 );
+			Debug( LDAP_DEBUG_ANY, "  get_mra ber_scanf\n" );
 
 			*text = "Error parsing matching rule assertion";
 			return SLAPD_DISCONNECT;
@@ -94,7 +94,7 @@ get_mra(
 	if ( tag == LDAP_FILTER_EXT_TYPE ) {
 		rtag = ber_scanf( ber, "m", &type );
 		if ( rtag == LBER_ERROR ) {
-			Debug( LDAP_DEBUG_ANY, "  get_mra ber_scanf for ad\n", 0, 0, 0 );
+			Debug( LDAP_DEBUG_ANY, "  get_mra ber_scanf for ad\n" );
 
 			*text = "Error parsing attribute description in matching rule assertion";
 			return SLAPD_DISCONNECT;
@@ -102,7 +102,7 @@ get_mra(
 
 		rtag = ber_scanf( ber, "t", &tag );
 		if( rtag == LBER_ERROR ) {
-			Debug( LDAP_DEBUG_ANY, "  get_mra ber_scanf\n", 0, 0, 0 );
+			Debug( LDAP_DEBUG_ANY, "  get_mra ber_scanf\n" );
 
 			*text = "Error parsing matching rule assertion";
 			return SLAPD_DISCONNECT;
@@ -110,7 +110,7 @@ get_mra(
 	}
 
 	if ( tag != LDAP_FILTER_EXT_VALUE ) {
-		Debug( LDAP_DEBUG_ANY, "  get_mra ber_scanf missing value\n", 0, 0, 0 );
+		Debug( LDAP_DEBUG_ANY, "  get_mra ber_scanf missing value\n" );
 
 		*text = "Missing value in matching rule assertion";
 		return SLAPD_DISCONNECT;
@@ -119,7 +119,7 @@ get_mra(
 	rtag = ber_scanf( ber, "m", &value );
 
 	if( rtag == LBER_ERROR ) {
-		Debug( LDAP_DEBUG_ANY, "  get_mra ber_scanf\n", 0, 0, 0 );
+		Debug( LDAP_DEBUG_ANY, "  get_mra ber_scanf\n" );
 
 		*text = "Error decoding value in matching rule assertion";
 		return SLAPD_DISCONNECT;
@@ -134,7 +134,7 @@ get_mra(
 	}
 
 	if( rtag == LBER_ERROR ) {
-		Debug( LDAP_DEBUG_ANY, "  get_mra ber_scanf\n", 0, 0, 0 );
+		Debug( LDAP_DEBUG_ANY, "  get_mra ber_scanf\n" );
 
 		*text = "Error decoding dnattrs matching rule assertion";
 		return SLAPD_DISCONNECT;
@@ -158,7 +158,8 @@ get_mra(
 		ma.ma_rule = mr_bvfind( &rule_text );
 		if( ma.ma_rule == NULL ) {
 			*text = "matching rule not recognized";
-			return LDAP_INAPPROPRIATE_MATCHING;
+			rc = LDAP_INAPPROPRIATE_MATCHING;
+			goto done;
 		}
 	}
 
@@ -168,7 +169,8 @@ get_mra(
 		 */
 		if ( ma.ma_desc == NULL ) {
 			*text = "no matching rule or type";
-			return LDAP_INAPPROPRIATE_MATCHING;
+			rc = LDAP_INAPPROPRIATE_MATCHING;
+			goto done;
 		}
 
 		if ( ma.ma_desc->ad_type->sat_equality != NULL &&
@@ -180,14 +182,16 @@ get_mra(
 
 		} else {
 			*text = "no appropriate rule to use for type";
-			return LDAP_INAPPROPRIATE_MATCHING;
+			rc = LDAP_INAPPROPRIATE_MATCHING;
+			goto done;
 		}
 	}
 
 	if ( ma.ma_desc != NULL ) {
 		if( !mr_usable_with_at( ma.ma_rule, ma.ma_desc->ad_type ) ) {
 			*text = "matching rule use with this attribute not appropriate";
-			return LDAP_INAPPROPRIATE_MATCHING;
+			rc = LDAP_INAPPROPRIATE_MATCHING;
+			goto done;
 		}
 
 	}
@@ -200,18 +204,18 @@ get_mra(
 		SLAP_MR_EXT|SLAP_MR_VALUE_OF_ASSERTION_SYNTAX,
 		&value, &ma.ma_value, text, op->o_tmpmemctx );
 
-	if( rc != LDAP_SUCCESS ) return rc;
+	if ( rc != LDAP_SUCCESS ) goto done;
 
 #ifdef LDAP_COMP_MATCH
 	/* Check If this attribute is aliased */
 	if ( is_aliased_attribute && ma.ma_desc && ( aa = is_aliased_attribute ( ma.ma_desc ) ) ) {
 		rc = get_aliased_filter ( op, &ma, aa, text );
-		if ( rc != LDAP_SUCCESS ) return rc;
+		if ( rc != LDAP_SUCCESS ) goto done;
 	}
 	else if ( ma.ma_rule && ma.ma_rule->smr_usage & SLAP_MR_COMPONENT ) {
 		/* Matching Rule for Component Matching */
 		rc = get_comp_filter( op, &ma.ma_value, &ma.ma_cf, text );
-		if ( rc != LDAP_SUCCESS ) return rc;
+		if ( rc != LDAP_SUCCESS ) goto done;
 	}
 #endif
 
@@ -227,5 +231,9 @@ get_mra(
 			rule_text.bv_len+1);
 	}
 
-	return LDAP_SUCCESS;
+done:
+	if ( rc != LDAP_SUCCESS ) {
+		mra_free( op, &ma, 0 );
+	}
+	return rc;
 }

@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2018 The OpenLDAP Foundation.
+ * Copyright 1998-2026 The OpenLDAP Foundation.
  * Portions Copyright 1998-2003 Kurt D. Zeilenga.
  * Portions Copyright 2003 IBM Corporation.
  * All rights reserved.
@@ -16,7 +16,7 @@
  */
 /* ACKNOWLEDGEMENTS:
  * This work was initially developed by Kurt Zeilenga for inclusion
- * in OpenLDAP Software.  Additional signficant contributors include
+ * in OpenLDAP Software.  Additional significant contributors include
  *    Jong Hyuk Choi
  *    Pierangelo Masarati
  */
@@ -172,7 +172,8 @@ again:
 				"database #%d (%s) not configured to hold \"%s\"",
 				progname, erec->lineno,
 				dbnum,
-				be->be_suffix[0].bv_val,
+				( be->be_suffix && be->be_suffix[0].bv_val ) ?
+					be->be_suffix[0].bv_val : "(null)",
 				e->e_dn );
 			if ( bd ) {
 				BackendDB *bdtmp;
@@ -290,16 +291,13 @@ again:
 			}
 
 			if ( SLAP_SINGLE_SHADOW(be) && got != GOT_ALL ) {
-				char buf[SLAP_TEXT_BUFLEN];
-
-				snprintf( buf, sizeof(buf),
-					"%s%s%s",
-					( !(got & GOT_UUID) ? slap_schema.si_ad_entryUUID->ad_cname.bv_val : "" ),
-					( !(got & GOT_CSN) ? "," : "" ),
-					( !(got & GOT_CSN) ? slap_schema.si_ad_entryCSN->ad_cname.bv_val : "" ) );
-
-				Debug( LDAP_DEBUG_ANY, "%s: warning, missing attrs %s from entry dn=\"%s\"\n",
-					progname, buf, e->e_name.bv_val );
+				Debug(LDAP_DEBUG_ANY,
+				      "%s: warning, missing attrs %s%s%s from entry dn=\"%s\"\n",
+				      progname,
+				      (!(got & GOT_UUID) ? slap_schema.si_ad_entryUUID->ad_cname.bv_val : ""),
+				      (!(got & GOT_CSN) ? "," : ""),
+				      (!(got & GOT_CSN) ? slap_schema.si_ad_entryCSN->ad_cname.bv_val : ""),
+				      e->e_name.bv_val );
 			}
 
 			sid = slap_tool_update_ctxcsn_check( progname, e );
@@ -403,7 +401,7 @@ slapadd( int argc, char **argv )
 		SLAP_DBFLAGS(be) &= ~(SLAP_DBFLAG_NO_SCHEMA_CHECK);
 	}
 
-	if( !dryrun && be->be_entry_open( be, 1 ) != 0 ) {
+	if( be->be_entry_open && be->be_entry_open( be, 1 ) != 0 ) {
 		fprintf( stderr, "%s: could not open database.\n",
 			progname );
 		exit( EXIT_FAILURE );
@@ -445,7 +443,7 @@ slapadd( int argc, char **argv )
 			break;
 		}
 
-		if ( !dryrun ) {
+		if ( be->be_entry_put ) {
 			/*
 			 * Initialize text buffer
 			 */
@@ -507,7 +505,7 @@ slapadd( int argc, char **argv )
 
 	ch_free( buf );
 
-	if ( !dryrun ) {
+	if ( be->be_entry_close ) {
 		if ( enable_meter ) {
 			fprintf( stderr, "Closing DB..." );
 		}

@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2018 The OpenLDAP Foundation.
+ * Copyright 1998-2026 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -31,7 +31,7 @@
  *
  * It should only be enabled by an experienced developer as it causes
  * the inclusion of numerous assert()'s, many of which may be triggered
- * by a prefectly valid program.  If LDAP_MEMORY_DEBUG & 2 is true,
+ * by a perfectly valid program.  If LDAP_MEMORY_DEBUG & 2 is true,
  * that includes asserts known to break both slapd and current clients.
  *
  * The code behind this macro is subject to change as needed to
@@ -705,11 +705,22 @@ ber_bvreplace_x( struct berval *dst, LDAP_CONST struct berval *src, void *ctx )
 	assert( !BER_BVISNULL( src ) );
 
 	if ( BER_BVISNULL( dst ) || dst->bv_len < src->bv_len ) {
-		dst->bv_val = ber_memrealloc_x( dst->bv_val, src->bv_len + 1, ctx );
+		char *ptr = ber_memrealloc_x( dst->bv_val, src->bv_len + 1, ctx );
+		if ( ptr != NULL ) {
+			dst->bv_val = ptr;
+			dst->bv_len = src->bv_len;
+		}
+		/* if realloc failed, dst is left unchanged
+		 * and the value copied into it will be truncated.
+		 * callers never check this function's return value.
+		 */
+	} else {
+		dst->bv_len = src->bv_len;
 	}
 
-	AC_MEMCPY( dst->bv_val, src->bv_val, src->bv_len + 1 );
-	dst->bv_len = src->bv_len;
+	if ( dst->bv_val != NULL ) {
+		AC_MEMCPY( dst->bv_val, src->bv_val, dst->bv_len + 1 );
+	}
 
 	return dst;
 }

@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2001-2018 The OpenLDAP Foundation.
+ * Copyright 2001-2026 The OpenLDAP Foundation.
  * Portions Copyright 2001-2003 Pierangelo Masarati.
  * All rights reserved.
  *
@@ -63,7 +63,7 @@ monitor_subsys_ops_init(
 {
 	monitor_info_t	*mi;
 	
-	Entry		*e_op, **ep;
+	Entry		*e_op;
 	monitor_entry_t	*mp;
 	int 		i;
 	struct berval	bv_zero = BER_BVC( "0" );
@@ -81,17 +81,12 @@ monitor_subsys_ops_init(
 		Debug( LDAP_DEBUG_ANY,
 			"monitor_subsys_ops_init: "
 			"unable to get entry \"%s\"\n",
-			ms->mss_ndn.bv_val, 
-			0, 0 );
+			ms->mss_ndn.bv_val );
 		return( -1 );
 	}
 
 	attr_merge_one( e_op, mi->mi_ad_monitorOpInitiated, &bv_zero, NULL );
 	attr_merge_one( e_op, mi->mi_ad_monitorOpCompleted, &bv_zero, NULL );
-
-	mp = ( monitor_entry_t * )e_op->e_private;
-	mp->mp_children = NULL;
-	ep = &mp->mp_children;
 
 	for ( i = 0; i < SLAP_OP_LAST; i++ ) {
 		struct berval	rdn;
@@ -109,7 +104,7 @@ monitor_subsys_ops_init(
 				"monitor_subsys_ops_init: "
 				"unable to create entry \"%s,%s\"\n",
 				monitor_op[ i ].rdn.bv_val,
-				ms->mss_ndn.bv_val, 0 );
+				ms->mss_ndn.bv_val );
 			return( -1 );
 		}
 
@@ -130,17 +125,14 @@ monitor_subsys_ops_init(
 		mp->mp_flags = ms->mss_flags \
 			| MONITOR_F_SUB | MONITOR_F_PERSISTENT;
 
-		if ( monitor_cache_add( mi, e ) ) {
+		if ( monitor_cache_add( mi, e, e_op ) ) {
 			Debug( LDAP_DEBUG_ANY,
 				"monitor_subsys_ops_init: "
 				"unable to add entry \"%s,%s\"\n",
 				monitor_op[ i ].rdn.bv_val,
-				ms->mss_ndn.bv_val, 0 );
+				ms->mss_ndn.bv_val );
 			return( -1 );
 		}
-
-		*ep = e;
-		ep = &mp->mp_next;
 	}
 
 	monitor_cache_release( mi, e_op );
@@ -190,16 +182,12 @@ monitor_subsys_ops_update(
 		ldap_pvt_mp_init( nCompleted );
 
 		ldap_pvt_thread_mutex_lock( &slap_counters.sc_mutex );
-		for ( i = 0; i < SLAP_OP_LAST; i++ ) {
-			ldap_pvt_mp_add( nInitiated, slap_counters.sc_ops_initiated_[ i ] );
-			ldap_pvt_mp_add( nCompleted, slap_counters.sc_ops_completed_[ i ] );
-		}
+		ldap_pvt_mp_add( nInitiated, slap_counters.sc_ops_initiated );
+		ldap_pvt_mp_add( nCompleted, slap_counters.sc_ops_completed );
 		for ( sc = slap_counters.sc_next; sc; sc = sc->sc_next ) {
 			ldap_pvt_thread_mutex_lock( &sc->sc_mutex );
-			for ( i = 0; i < SLAP_OP_LAST; i++ ) {
-				ldap_pvt_mp_add( nInitiated, sc->sc_ops_initiated_[ i ] );
-				ldap_pvt_mp_add( nCompleted, sc->sc_ops_completed_[ i ] );
-			}
+			ldap_pvt_mp_add( nInitiated, sc->sc_ops_initiated );
+			ldap_pvt_mp_add( nCompleted, sc->sc_ops_completed );
 			ldap_pvt_thread_mutex_unlock( &sc->sc_mutex );
 		}
 		ldap_pvt_thread_mutex_unlock( &slap_counters.sc_mutex );

@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2001-2018 The OpenLDAP Foundation.
+ * Copyright 2001-2026 The OpenLDAP Foundation.
  * Portions Copyright 2001-2003 Pierangelo Masarati.
  * All rights reserved.
  *
@@ -44,7 +44,7 @@ monitor_subsys_time_init(
 {
 	monitor_info_t	*mi;
 	
-	Entry		*e, **ep, *e_time;
+	Entry		*e, *e_time;
 	monitor_entry_t	*mp;
 	struct berval	bv, value;
 
@@ -59,13 +59,9 @@ monitor_subsys_time_init(
 		Debug( LDAP_DEBUG_ANY,
 			"monitor_subsys_time_init: "
 			"unable to get entry \"%s\"\n",
-			ms->mss_ndn.bv_val, 0, 0 );
+			ms->mss_ndn.bv_val );
 		return( -1 );
 	}
-
-	mp = ( monitor_entry_t * )e_time->e_private;
-	mp->mp_children = NULL;
-	ep = &mp->mp_children;
 
 	BER_BVSTR( &bv, "cn=Start" );
 	e = monitor_entry_stub( &ms->mss_dn, &ms->mss_ndn, &bv,
@@ -74,7 +70,7 @@ monitor_subsys_time_init(
 		Debug( LDAP_DEBUG_ANY,
 			"monitor_subsys_time_init: "
 			"unable to create entry \"%s,%s\"\n",
-			bv.bv_val, ms->mss_ndn.bv_val, 0 );
+			bv.bv_val, ms->mss_ndn.bv_val );
 		return( -1 );
 	}
 	attr_merge_normalize_one( e, mi->mi_ad_monitorTimestamp,
@@ -89,17 +85,14 @@ monitor_subsys_time_init(
 	mp->mp_flags = ms->mss_flags \
 		| MONITOR_F_SUB | MONITOR_F_PERSISTENT;
 
-	if ( monitor_cache_add( mi, e ) ) {
+	if ( monitor_cache_add( mi, e, e_time ) ) {
 		Debug( LDAP_DEBUG_ANY,
 			"monitor_subsys_time_init: "
 			"unable to add entry \"%s,%s\"\n",
-			bv.bv_val, ms->mss_ndn.bv_val, 0 );
+			bv.bv_val, ms->mss_ndn.bv_val );
 		return( -1 );
 	}
 	
-	*ep = e;
-	ep = &mp->mp_next;
-
 	/*
 	 * Current
 	 */
@@ -110,7 +103,7 @@ monitor_subsys_time_init(
 		Debug( LDAP_DEBUG_ANY,
 			"monitor_subsys_time_init: "
 			"unable to create entry \"%s,%s\"\n",
-			bv.bv_val, ms->mss_ndn.bv_val, 0 );
+			bv.bv_val, ms->mss_ndn.bv_val );
 		return( -1 );
 	}
 	attr_merge_normalize_one( e, mi->mi_ad_monitorTimestamp,
@@ -125,17 +118,14 @@ monitor_subsys_time_init(
 	mp->mp_flags = ms->mss_flags \
 		| MONITOR_F_SUB | MONITOR_F_PERSISTENT;
 
-	if ( monitor_cache_add( mi, e ) ) {
+	if ( monitor_cache_add( mi, e, e_time ) ) {
 		Debug( LDAP_DEBUG_ANY,
 			"monitor_subsys_time_init: "
 			"unable to add entry \"%s,%s\"\n",
-			bv.bv_val, ms->mss_ndn.bv_val, 0 );
+			bv.bv_val, ms->mss_ndn.bv_val );
 		return( -1 );
 	}
 	
-	*ep = e;
-	ep = &mp->mp_next;
-
 	/*
 	 * Uptime
 	 */
@@ -146,7 +136,7 @@ monitor_subsys_time_init(
 		Debug( LDAP_DEBUG_ANY,
 			"monitor_subsys_time_init: "
 			"unable to create entry \"%s,%s\"\n",
-			bv.bv_val, ms->mss_ndn.bv_val, 0 );
+			bv.bv_val, ms->mss_ndn.bv_val );
 		return( -1 );
 	}
 	BER_BVSTR( &value, "0" );
@@ -162,17 +152,14 @@ monitor_subsys_time_init(
 	mp->mp_flags = ms->mss_flags \
 		| MONITOR_F_SUB | MONITOR_F_PERSISTENT;
 
-	if ( monitor_cache_add( mi, e ) ) {
+	if ( monitor_cache_add( mi, e, e_time ) ) {
 		Debug( LDAP_DEBUG_ANY,
 			"monitor_subsys_time_init: "
 			"unable to add entry \"%s,%s\"\n",
-			bv.bv_val, ms->mss_ndn.bv_val, 0 );
+			bv.bv_val, ms->mss_ndn.bv_val );
 		return( -1 );
 	}
 	
-	*ep = e;
-	ep = &mp->mp_next;
-
 	monitor_cache_release( mi, e_time );
 
 	return( 0 );

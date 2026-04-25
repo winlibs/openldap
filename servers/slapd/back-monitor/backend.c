@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2001-2018 The OpenLDAP Foundation.
+ * Copyright 2001-2026 The OpenLDAP Foundation.
  * Portions Copyright 2001-2003 Pierangelo Masarati.
  * All rights reserved.
  *
@@ -38,7 +38,7 @@ monitor_subsys_backend_init(
 )
 {
 	monitor_info_t		*mi;
-	Entry			*e_backend, **ep;
+	Entry			*e_backend;
 	int			i;
 	monitor_entry_t		*mp;
 	monitor_subsys_t	*ms_database;
@@ -52,8 +52,7 @@ monitor_subsys_backend_init(
 			"monitor_subsys_backend_init: "
 			"unable to get "
 			"\"" SLAPD_MONITOR_DATABASE_NAME "\" "
-			"subsystem\n",
-			0, 0, 0 );
+			"subsystem\n" );
 		return -1;
 	}
 
@@ -61,13 +60,9 @@ monitor_subsys_backend_init(
 		Debug( LDAP_DEBUG_ANY,
 			"monitor_subsys_backend_init: "
 			"unable to get entry \"%s\"\n",
-			ms->mss_ndn.bv_val, 0, 0 );
+			ms->mss_ndn.bv_val );
 		return( -1 );
 	}
-
-	mp = ( monitor_entry_t * )e_backend->e_private;
-	mp->mp_children = NULL;
-	ep = &mp->mp_children;
 
 	i = -1;
 	LDAP_STAILQ_FOREACH( bi, &backendInfo, bi_next ) {
@@ -89,7 +84,7 @@ monitor_subsys_backend_init(
 			Debug( LDAP_DEBUG_ANY,
 				"monitor_subsys_backend_init: "
 				"unable to create entry \"cn=Backend %d,%s\"\n",
-				i, ms->mss_ndn.bv_val, 0 );
+				i, ms->mss_ndn.bv_val );
 			return( -1 );
 		}
 		
@@ -140,17 +135,14 @@ monitor_subsys_backend_init(
 		mp->mp_info = ms;
 		mp->mp_flags = ms->mss_flags | MONITOR_F_SUB;
 
-		if ( monitor_cache_add( mi, e ) ) {
+		if ( monitor_cache_add( mi, e, e_backend ) ) {
 			Debug( LDAP_DEBUG_ANY,
 				"monitor_subsys_backend_init: "
 				"unable to add entry \"cn=Backend %d,%s\"\n",
 				i,
-			       	ms->mss_ndn.bv_val, 0 );
+					ms->mss_ndn.bv_val );
 			return( -1 );
 		}
-
-		*ep = e;
-		ep = &mp->mp_next;
 	}
 	
 	monitor_cache_release( mi, e_backend );

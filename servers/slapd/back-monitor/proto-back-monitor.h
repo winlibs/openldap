@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2001-2018 The OpenLDAP Foundation.
+ * Copyright 2001-2026 The OpenLDAP Foundation.
  * Portions Copyright 2001-2003 Pierangelo Masarati.
  * All rights reserved.
  *
@@ -47,7 +47,8 @@ monitor_cache_dup LDAP_P((
 extern int
 monitor_cache_add LDAP_P((
 	monitor_info_t		*mi,
-	Entry			*e ));
+	Entry			*e,
+	Entry			*parent ));
 extern int
 monitor_cache_get LDAP_P((
 	monitor_info_t		*mi,
@@ -134,9 +135,13 @@ monitor_back_entry_stub LDAP_P((
 	ObjectClass		*oc,
 	struct berval	*create,
 	struct berval	*modify ));
+extern Entry *
+monitor_back_entry_get_unlocked LDAP_P((
+	struct berval	*ndn ));
 
 #define monitor_entrypriv_create monitor_back_entrypriv_create
 #define monitor_entry_stub monitor_back_entry_stub
+#define monitor_entry_get_unlocked monitor_back_entry_get_unlocked
 
 /*
  * init

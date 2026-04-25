@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2018 The OpenLDAP Foundation.
+ * Copyright 1998-2026 The OpenLDAP Foundation.
  * Portions Copyright 1998-2003 Kurt D. Zeilenga.
  * Portions Copyright 2003 IBM Corporation.
  * All rights reserved.
@@ -45,6 +45,7 @@ slapschema( int argc, char **argv )
 {
 	ID id;
 	int rc = EXIT_SUCCESS;
+	int result = EXIT_SUCCESS;
 	const char *progname = "slapschema";
 	Connection conn = { 0 };
 	OperationBuffer	opbuf;
@@ -53,7 +54,7 @@ slapschema( int argc, char **argv )
 	int requestBSF = 0;
 	int doBSF = 0;
 
-	slap_tool_init( progname, SLAPCAT, argc, argv );
+	slap_tool_init( progname, SLAPSCHEMA, argc, argv );
 
 	requestBSF = ( sub_ndn.bv_len || filter );
 
@@ -117,7 +118,7 @@ slapschema( int argc, char **argv )
 		e = be->be_entry_get( be, id );
 		if ( e == NULL ) {
 			printf("# no data for entry id=%08lx\n\n", (long) id );
-			rc = EXIT_FAILURE;
+			result = EXIT_FAILURE;
 			if( continuemode ) continue;
 			break;
 		}
@@ -133,6 +134,7 @@ slapschema( int argc, char **argv )
 			if ( filter != NULL ) {
 				int rc = test_filter( NULL, e, filter );
 				if ( rc != LDAP_COMPARE_TRUE ) {
+					result = rc;
 					be_entry_release_r( op, e );
 					continue;
 				}
@@ -151,15 +153,19 @@ slapschema( int argc, char **argv )
 				text ? ": " : "",
 				text ? text : "" );
 			fprintf( ldiffp->fp, "dn: %s\n\n", e->e_name.bv_val );
+			result = rc;
 		}
 
 		be_entry_release_r( op, e );
+		if ( result != LDAP_SUCCESS && !continuemode ) {
+			break;
+		}
 	}
 
 	be->be_entry_close( be );
 
 	if ( slap_tool_destroy() )
-		rc = EXIT_FAILURE;
+		result = EXIT_FAILURE;
 
-	return rc;
+	return result;
 }

@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2004-2018 The OpenLDAP Foundation.
+ * Copyright 2004-2026 The OpenLDAP Foundation.
  * Portions Copyright 2004 Symas Corporation.
  * All rights reserved.
  *
@@ -38,7 +38,7 @@
 #include <ac/socket.h>
 
 #include "slap.h"
-#include "config.h"
+#include "slap-config.h"
 #include "ldap_rq.h"
 
 static slap_overinst refint;
@@ -116,14 +116,16 @@ static ConfigTable refintcfg[] = {
 	  "EQUALITY caseIgnoreMatch "
 	  "SYNTAX OMsDirectoryString )", NULL, NULL },
 	{ "refint_nothing", "string", 2, 2, 0,
-	  ARG_DN|ARG_MAGIC|REFINT_NOTHING, refint_cf_gen,
+	  ARG_DN|ARG_QUOTE|ARG_MAGIC|REFINT_NOTHING, refint_cf_gen,
 	  "( OLcfgOvAt:11.2 NAME 'olcRefintNothing' "
 	  "DESC 'Replacement DN to supply when needed' "
+	  "EQUALITY distinguishedNameMatch "
 	  "SYNTAX OMsDN SINGLE-VALUE )", NULL, NULL },
 	{ "refint_modifiersName", "DN", 2, 2, 0,
-	  ARG_DN|ARG_MAGIC|REFINT_MODIFIERSNAME, refint_cf_gen,
+	  ARG_DN|ARG_QUOTE|ARG_MAGIC|REFINT_MODIFIERSNAME, refint_cf_gen,
 	  "( OLcfgOvAt:11.3 NAME 'olcRefintModifiersName' "
 	  "DESC 'The DN to use as modifiersName' "
+	  "EQUALITY distinguishedNameMatch "
 	  "SYNTAX OMsDN SINGLE-VALUE )", NULL, NULL },
 	{ NULL, NULL, 0, 0, 0, ARG_IGNORED }
 };
@@ -235,11 +237,19 @@ refint_cf_gen(ConfigArgs *c)
 		}
 		break;
 	case SLAP_CONFIG_ADD:
-		/* fallthrough to LDAP_MOD_ADD */
+		/* fallthru to LDAP_MOD_ADD */
 	case LDAP_MOD_ADD:
 		switch ( c->type ) {
 		case REFINT_ATTRS:
 			rc = 0;
+			if ( c->op != SLAP_CONFIG_ADD && c->argc > 2 ) {
+				/* We wouldn't know how to delete these values later */
+				Debug( LDAP_DEBUG_CONFIG|LDAP_DEBUG_NONE,
+					"Supplying multiple names in a single %s value is "
+					"unsupported and will be disallowed in a future version\n",
+					c->argv[0] );
+			}
+
 			for ( i=1; i < c->argc; ++i ) {
 				ad = NULL;
 				if ( slap_str2ad ( c->argv[i], &ad, &text )
@@ -247,13 +257,16 @@ refint_cf_gen(ConfigArgs *c)
 					ip = ch_malloc (
 						sizeof ( refint_attrs ) );
 					ip->attr = ad;
-					ip->next = dd->attrs;
-					dd->attrs = ip;
+
+					for ( pipp = &dd->attrs; *pipp; pipp = &(*pipp)->next )
+						/* Get to the end */ ;
+					ip->next = *pipp;
+					*pipp = ip;
 				} else {
 					snprintf( c->cr_msg, sizeof( c->cr_msg ),
 						"%s <%s>: %s", c->argv[0], c->argv[i], text );
 					Debug ( LDAP_DEBUG_CONFIG|LDAP_DEBUG_NONE,
-						"%s: %s\n", c->log, c->cr_msg, 0 );
+						"%s: %s\n", c->log, c->cr_msg );
 					rc = ARG_BAD_CONF;
 				}
 			}
@@ -382,15 +395,14 @@ refint_open(
 				bi = db->bd_info;
 			if ( !bi->bi_op_search || !bi->bi_op_modify ) {
 				Debug( LDAP_DEBUG_CONFIG,
-					"refint_response: backend missing search and/or modify\n",
-					0, 0, 0 );
+					"refint_response: backend missing search and/or modify\n" );
 				return -1;
 			}
 			id->db = db;
 		} else {
 			Debug( LDAP_DEBUG_CONFIG,
 				"refint_response: no backend for our baseDN %s??\n",
-				id->dn.bv_val, 0, 0 );
+				id->dn.bv_val );
 			return -1;
 		}
 	}
@@ -443,7 +455,7 @@ refint_search_cb(
 	int i;
 
 	Debug(LDAP_DEBUG_TRACE, "refint_search_cb <%s>\n",
-		rs->sr_entry ? rs->sr_entry->e_name.bv_val : "NOTHING", 0, 0);
+		rs->sr_entry ? rs->sr_entry->e_name.bv_val : "NOTHING" );
 
 	if (rs->sr_type != REP_SEARCH || !rs->sr_entry) return(0);
 
@@ -583,6 +595,7 @@ refint_repair(
 	unsigned long	opid;
 	int		rc;
 	int	cache;
+	OpExtra oex;
 
 	op->o_callback->sc_response = refint_search_cb;
 	op->o_req_dn = op->o_bd->be_suffix[ 0 ];
@@ -591,6 +604,7 @@ refint_repair(
 	op->o_ndn = op->o_bd->be_rootndn;
 	cache = op->o_do_not_cache;
 	op->o_do_not_cache = 1;
+	op->o_abandon = 0;
 
 	/* search */
 	rc = op->o_bd->be_search( op, &rs );
@@ -599,15 +613,14 @@ refint_repair(
 	if ( rc != LDAP_SUCCESS ) {
 		Debug( LDAP_DEBUG_TRACE,
 			"refint_repair: search failed: %d\n",
-			rc, 0, 0 );
+			rc );
 		return rc;
 	}
 
 	/* safety? paranoid just in case */
 	if ( op->o_callback->sc_private == NULL ) {
 		Debug( LDAP_DEBUG_TRACE,
-			"refint_repair: callback wiped out sc_private?!\n",
-			0, 0, 0 );
+			"refint_repair: callback wiped out sc_private?!\n" );
 		return 0;
 	}
 
@@ -625,6 +638,11 @@ refint_repair(
 
 	opid = op->o_opid;
 	op2 = *op;
+
+	/* mark this mod as one of ours */
+	oex.oe_key = (void *)&refint;
+	LDAP_SLIST_INSERT_HEAD( &op2.o_extra, &oex, oe_next );
+
 	for ( dp = rq->attrs; dp; dp = dp->next ) {
 		SlapReply	rs2 = {REP_RESULT};
 		refint_attrs	*ra;
@@ -636,7 +654,7 @@ refint_repair(
 		if ( !op2.o_bd ) {
 			Debug( LDAP_DEBUG_TRACE,
 				"refint_repair: no backend for DN %s!\n",
-				dp->dn.bv_val, 0, 0 );
+				dp->dn.bv_val );
 			continue;
 		}
 		op2.o_tag = LDAP_REQ_MODIFY;
@@ -738,7 +756,7 @@ refint_repair(
 		if ( rc != LDAP_SUCCESS ) {
 			Debug( LDAP_DEBUG_TRACE,
 				"refint_repair: dependent modify failed: %d\n",
-				rs2.sr_err, 0, 0 );
+				rs2.sr_err );
 		}
 
 		while ( ( m = op2.orm_modlist ) ) {
@@ -937,7 +955,6 @@ refint_response(
 	refint_pre *rp;
 	slap_overinst *on;
 	refint_data *id;
-	BerValue pdn;
 	refint_q *rq;
 	refint_attrs *ip;
 	int ac;
@@ -959,18 +976,8 @@ refint_response(
 	rq->do_sub = rp->do_sub;
 
 	if ( op->o_tag == LDAP_REQ_MODRDN ) {
-		if ( op->oq_modrdn.rs_newSup ) {
-			pdn = *op->oq_modrdn.rs_newSup;
-		} else {
-			dnParent( &op->o_req_dn, &pdn );
-		}
-		build_new_dn( &rq->newdn, &pdn, &op->orr_newrdn, NULL );
-		if ( op->oq_modrdn.rs_nnewSup ) {
-			pdn = *op->oq_modrdn.rs_nnewSup;
-		} else {
-			dnParent( &op->o_req_ndn, &pdn );
-		}
-		build_new_dn( &rq->newndn, &pdn, &op->orr_nnewrdn, NULL );
+		ber_dupbv( &rq->newdn, &op->orr_newDN );
+		ber_dupbv( &rq->newndn, &op->orr_nnewDN );
 	}
 
 	ldap_pvt_thread_mutex_lock( &id->qmutex );
@@ -1057,8 +1064,7 @@ int refint_initialize() {
 	mr_dnSubtreeMatch = mr_find( "dnSubtreeMatch" );
 	if ( mr_dnSubtreeMatch == NULL ) {
 		Debug( LDAP_DEBUG_ANY, "refint_initialize: "
-			"unable to find MatchingRule 'dnSubtreeMatch'.\n",
-			0, 0, 0 );
+			"unable to find MatchingRule 'dnSubtreeMatch'.\n" );
 		return 1;
 	}
 

@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2000-2018 The OpenLDAP Foundation.
+ * Copyright 2000-2026 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -25,12 +25,14 @@
 #include "back-mdb.h"
 #include <lutil.h>
 #include <ldap_rq.h>
-#include "config.h"
+#include "slap-config.h"
 
 static const struct berval mdmi_databases[] = {
 	BER_BVC("ad2i"),
 	BER_BVC("dn2i"),
 	BER_BVC("id2e"),
+	BER_BVC("id2v"),
+	BER_BVC("ixck"),
 	BER_BVNULL
 };
 
@@ -47,8 +49,7 @@ mdb_db_init( BackendDB *be, ConfigReply *cr )
 	int rc;
 
 	Debug( LDAP_DEBUG_TRACE,
-		LDAP_XSTRING(mdb_db_init) ": Initializing mdb database\n",
-		0, 0, 0 );
+		LDAP_XSTRING(mdb_db_init) ": Initializing mdb database\n" );
 
 	/* allocate backend-database-specific stuff */
 	mdb = (struct mdb_info *) ch_calloc( 1, sizeof(struct mdb_info) );
@@ -63,9 +64,11 @@ mdb_db_init( BackendDB *be, ConfigReply *cr )
 
 	mdb->mi_mapsize = DEFAULT_MAPSIZE;
 	mdb->mi_rtxn_size = DEFAULT_RTXN_SIZE;
+	mdb->mi_multi_hi = UINT_MAX;
+	mdb->mi_multi_lo = UINT_MAX;
 
 	be->be_private = mdb;
-	be->be_cf_ocs = be->bd_info->bi_cf_ocs;
+	be->be_cf_ocs = be->bd_info->bi_cf_ocs+1;
 
 #ifndef MDB_MULTIPLE_SUFFIXES
 	SLAP_DBFLAGS( be ) |= SLAP_DBFLAG_ONE_SUFFIX;
@@ -85,28 +88,29 @@ mdb_db_open( BackendDB *be, ConfigReply *cr )
 	int rc, i;
 	struct mdb_info *mdb = (struct mdb_info *) be->be_private;
 	struct stat stat1;
-	uint32_t flags;
+	unsigned flags;
 	char *dbhome;
 	MDB_txn *txn;
+	int do_index = 0;
 
 	if ( be->be_suffix == NULL ) {
 		Debug( LDAP_DEBUG_ANY,
-			LDAP_XSTRING(mdb_db_open) ": need suffix.\n",
-			1, 0, 0 );
+			LDAP_XSTRING(mdb_db_open) ": need suffix.\n" );
 		return -1;
 	}
 
 	Debug( LDAP_DEBUG_ARGS,
 		LDAP_XSTRING(mdb_db_open) ": \"%s\"\n",
-		be->be_suffix[0].bv_val, 0, 0 );
+		be->be_suffix[0].bv_val );
 
 	/* Check existence of dbenv_home. Any error means trouble */
 	rc = stat( mdb->mi_dbenv_home, &stat1 );
 	if( rc != 0 ) {
+		int saved_errno = errno;
 		Debug( LDAP_DEBUG_ANY,
 			LDAP_XSTRING(mdb_db_open) ": database \"%s\": "
 			"cannot access database directory \"%s\" (%d).\n",
-			be->be_suffix[0].bv_val, mdb->mi_dbenv_home, errno );
+			be->be_suffix[0].bv_val, mdb->mi_dbenv_home, saved_errno );
 		return -1;
 	}
 
@@ -162,7 +166,7 @@ mdb_db_open( BackendDB *be, ConfigReply *cr )
 	Debug( LDAP_DEBUG_TRACE,
 		LDAP_XSTRING(mdb_db_open) ": database \"%s\": "
 		"dbenv_open(%s).\n",
-		be->be_suffix[0].bv_val, mdb->mi_dbenv_home, 0);
+		be->be_suffix[0].bv_val, mdb->mi_dbenv_home );
 
 	flags = mdb->mi_dbenv_flags;
 
@@ -201,6 +205,8 @@ mdb_db_open( BackendDB *be, ConfigReply *cr )
 		} else {
 			if ( i == MDB_DN2ID )
 				flags |= MDB_DUPSORT;
+			if ( i == MDB_ID2VAL )
+				flags ^= MDB_INTEGERKEY|MDB_DUPSORT;
 			if ( !(slapMode & SLAP_TOOL_READONLY) )
 				flags |= MDB_CREATE;
 		}
@@ -211,20 +217,26 @@ mdb_db_open( BackendDB *be, ConfigReply *cr )
 			&mdb->mi_dbis[i] );
 
 		if ( rc != 0 ) {
-			snprintf( cr->msg, sizeof(cr->msg), "database \"%s\": "
-				"mdb_dbi_open(%s/%s) failed: %s (%d).", 
-				be->be_suffix[0].bv_val, 
-				mdb->mi_dbenv_home, mdmi_databases[i].bv_val,
-				mdb_strerror(rc), rc );
-			Debug( LDAP_DEBUG_ANY,
-				LDAP_XSTRING(mdb_db_open) ": %s\n",
-				cr->msg, 0, 0 );
-			goto fail;
+			/* when read-only, it's ok for ID2VAL or IDXCKP to not exist */
+			if (( flags & MDB_CREATE ) || ( i < MDB_ID2VAL )) {
+				snprintf( cr->msg, sizeof(cr->msg), "database \"%s\": "
+					"mdb_dbi_open(%s/%s) failed: %s (%d).",
+					be->be_suffix[0].bv_val,
+					mdb->mi_dbenv_home, mdmi_databases[i].bv_val,
+					mdb_strerror(rc), rc );
+				Debug( LDAP_DEBUG_ANY,
+					LDAP_XSTRING(mdb_db_open) ": %s\n",
+					cr->msg );
+				goto fail;
+			}
 		}
 
 		if ( i == MDB_ID2ENTRY )
 			mdb_set_compare( txn, mdb->mi_dbis[i], mdb_id_compare );
-		else if ( i == MDB_DN2ID ) {
+		else if ( i == MDB_ID2VAL ) {
+			mdb_set_compare( txn, mdb->mi_dbis[i], mdb_id2v_compare );
+			mdb_set_dupsort( txn, mdb->mi_dbis[i], mdb_id2v_dupsort );
+		} else if ( i == MDB_DN2ID ) {
 			MDB_cursor *mc;
 			MDB_val key, data;
 			mdb_set_dupsort( txn, mdb->mi_dbis[i], mdb_dup_compare );
@@ -246,7 +258,7 @@ mdb_db_open( BackendDB *be, ConfigReply *cr )
 						be->be_suffix[0].bv_val );
 						Debug( LDAP_DEBUG_ANY,
 							LDAP_XSTRING(mdb_db_open) ": %s\n",
-							cr->msg, 0, 0 );
+							cr->msg );
 						if ( !(slapMode & SLAP_TOOL_READMAIN ))
 							rc = LDAP_OTHER;
 						mdb->mi_flags |= MDB_NEED_UPGRADE;
@@ -276,6 +288,13 @@ mdb_db_open( BackendDB *be, ConfigReply *cr )
 		}
 	}
 
+	if ( slapMode & SLAP_SERVER_MODE ) {
+		MDB_stat st;
+		rc = mdb_stat( txn, mdb->mi_idxckp, &st );
+		if ( st.ms_entries )
+			do_index = mdb_resume_index( be, txn );
+	}
+
 	rc = mdb_txn_commit(txn);
 	if ( rc != 0 ) {
 		Debug( LDAP_DEBUG_ANY,
@@ -292,6 +311,9 @@ mdb_db_open( BackendDB *be, ConfigReply *cr )
 	}
 
 	mdb->mi_flags |= MDB_IS_OPEN;
+
+	if ( do_index )
+		mdb_start_index_task( be->bd_self );
 
 	return 0;
 
@@ -311,11 +333,21 @@ mdb_db_close( BackendDB *be, ConfigReply *cr )
 
 	mdb->mi_flags &= ~MDB_IS_OPEN;
 
-	if( mdb->mi_dbenv ) {
-		mdb_reader_flush( mdb->mi_dbenv );
+	/* remove indexer task */
+	if ( mdb->mi_index_task ) {
+		struct re_s *re = mdb->mi_index_task;
+		ldap_pvt_thread_mutex_lock( &slapd_rq.rq_mutex );
+		mdb->mi_index_task = NULL;
+		/* can never actually be running at this point, but paranoia */
+		if ( ldap_pvt_runqueue_isrunning( &slapd_rq, re ) )
+			ldap_pvt_runqueue_stoptask( &slapd_rq, re );
+		ldap_pvt_runqueue_remove( &slapd_rq, re );
+		ldap_pvt_thread_mutex_unlock( &slapd_rq.rq_mutex );
 	}
 
 	if ( mdb->mi_dbenv ) {
+		mdb_reader_flush( mdb->mi_dbenv );
+
 		if ( mdb->mi_dbis[0] ) {
 			int i;
 
@@ -388,22 +420,21 @@ mdb_back_initialize(
 		LDAP_CONTROL_POST_READ,
 		LDAP_CONTROL_SUBENTRIES,
 		LDAP_CONTROL_X_PERMISSIVE_MODIFY,
-#ifdef LDAP_X_TXN
-		LDAP_CONTROL_X_TXN_SPEC,
-#endif
+		LDAP_CONTROL_TXN_SPEC,
 		NULL
 	};
 
 	/* initialize the underlying database system */
 	Debug( LDAP_DEBUG_TRACE,
 		LDAP_XSTRING(mdb_back_initialize) ": initialize " 
-		MDB_UCTYPE " backend\n", 0, 0, 0 );
+		MDB_UCTYPE " backend\n" );
 
 	bi->bi_flags |=
 		SLAP_BFLAG_INCREMENT |
 		SLAP_BFLAG_SUBENTRIES |
 		SLAP_BFLAG_ALIASES |
-		SLAP_BFLAG_REFERRALS;
+		SLAP_BFLAG_REFERRALS |
+		SLAP_BFLAG_TXNS;
 
 	bi->bi_controls = controls;
 
@@ -428,12 +459,12 @@ mdb_back_initialize(
 				LDAP_XSTRING(mdb_back_initialize) ": "
 				"MDB library version mismatch:"
 				" expected " MDB_VERSION_STRING ","
-				" got %s\n", version, 0, 0 );
+				" got %s\n", version );
 			return -1;
 		}
 
 		Debug( LDAP_DEBUG_TRACE, LDAP_XSTRING(mdb_back_initialize)
-			": %s\n", version, 0, 0 );
+			": %s\n", version );
 	}
 
 	bi->bi_open = 0;
@@ -456,6 +487,7 @@ mdb_back_initialize(
 	bi->bi_op_search = mdb_search;
 
 	bi->bi_op_unbind = 0;
+	bi->bi_op_txn = mdb_txn;
 
 	bi->bi_extended = mdb_extended;
 
@@ -480,6 +512,7 @@ mdb_back_initialize(
 	bi->bi_tool_sync = 0;
 	bi->bi_tool_dn2id_get = mdb_tool_dn2id_get;
 	bi->bi_tool_entry_modify = mdb_tool_entry_modify;
+	bi->bi_tool_entry_delete = mdb_tool_entry_delete;
 
 	bi->bi_connection_init = 0;
 	bi->bi_connection_destroy = 0;

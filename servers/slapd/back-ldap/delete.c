@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2003-2018 The OpenLDAP Foundation.
+ * Copyright 2003-2026 The OpenLDAP Foundation.
  * Portions Copyright 1999-2003 Howard Chu.
  * Portions Copyright 2000-2003 Pierangelo Masarati.
  * All rights reserved.
@@ -71,7 +71,7 @@ retry:
 	}
 
 	ldap_pvt_thread_mutex_lock( &li->li_counter_mutex );
-	ldap_pvt_mp_add( li->li_ops_completed[ SLAP_OP_DELETE ], 1 );
+	ldap_pvt_mp_add_ulong( li->li_ops_completed[ SLAP_OP_DELETE ], 1 );
 	ldap_pvt_thread_mutex_unlock( &li->li_counter_mutex );
 
 cleanup:

@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2004-2018 The OpenLDAP Foundation.
+ * Copyright 2004-2026 The OpenLDAP Foundation.
  * Portions Copyright 2004 Pierangelo Masarati.
  * All rights reserved.
  *
@@ -58,6 +58,18 @@ print_access(
 			accessmask2str( mask, accessmaskbuf, 1 ) );
 
 	return rc;
+}
+
+static int
+slapacl_entry_get(
+	Operation *op,
+	struct berval *dn,
+	ObjectClass *oc,
+	AttributeDescription *ad,
+	int rw,
+	Entry **e )
+{
+	return LDAP_UNWILLING_TO_PERFORM;
 }
 
 int
@@ -293,6 +305,8 @@ slapacl( int argc, char **argv )
 				}
 			}
 		}
+	} else {
+		op->o_bd->be_fetch = slapacl_entry_get;
 	}
 
 	for ( ; argc--; argv++ ) {

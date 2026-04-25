@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2018 The OpenLDAP Foundation.
+ * Copyright 1998-2026 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -36,6 +36,7 @@ typedef enum tool_type_t {
 
 	TOOL_WHOAMI	= TOOL_EXOP | 0x100U,
 	TOOL_PASSWD	= TOOL_EXOP | 0x200U,
+	TOOL_VC		= TOOL_EXOP | 0x400U,
 
 	TOOL_WRITE	= (TOOL_ADD|TOOL_DELETE|TOOL_MODIFY|TOOL_MODRDN),
 	TOOL_READ	= (TOOL_SEARCH|TOOL_COMPARE),
@@ -60,8 +61,6 @@ extern char		*prog;
 
 /* connection */
 extern char		*ldapuri;
-extern char		*ldaphost;
-extern int		ldapport;
 extern int		use_tls;
 extern int		protocol;
 extern int		version;
@@ -98,6 +97,9 @@ extern ber_int_t	vlvPos;
 extern ber_int_t	vlvCount;
 extern struct berval	*vlvContext;
 
+/* features */
+extern int		backlog;
+
 /* options */
 extern struct timeval	nettimeout;
 
@@ -128,6 +130,9 @@ void tool_perror LDAP_P((
 	const char *matched,
 	const char *info,
 	char **refs ));
+int tool_perror2 LDAP_P((
+	LDAP *ld, 
+	const char *func ));
 void tool_print_ctrls LDAP_P(( LDAP *ld, LDAPControl **ctrls ));
 int tool_write_ldif LDAP_P(( int type, char *name, char *value, ber_len_t vallen ));
 int tool_is_oid LDAP_P(( const char *s ));

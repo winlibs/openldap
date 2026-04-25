@@ -1,5 +1,5 @@
 # $OpenLDAP$
-# Copyright 1999-2018 The OpenLDAP Foundation, All Rights Reserved.
+# Copyright 1999-2026 The OpenLDAP Foundation, All Rights Reserved.
 # COPYING RESTRICTIONS APPLY, see COPYRIGHT.
 
 H1: Access Control
@@ -287,11 +287,11 @@ factors (SSF) can be used.
 >        by ssf=64 users read
 
 This directive allows users to modify their own entries if security
-protections have of strength 128 or better have been established,
-allows authentication access to anonymous users, and read access
-when 64 or better security protections have been established.  If
-client has not establish sufficient security protections, the
-implicit {{EX:by * none}} clause would be applied.
+protections of strength 128 or better have been established, allows
+authentication access to anonymous users, and read access when 64
+or better security protections have been established.  If a client
+has not established sufficient security protections, the implicit
+{{EX:by * none}} clause would be applied.
 
 The following example shows the use of a style specifiers to select
 the entries by DN in two access directives where ordering is
@@ -852,6 +852,50 @@ The ACLs above will only allow binding using rootdn from localhost and
 192.168.0.0/24.
 
 
+H3: Controlling the LDAP Proxied Authorization Control
+
+The Proxied Authorization Control allows a client to request that an
+operation be processed under a provided authorization identity instead of
+under the current authentication identity associated with the connection.
+
+This facility is controlled by the {{EX:authz-policy}} configuration
+option and by the {{EX:authzTo}} and {{EX:authzFrom}} attributes.
+It can be further controlled by applying access control to those attributes.
+
+A client application might bind as cn=Client,o=MyOrganization whose entry
+looks like this:
+
+>    dn: cn=Client,o=MyOrganization
+>    cn: Client
+>    objectClass: organizationalRole
+>    objectClass: simpleSecurityObject
+>    objectClass: top
+>    userPassword: {SSHA}someSSHAdata
+>    authzTo: dn.regex:^cn=[^,]+,ou=People,o=MyOrganization$
+
+To make use of the proxy facility, the client needs at least {{EX:auth}}
+privilege on the {{EX:authzTo}} attribute:
+
+>    access to dn.exact=cn=Client,o=MyOrganization attr=authzTo
+>      by self auth
+>      by * break
+
+This access would be automatically granted if cn=Client,o=MyOrganization
+has {{EX:read}} privilege on its own entry.
+
+Now if you want to lock down the use of this powerful account, you might
+write an ACL like this:
+
+>    access to dn.exact=cn=Client,o=MyOrganization attr=authzTo
+>      by self peername.regex=192\.168\.0\..*  ssf=256 auth
+>      by * none
+
+Now, cn=Client,o=MyOrganization can only make use of the proxy authorization
+control if it has connected from an appropriate IP address using
+a sufficient level of cryptographic protection. No other IDs can even
+see the authzTo attribute.
+
+
 H3: Managing access with Groups
 
 There are a few ways to do this. One approach is illustrated here. Consider the
@@ -869,7 +913,7 @@ and the following group object (in LDIF format):
 >    member: cn=fred blogs,dc=example,dc=com
 >    member: cn=somebody else,dc=example,dc=com
 
-One can then grant access to the members of this this group by adding appropriate
+One can then grant access to the members of this group by adding appropriate
 {{by group}} clause to an access directive in {{slapd.conf}}(5). For instance,
 
 >    access to dn.children="dc=example,dc=com"
@@ -977,7 +1021,7 @@ Let's say, you have it like this:
 >                    ou=users
 >                        uid=<someuserid>
 >                        uid=<someotheruserid>
->                    ou=addressbooks
+>                    ou=addressbook
 >                        uid=<someuserid>
 >                            cn=<someone>
 >                            cn=<someoneelse>
@@ -990,7 +1034,7 @@ and, for another domain <someotherdomain>:
 >                    ou=users
 >                        uid=<someuserid>
 >                        uid=<someotheruserid>
->                    ou=addressbooks
+>                    ou=addressbook
 >                        uid=<someotheruserid>
 >                            cn=<someone>
 >                            cn=<someoneelse>
@@ -1070,8 +1114,8 @@ to exclude {{dc=example,dc=com}} from the matching patterns, or
 to allow exactly one sublevel matches only.
 
 Always use {{^}} and {{$}} in regexes, whenever appropriate, because
-{{ou=(.+),ou=(.+),ou=addressbooks,o=basedn}} will match
-{{something=bla,ou=xxx,ou=yyy,ou=addressbooks,o=basedn,ou=addressbooks,o=basedn,dc=some,dc=org}}
+{{ou=(.+),ou=(.+),ou=addressbook,o=basedn}} will match
+{{something=bla,ou=xxx,ou=yyy,ou=addressbook,o=basedn,ou=addressbook,o=basedn,dc=some,dc=org}}
 
 Always use {{([^,]+)}} to indicate exactly one RDN, because {{(.+)}} can
 include any number of RDNs; e.g. {{ou=(.+),dc=example,dc=com}} will match
@@ -1112,8 +1156,9 @@ You can restrict access based on the security strength factor (SSF)
 0 (zero) implies no protection,
 1 implies integrity protection only,
 56 DES or other weak ciphers,
-112 triple DES and other strong ciphers,
-128 RC4, Blowfish and other modern strong ciphers.
+112 triple DES and similar ciphers,
+128 RC4, Blowfish and other similar ciphers,
+256 modern ciphers.
 
 Other possibilities:
 
@@ -1228,7 +1273,7 @@ With sets, however, it's also possible to use simple names in group ACLs, as thi
 show.
 
 Let's say we want to allow members of the {{F:sudoadm}} group to write to the
-{{F:ou=suders}} branch of our tree. But our group definition now is using {{F:memberUid}} for
+{{F:ou=sudoers}} branch of our tree. But our group definition now is using {{F:memberUid}} for
 the group members:
 
 > dn: cn=sudoadm,ou=group,dc=example,dc=com

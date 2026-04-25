@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2000-2018 The OpenLDAP Foundation.
+ * Copyright 2000-2026 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -462,7 +462,6 @@ rewrite_map_apply(
 				val );
 		else
 			rc = REWRITE_ERR;
-			break;
 		break;
 	}
 
@@ -529,6 +528,9 @@ rewrite_map_destroy(
 /* ldapmap.c */
 extern const rewrite_mapper rewrite_ldap_mapper;
 
+/* escapemap.c */
+extern const rewrite_mapper rewrite_escape_mapper;
+
 const rewrite_mapper *
 rewrite_mapper_find(
 	const char *name
@@ -538,6 +540,9 @@ rewrite_mapper_find(
 
 	if ( !strcasecmp( name, "ldap" ))
 		return &rewrite_ldap_mapper;
+
+	if ( !strcasecmp( name, "escape" ))
+		return &rewrite_escape_mapper;
 
 	for (i=0; i<num_mappers; i++)
 		if ( !strcasecmp( name, mappers[i]->rm_name ))

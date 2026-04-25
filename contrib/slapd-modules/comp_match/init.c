@@ -1,7 +1,7 @@
 /* Copyright 2004 IBM Corporation
  * All rights reserved.
- * Redisribution and use in source and binary forms, with or without
- * modification, are permitted only as authorizd by the OpenLADP
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted only as authorized by the OpenLDAP
  * Public License.
  */
 /* ACKNOWLEDGEMENTS
@@ -322,6 +322,7 @@ comp_convert_asn_to_ldap ( MatchingRule* mr, ComponentSyntaxInfo* csi, struct be
 	else 
 		csi->csi_syntax = NULL;
 
+        BER_BVZERO( bv );
 
         switch ( csi->csi_comp_desc->cd_type_id ) {
           case BASICTYPE_BOOLEAN :
@@ -428,9 +429,9 @@ comp_convert_asn_to_ldap ( MatchingRule* mr, ComponentSyntaxInfo* csi, struct be
 			rc = csi->csi_syntax->ssyn_pretty(csi->csi_syntax, bv, &prettied , NULL );
 			if ( rc != LDAP_SUCCESS )
 				return LDAP_INVALID_SYNTAX;
-#if 0
-			free ( bv->bv_val );/*potential memory leak?*/
-#endif
+			if ( bv->bv_val )
+				free( bv->bv_val );
+			*allocated = 1;
 			bv->bv_val = prettied.bv_val;
 			bv->bv_len = prettied.bv_len;
 		}
@@ -555,8 +556,12 @@ comp_test_one_component (
 		struct berval* assert_bv = &ca->ca_ma_value;
 		int allocated = 0;
 		/*Attribute is converted to compatible LDAP encodings*/
-		if ( comp_convert_asn_to_ldap( mr, csi_attr, &attr_bv, &allocated ) != LDAP_SUCCESS )
+		if ( comp_convert_asn_to_ldap( mr, csi_attr, &attr_bv,
+					&allocated ) != LDAP_SUCCESS ) {
+			if ( allocated )
+				free( attr_bv.bv_val );
 			return LDAP_INAPPROPRIATE_MATCHING;
+		}
 		/* extracted component value is not normalized */
 		if ( ca->ca_ma_rule->smr_normalize ) {
 			rc = ca->ca_ma_rule->smr_normalize (
@@ -602,7 +607,7 @@ comp_test_components( void* attr_nm, void* assert_nm, ComponentSyntaxInfo* csi_a
 
 	if ( !cr )
 		return comp_test_one_component ( attr_nm, assert_nm, csi_attr, ca );
-	/* Extracting the component refrenced by ca->ca_comp_ref */
+	/* Extracting the component referenced by ca->ca_comp_ref */
 	csi_attr = (ComponentSyntaxInfo*)csi_attr->csi_comp_desc->cd_extract_i( attr_nm, cr, csi_attr );
 	if ( !csi_attr ) return LDAP_INVALID_SYNTAX;
 	/* perform matching, considering the type of a Component Reference(CR)*/
@@ -632,7 +637,7 @@ comp_test_components( void* attr_nm, void* assert_nm, ComponentSyntaxInfo* csi_a
 		 * 1) If so, look up the corresponding decoder  in the mapping
 		 * table(OID to decoder) by <select>
 		 * and then decode the OCTET/BIT STRING with the decoder
-		 * Finially, extreact the target component with the remaining CR.
+		 * Finally, extract the target component with the remaining CR.
 		 * 2) If not, just return the current component, It SHOULD not be
 		 * extracted further, because the component MUST be BIT/OCTET
                  * string.
@@ -652,7 +657,7 @@ comp_test_components( void* attr_nm, void* assert_nm, ComponentSyntaxInfo* csi_a
 			if ( !odm || !odm->BER_Decode )
 				return  LDAP_PROTOCOL_ERROR;
 
-			/* current componet MUST be either BIT or OCTET STRING */
+			/* current component MUST be either BIT or OCTET STRING */
 			if ( csi_attr->csi_comp_desc->cd_type_id != BASICTYPE_BITSTRING ) {
 				bv.bv_val = ((ComponentBits*)csi_attr)->value.bits;
 				bv.bv_len = ((ComponentBits*)csi_attr)->value.bitLen;
@@ -687,7 +692,7 @@ comp_test_components( void* attr_nm, void* assert_nm, ComponentSyntaxInfo* csi_a
 				rc = comp_test_components( attr_nm, assert_nm, contained_comp, ca );
 		}
 		else {
-			/* Ivalid Component reference */
+			/* Invalid Component reference */
 			rc = LDAP_PROTOCOL_ERROR;
 		}
 		break;

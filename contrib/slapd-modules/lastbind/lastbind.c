@@ -23,8 +23,9 @@
  * last successful bind operation in a directory entry.
  *
  * Optimization: to avoid performing a write on each bind,
- * a precision for this timestamp may be configured, causing it to
- * only be updated if it is older than a given number of seconds.
+ * a precision for this timestamp may be configured on the database,
+ * causing it to only be updated if it is older than a given number
+ * of seconds.
  */
 
 #ifdef SLAPD_OVER_LASTBIND
@@ -36,12 +37,11 @@
 #include <ac/time.h>
 #include <ac/string.h>
 #include <ac/ctype.h>
-#include "config.h"
+#include "slap-config.h"
 
 /* Per-instance configuration information */
 typedef struct lastbind_info {
-	/* precision to update timestamp in authTimestamp attribute */
-	int timestamp_precision;
+	int forward_updates;	/* use frontend for authTimestamp updates */
 } lastbind_info;
 
 /* Operational attributes */
@@ -67,13 +67,13 @@ static struct schema_info {
 
 /* configuration attribute and objectclass */
 static ConfigTable lastbindcfg[] = {
-	{ "lastbind-precision", "seconds", 2, 2, 0,
-	  ARG_INT|ARG_OFFSET,
-	  (void *)offsetof(lastbind_info, timestamp_precision),
-	  "( OLcfgCtAt:5.1 "
-	  "NAME 'olcLastBindPrecision' "
-	  "DESC 'Precision of authTimestamp attribute' "
-	  "SYNTAX OMsInteger SINGLE-VALUE )", NULL, NULL },
+	{ "lastbind_forward_updates", "on|off", 1, 2, 0,
+	  ARG_ON_OFF|ARG_OFFSET,
+	  (void *)offsetof(lastbind_info,forward_updates),
+	  "( OLcfgAt:5.2 NAME 'olcLastBindForwardUpdates' "
+	  "DESC 'Allow authTimestamp updates to be forwarded via updateref' "
+	  "EQUALITY booleanMatch "
+	  "SYNTAX OMsBoolean SINGLE-VALUE )", NULL, NULL },
 	{ NULL, NULL, 0, 0, 0, ARG_IGNORED }
 };
 
@@ -82,7 +82,7 @@ static ConfigOCs lastbindocs[] = {
 	  "NAME 'olcLastBindConfig' "
 	  "DESC 'Last Bind configuration' "
 	  "SUP olcOverlayConfig "
-	  "MAY ( olcLastBindPrecision ) )",
+	  "MAY ( olcLastBindForwardUpdates) )",
 	  Cft_Overlay, lastbindcfg, NULL, NULL },
 	{ NULL, 0, NULL }
 };
@@ -139,7 +139,7 @@ lastbind_bind_response( Operation *op, SlapReply *rs )
 			if (bindtime != (time_t)-1) {
 				/* if the recorded bind time is within our precision, we're done
 				 * it doesn't need to be updated (save a write for nothing) */
-				if ((now - bindtime) < lbi->timestamp_precision) {
+				if ((now - bindtime) < op->o_bd->be_lastbind_precision) {
 					goto done;
 				}
 			}
@@ -173,15 +173,57 @@ done:
 		Operation op2 = *op;
 		SlapReply r2 = { REP_RESULT };
 		slap_callback cb = { NULL, slap_null_cb, NULL, NULL };
+		LDAPControl c, *ca[2];
+		lastbind_info *lbi = (lastbind_info *) op->o_callback->sc_private;
 
 		/* This is a DSA-specific opattr, it never gets replicated. */
 		op2.o_tag = LDAP_REQ_MODIFY;
 		op2.o_callback = &cb;
 		op2.orm_modlist = mod;
+		op2.orm_no_opattrs = 0;
 		op2.o_dn = op->o_bd->be_rootdn;
 		op2.o_ndn = op->o_bd->be_rootndn;
-		op2.o_dont_replicate = 1;
-		rc = op->o_bd->be_modify( &op2, &r2 );
+
+		/*
+		 * Other bind response logic (e.g. ppolicy) could have triggered a write
+		 * with this operation - use a fresh timestamp.
+		 */
+		slap_op_time( &op2.o_time, &op2.o_tincr );
+		BER_BVZERO( &op2.o_csn );
+
+		/*
+		 * Code for forwarding of updates adapted from ppolicy.c of slapo-ppolicy
+		 *
+		 * If this server is a shadow and forward_updates is true,
+		 * use the frontend to perform this modify. That will trigger
+		 * the update referral, which can then be forwarded by the
+		 * chain overlay. Obviously the updateref and chain overlay
+		 * must be configured appropriately for this to be useful.
+		 */
+		if ( SLAP_SHADOW( op->o_bd ) && lbi->forward_updates ) {
+			op2.o_bd = frontendDB;
+
+			/* Must use Relax control since these are no-user-mod */
+			op2.o_relax = SLAP_CONTROL_CRITICAL;
+			op2.o_ctrls = ca;
+			ca[0] = &c;
+			ca[1] = NULL;
+			BER_BVZERO( &c.ldctl_value );
+			c.ldctl_iscritical = 1;
+			c.ldctl_oid = LDAP_CONTROL_RELAX;
+		} else {
+			/* If not forwarding, don't update opattrs and don't replicate */
+			if ( SLAP_SINGLE_SHADOW( op->o_bd )) {
+				op2.orm_no_opattrs = 1;
+				op2.o_dont_replicate = 1;
+			}
+			/* TODO: not sure what this does in slapo-ppolicy */
+			/*
+			op2.o_bd->bd_info = (BackendInfo *)on->on_info;
+			*/
+		}
+
+		rc = op2.o_bd->be_modify( &op2, &r2 );
 		slap_mods_free( mod, 1 );
 	}
 
@@ -246,7 +288,7 @@ int lastbind_initialize()
 		code = register_at( lastBind_OpSchema[i].def, lastBind_OpSchema[i].ad, 0 );
 		if ( code ) {
 			Debug( LDAP_DEBUG_ANY,
-				"lastbind_initialize: register_at failed\n", 0, 0, 0 );
+				"lastbind_initialize: register_at failed\n" );
 			return code;
 		}
 	}
@@ -254,6 +296,7 @@ int lastbind_initialize()
 	ad_authTimestamp->ad_type->sat_flags |= SLAP_AT_MANAGEABLE;
 
 	lastbind.on_bi.bi_type = "lastbind";
+	lastbind.on_bi.bi_flags = SLAPO_BFLAG_SINGLE;
 	lastbind.on_bi.bi_db_init = lastbind_db_init;
 	lastbind.on_bi.bi_db_close = lastbind_db_close;
 	lastbind.on_bi.bi_op_bind = lastbind_bind;

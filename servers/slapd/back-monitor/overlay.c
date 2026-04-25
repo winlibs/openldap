@@ -1,7 +1,7 @@
 /* overlay.c - deals with overlay subsystem */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2001-2018 The OpenLDAP Foundation.
+ * Copyright 2001-2026 The OpenLDAP Foundation.
  * Portions Copyright 2001-2003 Pierangelo Masarati.
  * All rights reserved.
  *
@@ -37,7 +37,7 @@ monitor_subsys_overlay_init(
 )
 {
 	monitor_info_t		*mi;
-	Entry			*e_overlay, **ep;
+	Entry			*e_overlay;
 	int			i;
 	monitor_entry_t		*mp;
 	slap_overinst		*on;
@@ -51,8 +51,7 @@ monitor_subsys_overlay_init(
 			"monitor_subsys_backend_init: "
 			"unable to get "
 			"\"" SLAPD_MONITOR_DATABASE_NAME "\" "
-			"subsystem\n",
-			0, 0, 0 );
+			"subsystem\n" );
 		return -1;
 	}
 
@@ -60,13 +59,9 @@ monitor_subsys_overlay_init(
 		Debug( LDAP_DEBUG_ANY,
 			"monitor_subsys_overlay_init: "
 			"unable to get entry \"%s\"\n",
-			ms->mss_ndn.bv_val, 0, 0 );
+			ms->mss_ndn.bv_val );
 		return( -1 );
 	}
-
-	mp = ( monitor_entry_t * )e_overlay->e_private;
-	mp->mp_children = NULL;
-	ep = &mp->mp_children;
 
 	for ( on = overlay_next( NULL ), i = 0; on; on = overlay_next( on ), i++ ) {
 		char 		buf[ BACKMONITOR_BUFSIZE ];
@@ -83,7 +78,7 @@ monitor_subsys_overlay_init(
 			Debug( LDAP_DEBUG_ANY,
 				"monitor_subsys_overlay_init: "
 				"unable to create entry \"cn=Overlay %d,%s\"\n",
-				i, ms->mss_ndn.bv_val, 0 );
+				i, ms->mss_ndn.bv_val );
 			return( -1 );
 		}
 		ber_str2bv( on->on_bi.bi_type, 0, 0, &bv );
@@ -122,16 +117,13 @@ monitor_subsys_overlay_init(
 		mp->mp_flags = ms->mss_flags
 			| MONITOR_F_SUB;
 
-		if ( monitor_cache_add( mi, e ) ) {
+		if ( monitor_cache_add( mi, e, e_overlay ) ) {
 			Debug( LDAP_DEBUG_ANY,
 				"monitor_subsys_overlay_init: "
 				"unable to add entry \"cn=Overlay %d,%s\"\n",
-				i, ms->mss_ndn.bv_val, 0 );
+				i, ms->mss_ndn.bv_val );
 			return( -1 );
 		}
-
-		*ep = e;
-		ep = &mp->mp_next;
 	}
 	
 	monitor_cache_release( mi, e_overlay );

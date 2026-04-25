@@ -19,6 +19,10 @@ older than a given value, thus avoiding large numbers of write
 operations penalizing performance.
 One sample use for this overlay would be to detect unused accounts.
 
+Now that OpenLDAP has native support for most of this functionality, you 
+should consider storing the value in pwdLastSuccess to better interact 
+with the Behera Password Policy draft 10.
+
 .SH CONFIGURATION
 The config directives that are specific to the
 .B lastbind
@@ -56,6 +60,17 @@ old, it will not be changed.
 If this configuration option is omitted, the
 .B authTimestamp
 attribute is updated on each successful bind operation.
+.TP
+.B lastbind_forward_updates
+Specify that updates of the authTimestamp attribute
+on a consumer should be forwarded
+to a provider instead of being written directly into the consumer's local
+database. This setting is only useful on a replication consumer, and
+also requires the
+.B updateref
+setting and
+.B chain
+overlay to be appropriately configured.
 
 .SH EXAMPLE
 This example configures the
@@ -87,6 +102,11 @@ default slapd configuration file
 .SH SEE ALSO
 .BR slapd.conf (5),
 .BR slapd (8).
+.LP
+IETF LDAP password policy proposal by P. Behera, L.  Poitou and J.
+Sermersheim:  documented in IETF document
+"draft-behera-ldap-password-policy-10.txt".
+
 The
 .BR slapo-lastbind (5)
 overlay supports dynamic configuration via

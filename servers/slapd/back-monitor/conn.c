@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2001-2018 The OpenLDAP Foundation.
+ * Copyright 2001-2026 The OpenLDAP Foundation.
  * Portions Copyright 2001-2003 Pierangelo Masarati.
  * All rights reserved.
  *
@@ -48,7 +48,7 @@ monitor_subsys_conn_init(
 	monitor_subsys_t	*ms )
 {
 	monitor_info_t	*mi;
-	Entry		*e, **ep, *e_conn;
+	Entry		*e, *e_conn;
 	monitor_entry_t	*mp;
 	char		buf[ BACKMONITOR_BUFSIZE ];
 	struct berval	bv;
@@ -64,13 +64,11 @@ monitor_subsys_conn_init(
 		Debug( LDAP_DEBUG_ANY,
 			"monitor_subsys_conn_init: "
 			"unable to get entry \"%s\"\n",
-			ms->mss_ndn.bv_val, 0, 0 );
+			ms->mss_ndn.bv_val );
 		return( -1 );
 	}
 
 	mp = ( monitor_entry_t * )e_conn->e_private;
-	mp->mp_children = NULL;
-	ep = &mp->mp_children;
 
 	/*
 	 * Max file descriptors
@@ -83,7 +81,7 @@ monitor_subsys_conn_init(
 		Debug( LDAP_DEBUG_ANY,
 			"monitor_subsys_conn_init: "
 			"unable to create entry \"%s,%s\"\n",
-			bv.bv_val, ms->mss_ndn.bv_val, 0 );
+			bv.bv_val, ms->mss_ndn.bv_val );
 		return( -1 );
 	}
 
@@ -106,17 +104,14 @@ monitor_subsys_conn_init(
 		| MONITOR_F_SUB | MONITOR_F_PERSISTENT;
 	mp->mp_flags &= ~MONITOR_F_VOLATILE_CH;
 
-	if ( monitor_cache_add( mi, e ) ) {
+	if ( monitor_cache_add( mi, e, e_conn ) ) {
 		Debug( LDAP_DEBUG_ANY,
 			"monitor_subsys_conn_init: "
 			"unable to add entry \"cn=Total,%s\"\n",
-			ms->mss_ndn.bv_val, 0, 0 );
+			ms->mss_ndn.bv_val );
 		return( -1 );
 	}
 
-	*ep = e;
-	ep = &mp->mp_next;
-	
 	/*
 	 * Total conns
 	 */
@@ -128,7 +123,7 @@ monitor_subsys_conn_init(
 		Debug( LDAP_DEBUG_ANY,
 			"monitor_subsys_conn_init: "
 			"unable to create entry \"cn=Total,%s\"\n",
-			ms->mss_ndn.bv_val, 0, 0 );
+			ms->mss_ndn.bv_val );
 		return( -1 );
 	}
 	
@@ -145,17 +140,14 @@ monitor_subsys_conn_init(
 		| MONITOR_F_SUB | MONITOR_F_PERSISTENT;
 	mp->mp_flags &= ~MONITOR_F_VOLATILE_CH;
 
-	if ( monitor_cache_add( mi, e ) ) {
+	if ( monitor_cache_add( mi, e, e_conn ) ) {
 		Debug( LDAP_DEBUG_ANY,
 			"monitor_subsys_conn_init: "
 			"unable to add entry \"cn=Total,%s\"\n",
-			ms->mss_ndn.bv_val, 0, 0 );
+			ms->mss_ndn.bv_val );
 		return( -1 );
 	}
 
-	*ep = e;
-	ep = &mp->mp_next;
-	
 	/*
 	 * Current conns
 	 */
@@ -167,7 +159,7 @@ monitor_subsys_conn_init(
 		Debug( LDAP_DEBUG_ANY,
 			"monitor_subsys_conn_init: "
 			"unable to create entry \"cn=Current,%s\"\n",
-			ms->mss_ndn.bv_val, 0, 0 );
+			ms->mss_ndn.bv_val );
 		return( -1 );
 	}
 	
@@ -184,17 +176,14 @@ monitor_subsys_conn_init(
 		| MONITOR_F_SUB | MONITOR_F_PERSISTENT;
 	mp->mp_flags &= ~MONITOR_F_VOLATILE_CH;
 
-	if ( monitor_cache_add( mi, e ) ) {
+	if ( monitor_cache_add( mi, e, e_conn ) ) {
 		Debug( LDAP_DEBUG_ANY,
 			"monitor_subsys_conn_init: "
 			"unable to add entry \"cn=Current,%s\"\n",
-			ms->mss_ndn.bv_val, 0, 0 );
+			ms->mss_ndn.bv_val );
 		return( -1 );
 	}
 	
-	*ep = e;
-	ep = &mp->mp_next;
-
 	monitor_cache_release( mi, e_conn );
 
 	return( 0 );
@@ -219,7 +208,7 @@ monitor_subsys_conn_update(
 	dnRdn( &e->e_nname, &rdn );
 	
 	if ( dn_match( &rdn, &total_bv ) ) {
-		n = connections_nextid();
+		n = connections_nextid() - SLAPD_SYNC_SYNCCONN_OFFSET;
 
 	} else if ( dn_match( &rdn, &current_bv ) ) {
 		Connection	*c;
@@ -229,7 +218,9 @@ monitor_subsys_conn_update(
 				c != NULL;
 				n++, c = connection_next( c, &connindex ) )
 		{
-			/* No Op */ ;
+			/* Ignore outbound connections */
+			if ( c->c_conn_state == SLAP_C_CLIENT )
+				n--;
 		}
 		connection_done( c );
 	}
@@ -300,7 +291,7 @@ conn_create(
 			"unable to create entry "
 			"\"cn=Connection %ld,%s\"\n",
 			c->c_connid, 
-			ms->mss_dn.bv_val, 0 );
+			ms->mss_dn.bv_val );
 		return( -1 );
 	}
 
@@ -366,6 +357,9 @@ conn_create(
 
 	bv.bv_len = snprintf( buf, sizeof( buf ), "%ld", c->c_n_ops_completed );
 	attr_merge_one( e, mi->mi_ad_monitorConnectionOpsCompleted, &bv, NULL );
+
+	bv.bv_len = snprintf( buf, sizeof( buf ), "%ld", c->c_n_ops_async );
+	attr_merge_one( e, mi->mi_ad_monitorConnectionOpsAsync, &bv, NULL );
 
 	bv.bv_len = snprintf( buf, sizeof( buf ), "%ld", c->c_n_get );
 	attr_merge_one( e, mi->mi_ad_monitorConnectionGet, &bv, NULL );
@@ -455,6 +449,10 @@ monitor_subsys_conn_create(
 				c = connection_next( c, &connindex ) )
 		{
 			monitor_entry_t 	*mp;
+
+			/* ignore outbound for now, nothing to show */
+			if ( c->c_conn_state == SLAP_C_CLIENT )
+				continue;
 
 			if ( conn_create( mi, c, &e, ms ) != SLAP_CB_CONTINUE
 					|| e == NULL )

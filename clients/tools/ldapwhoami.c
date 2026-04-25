@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2018 The OpenLDAP Foundation.
+ * Copyright 1998-2026 The OpenLDAP Foundation.
  * Portions Copyright 1998-2003 Kurt D. Zeilenga.
  * Portions Copyright 1998-2001 Net Boolean Incorporated.
  * Portions Copyright 2001-2003 IBM Corporation.
@@ -62,7 +62,7 @@ usage( void )
 
 
 const char options[] = ""
-	"d:D:e:h:H:InNO:o:p:QR:U:vVw:WxX:y:Y:Z";
+	"d:D:e:H:InNO:o:QR:U:vVw:WxX:y:Y:Z";
 
 int
 handle_private_option( int i )
@@ -89,7 +89,7 @@ handle_private_option( int i )
 			optarg++;
 		}
 
-		control = strdup( optarg );
+		control = optarg;
 		if ( (cvalue = strchr( control, '=' )) != NULL ) {
 			*cvalue++ = '\0';
 		}
@@ -159,7 +159,7 @@ main( int argc, char *argv[] )
 
 		rc = ldap_result( ld, LDAP_RES_ANY, LDAP_MSG_ALL, &tv, &res );
 		if ( rc < 0 ) {
-			tool_perror( "ldap_result", rc, NULL, NULL, NULL, NULL );
+			rc = tool_perror2( ld, "ldap_result" );
 			tool_exit( ld, rc );
 		}
 

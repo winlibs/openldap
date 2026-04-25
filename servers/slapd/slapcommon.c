@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2018 The OpenLDAP Foundation.
+ * Copyright 1998-2026 The OpenLDAP Foundation.
  * Portions Copyright 1998-2003 Kurt D. Zeilenga.
  * Portions Copyright 2003 IBM Corporation.
  * All rights reserved.
@@ -17,7 +17,7 @@
  */
 /* ACKNOWLEDGEMENTS:
  * This work was initially developed by Kurt Zeilenga for inclusion
- * in OpenLDAP Software.  Additional signficant contributors include
+ * in OpenLDAP Software.  Additional significant contributors include
  *    Jong Hyuk Choi
  *    Hallvard B. Furuseth
  *    Howard Chu
@@ -39,6 +39,7 @@
 #include "ldif.h"
 
 tool_vars tool_globals;
+enum slaptool slapTool;
 
 #ifdef CSRIMALLOC
 static char *leakfilename;
@@ -49,7 +50,6 @@ static LDIFFP dummy;
 
 #if defined(LDAP_SYSLOG) && defined(LDAP_DEBUG)
 int start_syslog;
-static char **syslog_unknowns;
 #ifdef LOG_LOCAL4
 static int syslogUser = SLAP_DEFAULT_SYSLOG_USER;
 #endif /* LOG_LOCAL4 */
@@ -89,6 +89,11 @@ usage( int tool, const char *progname )
 
 	case SLAPINDEX:
 		options = " [-c]\n\t[-g] [-n databasenumber | -b suffix] [attr ...] [-q] [-t]\n";
+		break;
+
+	case SLAPMODIFY:
+		options = " [-c]\n\t[-g] [-n databasenumber | -b suffix]\n"
+			"\t[-l ldiffile] [-j linenumber] [-q] [-u] [-s] [-w]\n";
 		break;
 
 	case SLAPTEST:
@@ -145,25 +150,25 @@ parse_slapopt( int tool, int *mode )
 
 	} else if ( strncasecmp( optarg, "ssf", len ) == 0 ) {
 		if ( lutil_atou( &ssf, p ) ) {
-			Debug( LDAP_DEBUG_ANY, "unable to parse ssf=\"%s\".\n", p, 0, 0 );
+			Debug( LDAP_DEBUG_ANY, "unable to parse ssf=\"%s\".\n", p );
 			return -1;
 		}
 
 	} else if ( strncasecmp( optarg, "transport_ssf", len ) == 0 ) {
 		if ( lutil_atou( &transport_ssf, p ) ) {
-			Debug( LDAP_DEBUG_ANY, "unable to parse transport_ssf=\"%s\".\n", p, 0, 0 );
+			Debug( LDAP_DEBUG_ANY, "unable to parse transport_ssf=\"%s\".\n", p );
 			return -1;
 		}
 
 	} else if ( strncasecmp( optarg, "tls_ssf", len ) == 0 ) {
 		if ( lutil_atou( &tls_ssf, p ) ) {
-			Debug( LDAP_DEBUG_ANY, "unable to parse tls_ssf=\"%s\".\n", p, 0, 0 );
+			Debug( LDAP_DEBUG_ANY, "unable to parse tls_ssf=\"%s\".\n", p );
 			return -1;
 		}
 
 	} else if ( strncasecmp( optarg, "sasl_ssf", len ) == 0 ) {
 		if ( lutil_atou( &sasl_ssf, p ) ) {
-			Debug( LDAP_DEBUG_ANY, "unable to parse sasl_ssf=\"%s\".\n", p, 0, 0 );
+			Debug( LDAP_DEBUG_ANY, "unable to parse sasl_ssf=\"%s\".\n", p );
 			return -1;
 		}
 
@@ -172,20 +177,20 @@ parse_slapopt( int tool, int *mode )
 
 #if defined(LDAP_SYSLOG) && defined(LDAP_DEBUG)
 	} else if ( strncasecmp( optarg, "syslog", len ) == 0 ) {
-		if ( parse_debug_level( p, &ldap_syslog, &syslog_unknowns ) ) {
+		if ( slap_parse_debug_level( p, &ldap_syslog, 1 ) ) {
 			return -1;
 		}
 		start_syslog = 1;
 
 	} else if ( strncasecmp( optarg, "syslog-level", len ) == 0 ) {
-		if ( parse_syslog_level( p, &ldap_syslog_level ) ) {
+		if ( slap_parse_syslog_level( p, &ldap_syslog_level ) ) {
 			return -1;
 		}
 		start_syslog = 1;
 
 #ifdef LOG_LOCAL4
 	} else if ( strncasecmp( optarg, "syslog-user", len ) == 0 ) {
-		if ( parse_syslog_user( p, &syslogUser ) ) {
+		if ( slap_parse_syslog_user( p, &syslogUser ) ) {
 			return -1;
 		}
 		start_syslog = 1;
@@ -200,13 +205,13 @@ parse_slapopt( int tool, int *mode )
 			} else if ( strcasecmp( p, "no" ) == 0 ) {
 				*mode |= SLAP_TOOL_NO_SCHEMA_CHECK;
 			} else {
-				Debug( LDAP_DEBUG_ANY, "unable to parse schema-check=\"%s\".\n", p, 0, 0 );
+				Debug( LDAP_DEBUG_ANY, "unable to parse schema-check=\"%s\".\n", p );
 				return -1;
 			}
 			break;
 
 		default:
-			Debug( LDAP_DEBUG_ANY, "schema-check meaningless for tool.\n", 0, 0, 0 );
+			Debug( LDAP_DEBUG_ANY, "schema-check meaningless for tool.\n" );
 			break;
 		}
 
@@ -218,17 +223,18 @@ parse_slapopt( int tool, int *mode )
 			} else if ( strcasecmp( p, "no" ) == 0 ) {
 				*mode &= ~SLAP_TOOL_VALUE_CHECK;
 			} else {
-				Debug( LDAP_DEBUG_ANY, "unable to parse value-check=\"%s\".\n", p, 0, 0 );
+				Debug( LDAP_DEBUG_ANY, "unable to parse value-check=\"%s\".\n", p );
 				return -1;
 			}
 			break;
 
 		default:
-			Debug( LDAP_DEBUG_ANY, "value-check meaningless for tool.\n", 0, 0, 0 );
+			Debug( LDAP_DEBUG_ANY, "value-check meaningless for tool.\n" );
 			break;
 		}
 
-	} else if ( strncasecmp( optarg, "ldif-wrap", len ) == 0 ) {
+	} else if ( ( strncasecmp( optarg, "ldif_wrap", len ) == 0 ) ||
+			( strncasecmp( optarg, "ldif-wrap", len ) == 0 ) ) {
 		switch ( tool ) {
 		case SLAPCAT:
 			if ( strcasecmp( p, "no" ) == 0 ) {
@@ -237,7 +243,7 @@ parse_slapopt( int tool, int *mode )
 			} else {
 				unsigned int u;
 				if ( lutil_atou( &u, p ) ) {
-					Debug( LDAP_DEBUG_ANY, "unable to parse ldif-wrap=\"%s\".\n", p, 0, 0 );
+					Debug( LDAP_DEBUG_ANY, "unable to parse ldif_wrap=\"%s\".\n", p );
 					return -1;
 				}
 				ldif_wrap = (ber_len_t)u;
@@ -245,7 +251,7 @@ parse_slapopt( int tool, int *mode )
 			break;
 
 		default:
-			Debug( LDAP_DEBUG_ANY, "ldif-wrap meaningless for tool.\n", 0, 0, 0 );
+			Debug( LDAP_DEBUG_ANY, "ldif-wrap meaningless for tool.\n" );
 			break;
 		}
 
@@ -279,7 +285,6 @@ slap_tool_init(
 	char *filterstr = NULL;
 	char *subtree = NULL;
 	char *ldiffile	= NULL;
-	char **debug_unknowns = NULL;
 	int rc, i;
 	int mode = SLAP_TOOL_MODE;
 	int truncatemode = 0;
@@ -293,6 +298,8 @@ slap_tool_init(
 	ldif_debug = slap_debug;
 #endif
 	ldap_syslog = 0;
+	/* make sure libldap gets init'd */
+	ldap_set_option( NULL, LDAP_OPT_DEBUG_LEVEL, &slap_debug );
 
 #ifdef CSRIMALLOC
 	leakfilename = malloc( strlen( progname ) + STRLENOF( ".leak" ) + 1 );
@@ -321,6 +328,10 @@ slap_tool_init(
 	case SLAPDN:
 		options = "d:f:F:No:Pv";
 		mode |= SLAP_TOOL_READMAIN | SLAP_TOOL_READONLY;
+		break;
+
+	case SLAPMODIFY:
+		options = "b:cd:f:F:gj:l:n:o:qsS:uvw";
 		break;
 
 	case SLAPSCHEMA:
@@ -357,7 +368,7 @@ slap_tool_init(
 	while ( (i = getopt( argc, argv, options )) != EOF ) {
 		switch ( i ) {
 		case 'a':
-			filterstr = ch_strdup( optarg );
+			filterstr = optarg;
 			break;
 
 		case 'b':
@@ -371,7 +382,7 @@ slap_tool_init(
 		case 'd': {	/* turn on debugging */
 			int	level = 0;
 
-			if ( parse_debug_level( optarg, &level, &debug_unknowns ) ) {
+			if ( slap_parse_debug_level( optarg, &level, 0 ) ) {
 				usage( tool, progname );
 			}
 #ifdef LDAP_DEBUG
@@ -394,11 +405,11 @@ slap_tool_init(
 			break;
 
 		case 'f':	/* specify a conf file */
-			conffile = ch_strdup( optarg );
+			conffile = optarg;
 			break;
 
 		case 'F':	/* specify a conf dir */
-			confdir = ch_strdup( optarg );
+			confdir = optarg;
 			break;
 
 		case 'g':	/* disable subordinate glue */
@@ -412,27 +423,42 @@ slap_tool_init(
 			rc = ldap_url_parse_ext( optarg, &ludp,
 				LDAP_PVT_URL_PARSE_NOEMPTY_HOST | LDAP_PVT_URL_PARSE_NOEMPTY_DN );
 			if ( rc != LDAP_URL_SUCCESS ) {
+				fprintf( stderr, "Cannot parse '%s' as LDAP URI.\n", optarg );
 				usage( tool, progname );
 			}
 
 			/* don't accept host, port, attrs, extensions */
 			if ( ldap_pvt_url_scheme2proto( ludp->lud_scheme ) != LDAP_PROTO_TCP ) {
+				fprintf( stderr, "%s URIs need to use ldap:// scheme.\n",
+						progname );
 				usage( tool, progname );
 			}
 
 			if ( ludp->lud_host != NULL ) {
+				fprintf( stderr, "%s URIs cannot carry a host. "
+						"Only base, scope and filter are accepted\n",
+						progname );
 				usage( tool, progname );
 			}
 
 			if ( ludp->lud_port != 0 ) {
+				fprintf( stderr, "%s URIs cannot carry a port. "
+						"Only base, scope and filter are accepted\n",
+						progname );
 				usage( tool, progname );
 			}
 
 			if ( ludp->lud_attrs != NULL ) {
+				fprintf( stderr, "%s URIs cannot carry an attribute specification. "
+						"Only base, scope and filter are accepted\n",
+						progname );
 				usage( tool, progname );
 			}
 
 			if ( ludp->lud_exts != NULL ) {
+				fprintf( stderr, "%s URIs cannot carry an extension specification. "
+						"Only base, scope and filter are accepted\n",
+						progname );
 				usage( tool, progname );
 			}
 
@@ -454,12 +480,13 @@ slap_tool_init(
 
 		case 'j':	/* jump to linenumber */
 			if ( lutil_atoul( &jumpline, optarg ) ) {
+				fprintf( stderr, "Invalid line number '%s'\n", optarg );
 				usage( tool, progname );
 			}
 			break;
 
 		case 'l':	/* LDIF file */
-			ldiffile = ch_strdup( optarg );
+			ldiffile = optarg;
 			break;
 
 		case 'M':
@@ -468,6 +495,7 @@ slap_tool_init(
 
 		case 'N':
 			if ( dn_mode && dn_mode != SLAP_TOOL_LDAPDN_NORMAL ) {
+				fputs( "Invalid combination of -N/-P provided\n", stderr );
 				usage( tool, progname );
 			}
 			dn_mode = SLAP_TOOL_LDAPDN_NORMAL;
@@ -475,6 +503,7 @@ slap_tool_init(
 
 		case 'n':	/* which config file db to index */
 			if ( lutil_atoi( &dbnum, optarg ) || dbnum < 0 ) {
+				fputs( "Invalid database index provided\n", stderr );
 				usage( tool, progname );
 			}
 			break;
@@ -487,6 +516,7 @@ slap_tool_init(
 
 		case 'P':
 			if ( dn_mode && dn_mode != SLAP_TOOL_LDAPDN_PRETTY ) {
+				fputs( "Invalid combination of -N/-P provided\n", stderr );
 				usage( tool, progname );
 			}
 			dn_mode = SLAP_TOOL_LDAPDN_PRETTY;
@@ -509,6 +539,7 @@ slap_tool_init(
 			if ( lutil_atou( &csnsid, optarg )
 				|| csnsid > SLAP_SYNC_SID_MAX )
 			{
+				fputs( "Invalid serverid provided\n", stderr );
 				usage( tool, progname );
 			}
 			break;
@@ -516,6 +547,7 @@ slap_tool_init(
 		case 's':
 			switch ( tool ) {
 			case SLAPADD:
+			case SLAPMODIFY:
 				/* no schema check */
 				mode |= SLAP_TOOL_NO_SCHEMA_CHECK;
 				break;
@@ -540,6 +572,7 @@ slap_tool_init(
 
 		case 'u':	/* dry run */
 			dryrun++;
+			mode |= SLAP_TOOL_DRYRUN;
 			break;
 
 		case 'v':	/* turn on verbose */
@@ -559,6 +592,7 @@ slap_tool_init(
 			break;
 		}
 	}
+	slap_debug_orig = slap_debug;
 
 #if defined(LDAP_SYSLOG) && defined(LDAP_DEBUG)
 	if ( start_syslog ) {
@@ -596,6 +630,7 @@ slap_tool_init(
 	switch ( tool ) {
 	case SLAPADD:
 	case SLAPCAT:
+	case SLAPMODIFY:
 	case SLAPSCHEMA:
 		if ( ( argc != optind ) || (dbnum >= 0 && base.bv_val != NULL ) ) {
 			usage( tool, progname );
@@ -657,6 +692,7 @@ slap_tool_init(
 	 * initialize stuff and figure out which backend we're dealing with
 	 */
 
+	slapTool = tool;
 	rc = slap_init( mode, progname );
 	if ( rc != 0 ) {
 		fprintf( stderr, "%s: slap_init failed!\n", progname );
@@ -671,23 +707,9 @@ slap_tool_init(
 		exit( EXIT_FAILURE );
 	}
 
-	if ( debug_unknowns ) {
-		rc = parse_debug_unknowns( debug_unknowns, &slap_debug );
-		ldap_charray_free( debug_unknowns );
-		debug_unknowns = NULL;
-		if ( rc )
-			exit( EXIT_FAILURE );
-	}
-
-#if defined(LDAP_SYSLOG) && defined(LDAP_DEBUG)
-	if ( syslog_unknowns ) {
-		rc = parse_debug_unknowns( syslog_unknowns, &ldap_syslog );
-		ldap_charray_free( syslog_unknowns );
-		syslog_unknowns = NULL;
-		if ( rc )
-			exit( EXIT_FAILURE );
-	}
-#endif
+	rc = slap_parse_debug_unknowns();
+	if ( rc )
+		exit( EXIT_FAILURE );
 
 	at_oc_cache = 1;
 
@@ -695,6 +717,7 @@ slap_tool_init(
 	case SLAPADD:
 	case SLAPCAT:
 	case SLAPINDEX:
+	case SLAPMODIFY:
 	case SLAPSCHEMA:
 		if ( !nbackends ) {
 			fprintf( stderr, "No databases found "
@@ -745,9 +768,6 @@ slap_tool_init(
 			fprintf( stderr, "Invalid filter '%s'\n", filterstr );
 			exit( EXIT_FAILURE );
 		}
-
-		ch_free( filterstr );
-		filterstr = NULL;
 	}
 
 	if( subtree ) {
@@ -794,7 +814,7 @@ slap_tool_init(
 			break;
 		}
 
-		/* If the named base is a glue master, operate on the
+		/* If the named base is a glue primary, operate on the
 		 * entire context
 		 */
 		if ( SLAP_GLUE_INSTANCE( be ) ) {
@@ -822,7 +842,7 @@ slap_tool_init(
 				continue;
 
 		/* If just doing the first by default and it is a
-		 * glue subordinate, find the master.
+		 * glue subordinate, find the primary.
 		 */
 			if ( SLAP_GLUE_SUBORDINATE(be) ) {
 				nosubordinates = 1;
@@ -841,7 +861,7 @@ slap_tool_init(
 			Debug( LDAP_DEBUG_ANY,
 				"The first database does not allow %s;"
 				" using the first available one (%d)\n",
-				progname, dbnum, 0 );
+				progname, dbnum );
 		}
 
 	} else if ( dbnum >= nbackends ) {
@@ -886,20 +906,6 @@ startup:;
 	mal_leaktrace(1);
 #endif
 
-	if ( conffile != NULL ) {
-		ch_free( conffile );
-		conffile = NULL;
-	}
-
-	if ( confdir != NULL ) {
-		ch_free( confdir );
-		confdir = NULL;
-	}
-
-	if ( ldiffile != NULL ) {
-		ch_free( ldiffile );
-		ldiffile = NULL;
-	}
 
 	/* slapdn doesn't specify a backend to startup */
 	if ( !dryrun && tool != SLAPDN ) {

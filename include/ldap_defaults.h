@@ -1,7 +1,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  * 
- * Copyright 1998-2018 The OpenLDAP Foundation.
+ * Copyright 1998-2026 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -39,17 +39,24 @@
 #define LDAP_ENV_PREFIX "LDAP"
 
 /* default ldapi:// socket */
+#ifndef LDAPI_SOCK
 #define LDAPI_SOCK LDAP_RUNDIR LDAP_DIRSEP "run" LDAP_DIRSEP "ldapi"
+#endif
 
 /*
  * SLAPD DEFINITIONS
  */
 	/* location of the default slapd config file */
+#ifndef SLAPD_DEFAULT_CONFIGFILE
 #define SLAPD_DEFAULT_CONFIGFILE	LDAP_SYSCONFDIR LDAP_DIRSEP "slapd.conf"
+#endif
+#ifndef SLAPD_DEFAULT_CONFIGDIR
 #define SLAPD_DEFAULT_CONFIGDIR		LDAP_SYSCONFDIR LDAP_DIRSEP "slapd.d"
+#endif
+#ifndef SLAPD_DEFAULT_DB_DIR
 #define SLAPD_DEFAULT_DB_DIR		LDAP_RUNDIR LDAP_DIRSEP "openldap-data"
+#endif
 #define SLAPD_DEFAULT_DB_MODE		0600
-#define SLAPD_DEFAULT_UCDATA		LDAP_DATADIR LDAP_DIRSEP "ucdata"
 	/* default max deref depth for aliases */
 #define SLAPD_DEFAULT_MAXDEREFDEPTH	15
 	/* default sizelimit on number of entries from a search */
@@ -62,5 +69,10 @@
 #define SLAPD_SCHEMA_DN			"cn=Subschema"
 	/* dn of the default "monitor" subentry */
 #define SLAPD_MONITOR_DN		"cn=Monitor"
+
+/*
+ * LLOADD DEFINITIONS
+ */
+#define LLOADD_DEFAULT_CONFIGFILE	LDAP_SYSCONFDIR LDAP_DIRSEP "lloadd.conf"
 
 #endif /* _LDAP_CONFIG_H */

@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2001-2018 The OpenLDAP Foundation.
+ * Copyright 2001-2026 The OpenLDAP Foundation.
  * Portions Copyright 2001-2003 Pierangelo Masarati.
  * All rights reserved.
  *
@@ -34,7 +34,7 @@ monitor_subsys_listener_init(
 )
 {
 	monitor_info_t	*mi;
-	Entry		*e_listener, **ep;
+	Entry		*e_listener;
 	int		i;
 	monitor_entry_t	*mp;
 	Listener	**l;
@@ -48,7 +48,7 @@ monitor_subsys_listener_init(
 
 		Debug( LDAP_DEBUG_ANY,
 			"monitor_subsys_listener_init: "
-			"unable to get listeners\n", 0, 0, 0 );
+			"unable to get listeners\n" );
 		return( -1 );
 	}
 
@@ -58,13 +58,9 @@ monitor_subsys_listener_init(
 		Debug( LDAP_DEBUG_ANY,
 			"monitor_subsys_listener_init: "
 			"unable to get entry \"%s\"\n",
-			ms->mss_ndn.bv_val, 0, 0 );
+			ms->mss_ndn.bv_val );
 		return( -1 );
 	}
-
-	mp = ( monitor_entry_t * )e_listener->e_private;
-	mp->mp_children = NULL;
-	ep = &mp->mp_children;
 
 	for ( i = 0; l[ i ]; i++ ) {
 		char 		buf[ BACKMONITOR_BUFSIZE ];
@@ -81,7 +77,7 @@ monitor_subsys_listener_init(
 			Debug( LDAP_DEBUG_ANY,
 				"monitor_subsys_listener_init: "
 				"unable to create entry \"cn=Listener %d,%s\"\n",
-				i, ms->mss_ndn.bv_val, 0 );
+				i, ms->mss_ndn.bv_val );
 			return( -1 );
 		}
 
@@ -119,16 +115,13 @@ monitor_subsys_listener_init(
 		mp->mp_flags = ms->mss_flags
 			| MONITOR_F_SUB;
 
-		if ( monitor_cache_add( mi, e ) ) {
+		if ( monitor_cache_add( mi, e, e_listener ) ) {
 			Debug( LDAP_DEBUG_ANY,
 				"monitor_subsys_listener_init: "
 				"unable to add entry \"cn=Listener %d,%s\"\n",
-				i, ms->mss_ndn.bv_val, 0 );
+				i, ms->mss_ndn.bv_val );
 			return( -1 );
 		}
-
-		*ep = e;
-		ep = &mp->mp_next;
 	}
 	
 	monitor_cache_release( mi, e_listener );

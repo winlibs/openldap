@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2005-2018 The OpenLDAP Foundation.
+ * Copyright 2005-2026 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -52,7 +52,7 @@ usage( void )
 
 
 const char options[] = ""
-	"d:D:e:h:H:InNO:o:p:QR:U:vVw:WxX:y:Y:Z";
+	"d:D:e:H:InNO:o:QR:U:vVw:WxX:y:Y:Z";
 
 int
 handle_private_option( int i )
@@ -101,7 +101,7 @@ main( int argc, char *argv[] )
 
 		rc = ldap_whoami( ld, NULL, NULL, &id ); 
 		if ( rc != LDAP_SUCCESS ) {
-			tool_perror( "ldap_extended_operation", rc, NULL, NULL, NULL, NULL );
+			tool_perror( "ldap_whoami", rc, NULL, NULL, NULL, NULL );
 			rc = EXIT_FAILURE;
 			goto skip;
 		}
@@ -156,7 +156,7 @@ main( int argc, char *argv[] )
 
 		rc = ldap_refresh( ld, &dn, ttl, NULL, NULL, &id ); 
 		if ( rc != LDAP_SUCCESS ) {
-			tool_perror( "ldap_extended_operation", rc, NULL, NULL, NULL, NULL );
+			tool_perror( "ldap_refresh", rc, NULL, NULL, NULL, NULL );
 			rc = EXIT_FAILURE;
 			goto skip;
 		}
@@ -221,7 +221,7 @@ main( int argc, char *argv[] )
 
 		rc = ldap_result( ld, LDAP_RES_ANY, LDAP_MSG_ALL, &tv, &res );
 		if ( rc < 0 ) {
-			tool_perror( "ldap_result", rc, NULL, NULL, NULL, NULL );
+			tool_perror2( ld, "ldap_result" );
 			rc = EXIT_FAILURE;
 			goto skip;
 		}
@@ -351,5 +351,5 @@ skip:
 	/* disconnect from server */
 	if ( res )
 		ldap_msgfree( res );
-	tool_exit( ld, code == LDAP_SUCCESS ? EXIT_SUCCESS : EXIT_FAILURE );
+	tool_exit( ld, rc );
 }
