@@ -832,6 +832,9 @@
 #define LBER_TAG_T long
 #endif
 
+/* define to 1 if library is reentrant */
+#define LDAP_API_FEATURE_X_OPENLDAP_REENTRANT 1
+
 /* define to 1 if library is thread safe */
 #define LDAP_API_FEATURE_X_OPENLDAP_THREAD_SAFE 1
 
