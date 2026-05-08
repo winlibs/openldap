@@ -860,16 +860,16 @@
 /* #undef LDAP_SYSLOG */
 
 /* Version */
-#define LDAP_VENDOR_VERSION 20447
+#define LDAP_VENDOR_VERSION 20613
 
 /* Major */
 #define LDAP_VENDOR_VERSION_MAJOR 2
 
 /* Minor */
-#define LDAP_VENDOR_VERSION_MINOR 4
+#define LDAP_VENDOR_VERSION_MINOR 6
 
 /* Patch */
-#define LDAP_VENDOR_VERSION_PATCH 47
+#define LDAP_VENDOR_VERSION_PATCH 13
 
 /* define if memcmp is not 8-bit clean or is otherwise broken */
 /* #undef NEED_MEMCMP_REPLACEMENT */
@@ -884,7 +884,7 @@
 #define OPENLDAP_PACKAGE "OpenLDAP"
 
 /* Version */
-#define OPENLDAP_VERSION "2.4.47"
+#define OPENLDAP_VERSION "2.6.13"
 
 /* Define to the address where bug reports for this package should be sent. */
 #define PACKAGE_BUGREPORT ""
@@ -1198,4 +1198,3 @@
 
 #endif /* _LDAP_PORTABLE_H */
 /* end of portable.h.post */
-

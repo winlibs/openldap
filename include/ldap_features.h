@@ -2,7 +2,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2018 The OpenLDAP Foundation.
+ * Copyright 1998-2026 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -23,16 +23,16 @@
 
 /* OpenLDAP API version macros */
 #ifndef LDAP_VENDOR_VERSION
-#define LDAP_VENDOR_VERSION 20447
+#define LDAP_VENDOR_VERSION 20613
 #endif
 #ifndef LDAP_VENDOR_VERSION_MAJOR
 #define LDAP_VENDOR_VERSION_MAJOR 2
 #endif
 #ifndef LDAP_VENDOR_VERSION_MINOR
-#define LDAP_VENDOR_VERSION_MINOR 4
+#define LDAP_VENDOR_VERSION_MINOR 6
 #endif
 #ifndef LDAP_VENDOR_VERSION_PATCH
-#define LDAP_VENDOR_VERSION_PATCH 47
+#define LDAP_VENDOR_VERSION_PATCH 13
 #endif
 
 /*
@@ -41,26 +41,21 @@
 ** OpenLDAP reentrancy/thread-safeness should be dynamically
 ** checked using ldap_get_option().
 **
-** The -lldap implementation is not thread-safe.
-**
-** The -lldap_r implementation is:
+** If built with thread support, the -lldap implementation is:
 **		LDAP_API_FEATURE_THREAD_SAFE (basic thread safety)
-** but also be:
 **		LDAP_API_FEATURE_SESSION_THREAD_SAFE
 **		LDAP_API_FEATURE_OPERATION_THREAD_SAFE
 **
 ** The preprocessor flag LDAP_API_FEATURE_X_OPENLDAP_THREAD_SAFE
-** can be used to determine if -lldap_r is available at compile
-** time.  You must define LDAP_THREAD_SAFE if and only if you
-** link with -lldap_r.
-**
-** If you fail to define LDAP_THREAD_SAFE when linking with
-** -lldap_r or define LDAP_THREAD_SAFE when linking with -lldap,
-** provided header definations and declarations may be incorrect.
+** can be used to determine if -lldap is thread safe at compile
+** time.
 **
 */
 
-/* is -lldap_r available or not */
+/* is -lldap reentrant or not */
+#define LDAP_API_FEATURE_X_OPENLDAP_REENTRANT 1
+
+/* is -lldap thread safe or not */
 #define LDAP_API_FEATURE_X_OPENLDAP_THREAD_SAFE 1
 
 /* LDAP v2 Referrals */
