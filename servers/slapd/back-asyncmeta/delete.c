@@ -186,8 +186,8 @@ asyncmeta_back_delete( Operation *op, SlapReply *rs )
 	      op->o_req_dn.bv_val );
 
 	if (current_time > op->o_time) {
-		Debug(asyncmeta_debug, "==> asyncmeta_back_delete[%s]: o_time:[%ld], current time: [%ld]\n",
-		      op->o_log_prefix, op->o_time, current_time );
+		Debug(asyncmeta_debug, "==> asyncmeta_back_delete[%s]: o_time:[%lld], current time: [%lld]\n",
+		      op->o_log_prefix, (long long)op->o_time, (long long)current_time );
 	}
 
 	if ( mi->mi_ntargets == 0 ) {
@@ -205,7 +205,7 @@ asyncmeta_back_delete( Operation *op, SlapReply *rs )
 	}
 
 	candidates = bc->candidates;
-	mc = asyncmeta_getconn( op, rs, candidates, &candidate, LDAP_BACK_DONTSEND, 0);
+	mc = asyncmeta_getconn( op, rs, candidates, &candidate, 0);
 	if ( !mc || rs->sr_err != LDAP_SUCCESS) {
 		send_ldap_result(op, rs);
 		return rs->sr_err;

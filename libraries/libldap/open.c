@@ -43,7 +43,8 @@ int ldap_open_defconn( LDAP *ld )
 		&ld->ld_options.ldo_defludp, 1, 1, NULL, 0, 0 );
 
 	if( ld->ld_defconn == NULL ) {
-		ld->ld_errno = LDAP_SERVER_DOWN;
+		if ( !ld->ld_errno )
+			ld->ld_errno = LDAP_SERVER_DOWN;
 		return -1;
 	}
 
@@ -308,6 +309,13 @@ ldap_initialize( LDAP **ldp, LDAP_CONST char *url )
 			ldap_ld_free(ld, 1, NULL, NULL);
 			return rc;
 		}
+		if ( ldap_url_check_ext( ld->ld_options.ldo_defludp )) {
+			rc = LDAP_NOT_SUPPORTED;
+			ld->ld_errno = rc;
+			ldap_ld_free(ld, 1, NULL, NULL);
+			return rc;
+		}
+
 #ifdef LDAP_CONNECTIONLESS
 		if (ldap_is_ldapc_url(url))
 			LDAP_IS_UDP(ld) = 1;
@@ -341,6 +349,12 @@ ldap_init_fd(
 	if (url != NULL) {
 		rc = ldap_set_option(ld, LDAP_OPT_URI, url);
 		if ( rc != LDAP_SUCCESS ) {
+			ldap_ld_free(ld, 1, NULL, NULL);
+			return rc;
+		}
+		if ( ldap_url_check_ext( ld->ld_options.ldo_defludp )) {
+			rc = LDAP_NOT_SUPPORTED;
+			ld->ld_errno = rc;
 			ldap_ld_free(ld, 1, NULL, NULL);
 			return rc;
 		}
@@ -659,8 +673,16 @@ ldap_int_check_async_open( LDAP *ld, ber_socket_t sd )
 		return -1;
 
 	case -2:
-		/* connect not completed yet */
-		ld->ld_errno = LDAP_X_CONNECTING;
+		/* connect not completed yet, timed out? */
+		LDAP_MUTEX_LOCK( &ld->ld_options.ldo_mutex );
+		if ( time( NULL ) - ld->ld_defconn->lconn_created <= ld->ld_options.ldo_tm_net.tv_sec )
+		{
+			ld->ld_errno = LDAP_X_CONNECTING;
+		} else {
+			ld->ld_errno = LDAP_TIMEOUT;
+			rc = -1;
+		}
+		LDAP_MUTEX_UNLOCK( &ld->ld_options.ldo_mutex );
 		return rc;
 	}
 

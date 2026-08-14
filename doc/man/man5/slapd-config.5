@@ -502,14 +502,15 @@ feature.  The default is 0. You may also want to set the
 option.
 .TP
 .B olcIndexHash64: { TRUE | FALSE }
-Use a 64 bit hash for indexing. The default is to use 32 bit hashes.
-These hashes are used for equality and substring indexing. The 64 bit
-version may be needed to avoid index collisions when the number of
+Use a 64 bit hash for indexing, otherwise 32 bit. The default is
+now 64 bit. These hashes are used for equality and substring indexing.
+The 64 bit version avoids index collisions when the number of
 indexed values exceeds ~64 million. (Note that substring indexing
 generates multiple index values per actual attribute value.)
 Indices generated with 32 bit hashes are incompatible with the 64 bit
-version, and vice versa. Any existing databases must be fully reloaded
-when changing this setting. This directive is only supported on 64 bit CPUs.
+version, and vice versa. Any existing databases must be fully reindexed
+when changing this setting. Since 64 bit is now the default, this option
+is deprecated and will eventually be removed.
 .TP
 .B olcIndexIntLen: <integer>
 Specify the key length for ordered integer indices. The most significant
@@ -904,6 +905,7 @@ you can specify.
 Permits configuring what ciphers will be accepted and the preference order.
 <cipher-suite-spec> should be a cipher specification for the TLS library
 in use (OpenSSL or GnuTLS).
+This directive is not supported when using MbedTLS.
 Example:
 .RS
 .RS
@@ -997,6 +999,7 @@ actual client or server authentication and provide no protection against
 man-in-the-middle attacks.
 You should append "!ADH" to your cipher suites to ensure that these suites
 are not used.
+This directive is not supported when using MbedTLS.
 .TP
 .B olcTLSECName: <name>
 Specify the name of the curve(s) to use for Elliptic curve Diffie-Hellman
@@ -1240,10 +1243,8 @@ should be one of
 .BR monitor ,
 .BR null ,
 .BR passwd ,
-.BR perl ,
 .BR relay ,
 .BR sock ,
-.BR sql ,
 or
 .BR wt .
 At present, only back-mdb implements any options of this type, so this
@@ -1401,7 +1402,36 @@ is equivalent to
 The 
 .B extended
 keyword allows one to indicate the OID of the specific operation
-to be restricted.
+to be restricted. Unlike
+.IR olcRestrictOp ,
+this applies to everyone, including rootdn.
+.TP
+.B olcRestrictOp <oplist> [control=<oid>] (by <who> <allow|reject|drop control=<oid>> [stop|continue|break])+
+Specify rules what operation types and control combinations are allowed and by
+whom. If defined inside a database specification, restrictions apply only to
+that database and override any global ones. This option shares a lot of its
+syntax and intent with
+.I olcAccess
+rules
+.RB ( slapd.access (5)).
+They are processed in order and if a line matches, no further rules are
+considered unless a matching
+.B by
+clause specifies a
+.B break
+rule. The
+.B drop control=<oid>
+rule is notable that it will act as
+.B reject
+if the specified control is provided by the client and is marked critical,
+otherwise it masks that control, including from the following
+.I olcRestrictOp
+lines. Dropping a control might not completely avoid it having impact, this is
+implementation dependent as some control processing happens before this step.
+
+Operations are the same as in the
+.I olcRestrict
+keyword, which are tested first and apply indiscriminately.
 .TP
 .B olcSchemaDN: <dn>
 Specify the distinguished name for the subschema subentry that
@@ -1526,7 +1556,9 @@ will be updated. More than
 .B integer
 seconds must have passed since the last successful bind. In a
 replicated environment with frequent bind activity it may be
-useful to set this to a large value.
+useful to set this to a large value. On a backend, if set to
+.B 0
+(the default), the value set on the frontend is used.
 .TP
 .B olcLimits: <selector> <limit> [<limit> [...]]
 Specify time and size limits based on the operation's initiator or

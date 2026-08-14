@@ -21,6 +21,8 @@ ldapmodify, ldapadd \- LDAP modify entry and LDAP add entry tools
 [\c
 .BI \-f \ file\fR]
 [\c
+.BI \-i \ time\fR]
+[\c
 .BI \-j \ lineno\fR]
 [\c
 .BI \-S \ file\fR]
@@ -78,6 +80,8 @@ ldapmodify, ldapadd \- LDAP modify entry and LDAP add entry tools
 .BR \-c ]
 [\c
 .BI \-f \ file\fR]
+[\c
+.BI \-i \ time\fR]
 [\c
 .BI \-j \ lineno\fR]
 [\c
@@ -174,6 +178,9 @@ reporting an error.
 .BI \-f \ file
 Read the entry modification information from \fIfile\fP instead of from
 standard input.
+.TP
+.BI \-i \ time
+Wait \fItime\fP microseconds before issuing an operation.
 .TP
 .BI \-j \ lineno
 Jump to the specified line number in the LDIF file before processing any entries.

@@ -13,7 +13,7 @@
 ## top-level directory of the distribution or, alternatively, at
 ## <http://www.OpenLDAP.org/license.html>.
 
-LIBRARY = olber32_a.lib
+LIBRARY = liblber.la
 
 NT_SRCS = nt_err.c
 NT_OBJS = nt_err.lo
@@ -21,7 +21,6 @@ NT_OBJS = nt_err.lo
 UNIX_SRCS = stdio.c
 UNIX_OBJS = stdio.lo
 
-LT_CFLAGS += -Zi -Fdolber32_a.pdb
 LIB_DEFS = -DLBER_LIBRARY
 
 SRCS= assert.c decode.c encode.c io.c bprint.c debug.c \
@@ -30,7 +29,7 @@ OBJS= assert.lo decode.lo encode.lo io.lo bprint.lo debug.lo \
 	memory.lo options.lo sockbuf.lo $(@PLAT@_OBJS)
 XSRCS= version.c
 
-PROGRAMS= dtest etest idtest
+PROGRAMS= dtest etest
 
 LDAP_INCDIR= ../../include
 LDAP_LIBDIR= ../../libraries
@@ -39,14 +38,17 @@ XLIBS = $(LIBRARY) $(LDAP_LIBLUTIL_A)
 XXLIBS = 
 NT_LINK_LIBS = $(AC_LIBS)
 UNIX_LINK_LIBS = $(AC_LIBS)
-@DO_VERSIONED_SYMBOLS@SYMBOL_VERSION_FLAGS=$(OL_VERSIONED_SYMBOLS)$(srcdir)/lber.map
+
+SYMBOL_VERSION_SCRIPT=lber.map
+@DO_VERSIONED_SYMBOLS@SYMBOL_VERSION_FLAGS=$(OL_VERSIONED_SYMBOLS)$(SYMBOL_VERSION_SCRIPT)
+
+$(SYMBOL_VERSION_SCRIPT): $(srcdir)/$(SYMBOL_VERSION_SCRIPT).in $(LDAP_INCDIR)/liblber-config.h
+	$(CPP) -x c -o $@ $(LT_CPPFLAGS) $(srcdir)/$(SYMBOL_VERSION_SCRIPT).in
 
 dtest:    $(XLIBS) dtest.o
 	$(LTLINK) -o $@ dtest.o $(LIBS)
 etest:  $(XLIBS) etest.o
 	$(LTLINK) -o $@ etest.o $(LIBS)
-idtest:  $(XLIBS) idtest.o
-	$(LTLINK) -o $@ idtest.o $(LIBS)
 
 install-local: FORCE
 	-$(MKDIR) $(DESTDIR)$(libdir)

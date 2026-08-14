@@ -54,9 +54,11 @@
 #ifdef _WIN32
 #define	LUTIL_ATOULX	lutil_atoullx
 #define	Z	"I"
+#define	ULTYPE	unsigned long long
 #else
 #define	LUTIL_ATOULX	lutil_atoulx
 #define	Z	"z"
+#define	ULTYPE	unsigned long
 #endif
 
 #define ARGS_STEP	512
@@ -151,7 +153,7 @@ int config_check_vals(ConfigTable *Conf, ConfigArgs *c, int check_only ) {
 	int rc, arg_user, arg_type, arg_syn, iarg;
 	unsigned uiarg;
 	long larg;
-	unsigned long ularg;
+	ULTYPE ularg;
 	ber_len_t barg;
 	
 	if(Conf->arg_type == ARG_IGNORED) {
@@ -1156,6 +1158,43 @@ static slap_verbmasks versionkey[] = {
 	{ BER_BVNULL, 0 }
 };
 
+static slap_verbmasks slap_ops_[] = {
+	{ BER_BVC("bind"), SLAP_OP_BIND },
+	{ BER_BVC("unbind"), SLAP_OP_UNBIND },
+	{ BER_BVC("search"), SLAP_OP_SEARCH },
+	{ BER_BVC("compare"), SLAP_OP_COMPARE },
+	{ BER_BVC("modify"), SLAP_OP_MODIFY },
+	{ BER_BVC("rename"), SLAP_OP_RENAME },
+	{ BER_BVC("modrdn"), SLAP_OP_MODRDN },
+	{ BER_BVC("add"), SLAP_OP_ADD },
+	{ BER_BVC("delete"), SLAP_OP_DELETE },
+	{ BER_BVC("abandon"), SLAP_OP_ABANDON },
+	{ BER_BVC("extended"), SLAP_OP_EXTENDED },
+	{ BER_BVNULL, SLAP_OP_LAST }
+};
+slap_verbmasks *slap_ops = slap_ops_;
+
+static slap_verbmasks slap_restrictable_ops_[] = {
+	{ BER_BVC("all"), SLAP_RESTRICT_OP_ALL },
+	{ BER_BVC("read"), SLAP_RESTRICT_OP_READS },
+	{ BER_BVC("write"), SLAP_RESTRICT_OP_WRITES },
+	{ BER_BVC("bind"), SLAP_RESTRICT_OP_BIND },
+	{ BER_BVC("add"), SLAP_RESTRICT_OP_ADD },
+	{ BER_BVC("modify"), SLAP_RESTRICT_OP_MODIFY },
+	{ BER_BVC("rename"), SLAP_RESTRICT_OP_RENAME },
+	{ BER_BVC("modrdn"), SLAP_RESTRICT_OP_MODRDN },
+	{ BER_BVC("delete"), SLAP_RESTRICT_OP_DELETE },
+	{ BER_BVC("search"), SLAP_RESTRICT_OP_SEARCH },
+	{ BER_BVC("compare"), SLAP_RESTRICT_OP_COMPARE },
+	{ BER_BVC("extended"), SLAP_RESTRICT_OP_EXTENDED },
+	{ BER_BVC("extended=" LDAP_EXOP_START_TLS ), SLAP_RESTRICT_EXOP_START_TLS },
+	{ BER_BVC("extended=" LDAP_EXOP_MODIFY_PASSWD ), SLAP_RESTRICT_EXOP_MODIFY_PASSWD },
+	{ BER_BVC("extended=" LDAP_EXOP_X_WHO_AM_I ), SLAP_RESTRICT_EXOP_WHOAMI },
+	{ BER_BVC("extended=" LDAP_EXOP_X_CANCEL ), SLAP_RESTRICT_EXOP_CANCEL },
+	{ BER_BVNULL, 0 }
+};
+slap_verbmasks *slap_restrictable_ops = slap_restrictable_ops_;
+
 int
 slap_keepalive_parse(
 	struct berval *val,
@@ -1312,7 +1351,7 @@ static slap_cf_aux_table bindkey[] = {
  */
 
 int
-slap_cf_aux_table_parse( const char *word, void *dst, slap_cf_aux_table *tab0, LDAP_CONST char *tabmsg )
+slap_cf_aux_table_parse( ConfigArgs *c, const char *word, void *dst, slap_cf_aux_table *tab0, LDAP_CONST char *tabmsg )
 {
 	int rc = SLAP_CONF_UNKNOWN;
 	slap_cf_aux_table *tab;
@@ -1330,12 +1369,23 @@ slap_cf_aux_table_parse( const char *word, void *dst, slap_cf_aux_table *tab0, L
 			switch ( tab->type ) {
 			case 's':
 				cptr = (char **)((char *)dst + tab->off);
+				if ( *cptr != NULL ) {
+dupset:
+					if ( !c->cr_msg[0] ) {
+						snprintf( c->cr_msg, sizeof( c->cr_msg ),
+							"Error: %s already set in %s", word, tabmsg );
+						Debug( LDAP_DEBUG_ANY, "%s: %s.\n", c->log, c->cr_msg );
+					}
+					return 1;
+				}
 				*cptr = ch_strdup( val );
 				rc = 0;
 				break;
 
 			case 'b':
 				bptr = (struct berval *)((char *)dst + tab->off);
+				if ( !BER_BVISNULL( bptr ))
+					goto dupset;
 				if ( tab->aux != NULL ) {
 					struct berval	dn;
 					slap_mr_normalize_func *normalize = (slap_mr_normalize_func *)tab->aux;
@@ -1568,10 +1618,10 @@ slap_tls_get_config( LDAP *ld, int opt, char **val )
 }
 
 int
-bindconf_tls_parse( const char *word, slap_bindconf *bc )
+bindconf_tls_parse( ConfigArgs *c, const char *word, slap_bindconf *bc )
 {
 #ifdef HAVE_TLS
-	if ( slap_cf_aux_table_parse( word, bc, aux_TLS, "tls config" ) == 0 ) {
+	if ( slap_cf_aux_table_parse( c, word, bc, aux_TLS, "tls config" ) == 0 ) {
 		bc->sb_tls_do_init = 1;
 		return 0;
 	}
@@ -1589,15 +1639,16 @@ bindconf_tls_unparse( slap_bindconf *bc, struct berval *bv )
 }
 
 int
-bindconf_parse( const char *word, slap_bindconf *bc )
+bindconf_parse( ConfigArgs *c, const char *word, slap_bindconf *bc )
 {
+	c->cr_msg[0] = '\0';
 #ifdef HAVE_TLS
 	/* Detect TLS config changes explicitly */
-	if ( bindconf_tls_parse( word, bc ) == 0 ) {
+	if ( bindconf_tls_parse( c, word, bc ) == 0 ) {
 		return 0;
 	}
 #endif
-	return slap_cf_aux_table_parse( word, bc, bindkey, "bind config" );
+	return slap_cf_aux_table_parse( c, word, bc, bindkey, "bind config" );
 }
 
 int
@@ -2168,7 +2219,6 @@ config_fp_parse_line(ConfigArgs *c)
 		"acl-bind", "acl-method", "idassert-bind",  /* in back-ldap */
 		"acl-passwd", "bindpw",  /* in back-<ldap/meta> */
 		"pseudorootpw",  /* in back-meta */
-		"dbpasswd",  /* in back-sql */
 		NULL
 	};
 	static char *const raw[] = {

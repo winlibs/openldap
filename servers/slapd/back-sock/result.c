@@ -31,8 +31,7 @@
 #include "back-sock.h"
 
 /*
- * FIXME: make a RESULT section compulsory from the socket response.
- * Otherwise, a partial/aborted response is treated as 'success'.
+ * Note: str2result treats a partial/aborted response as failure, LDAP_OTHER.
  * This is a divergence from the back-shell protocol, but makes things
  * more robust.
  */
@@ -81,7 +80,11 @@ sock_read_and_send_results(
 		if ( strncasecmp( line, "CONTINUE", 8 ) == 0 ) {
 			struct sockinfo	*si = (struct sockinfo *) op->o_bd->be_private;
 			/* Only valid when operating as an overlay! */
-			assert( si->si_ops != 0 );
+			if ( !si->si_ops ) {
+				rs->sr_err = LDAP_OTHER;
+				rs->sr_text = "CONTINUE is only valid when operating as an overlay";
+				goto fail;
+			}
 			rs->sr_err = SLAP_CB_CONTINUE;
 			goto skip;
 		}
@@ -105,6 +108,10 @@ sock_read_and_send_results(
 			if ( (rs->sr_entry = str2entry( buf )) == NULL ) {
 				Debug( LDAP_DEBUG_ANY, "str2entry(%s) failed\n",
 				    buf );
+				rs->sr_err = LDAP_OTHER;
+				rs->sr_text = "str2entry failed";
+				goto fail;
+
 			} else {
 				rs->sr_attrs = op->oq_search.rs_attrs;
 				rs->sr_flags = REP_ENTRY_MODIFIABLE;
@@ -118,6 +125,7 @@ sock_read_and_send_results(
 	}
 	(void) str2result( buf, &rs->sr_err, (char **)&rs->sr_matched, (char **)&rs->sr_text );
 
+fail:
 	/* otherwise, front end will send this result */
 	if ( rs->sr_err != 0 || op->o_tag != LDAP_REQ_BIND ) {
 		send_ldap_result( op, rs );

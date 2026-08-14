@@ -20,10 +20,7 @@
 #ifndef	_LDAP_INT_H
 #define	_LDAP_INT_H 1
 
-#ifndef NO_THREADS
-#define LDAP_R_COMPILE 1
-#endif
-
+#include "libldap-config.h"
 #include "../liblber/lber-int.h"
 #include "lutil.h"
 #include "ldap_avl.h"
@@ -103,6 +100,15 @@
 	ldap_log_printf( NULL, (level), fmt, arg1, arg2, arg3 ); \
 	} while ( 0 )
 
+#define Debug4( level, fmt, arg1, arg2, arg3, arg4 ) \
+	do { if ( DebugTest( (level) ) ) \
+	ldap_log_printf( NULL, (level), fmt, arg1, arg2, arg3, arg4 ); \
+	} while ( 0 )
+
+#define Debug5( level, fmt, arg1, arg2, arg3, arg4, arg5 ) \
+	do { if ( DebugTest( (level) ) ) \
+	ldap_log_printf( NULL, (level), fmt, arg1, arg2, arg3, arg4, arg5 ); \
+	} while ( 0 )
 #else
 
 #define DebugTest( level )                                    (0 == 1)
@@ -110,10 +116,11 @@
 #define Debug1( level, fmt, arg1 )                            ((void)0)
 #define Debug2( level, fmt, arg1, arg2 )                      ((void)0)
 #define Debug3( level, fmt, arg1, arg2, arg3 )                ((void)0)
+#define Debug4( level, fmt, arg1, arg2, arg3, arg4 )          ((void)0)
+#define Debug5( level, fmt, arg1, arg2, arg3, arg4, arg5 )    ((void)0)
 
 #endif /* LDAP_DEBUG */
 
-#define LDAP_DEPRECATED 1
 #include "ldap.h"
 
 #include "ldap_pvt.h"
@@ -191,6 +198,8 @@ struct ldaptls {
 	struct berval	lt_cacert;
 	struct berval	lt_cert;
 	struct berval	lt_key;
+	char		**lt_cacerturis;
+	char		**lt_uris;
 };
 #endif
 
@@ -314,7 +323,9 @@ struct ldapoptions {
 #define ldo_tls_cacert	ldo_tls_info.lt_cacert
 #define ldo_tls_cert	ldo_tls_info.lt_cert
 #define ldo_tls_key	ldo_tls_info.lt_key
-   	int			ldo_tls_mode;
+#define ldo_tls_uris	ldo_tls_info.lt_uris
+#define ldo_tls_cacerturis	ldo_tls_info.lt_cacerturis
+	int			ldo_tls_mode;
    	int			ldo_tls_require_cert;
 	int			ldo_tls_impl;
    	int			ldo_tls_crlcheck;
@@ -743,6 +754,7 @@ LDAP_F (int) ldap_int_poll( LDAP *ld, ber_socket_t s,
 
 #if defined(HAVE_TLS) || defined(HAVE_CYRUS_SASL)
 LDAP_V (char *) ldap_int_hostname;
+LDAP_F (void) ldap_int_resolve_hostname(void);
 LDAP_F (char *) ldap_host_connected_to( Sockbuf *sb,
 	const char *host );
 #endif

@@ -220,7 +220,7 @@ alias_response( Operation *op, SlapReply *rs )
 	}
 
 	for ( mapping = ov->mappings; mapping && mapping->source; mapping++ ) {
-		Attribute *source, *a;
+		Attribute *source = NULL, *a;
 		int operational = is_at_operational( mapping->source->ad_type ),
 			keep_source = 0;
 		slap_mask_t requested = operational ?
@@ -252,7 +252,7 @@ alias_response( Operation *op, SlapReply *rs )
 			} else {
 				Attribute **ap;
 
-				a = attr_dup( source );
+				a = attr_dup2( source, SLAP_ATTR_DONT_FREE_DATA );
 				a->a_desc = mapping->alias;
 
 				for ( ap = &rs->sr_operational_attrs; *ap; ap=&(*ap)->a_next );
@@ -356,7 +356,7 @@ alias_op_search( Operation *op, SlapReply *rs )
 	AttributeName *an_orig = NULL, *an_new = NULL;
 	int mapped, an_length = 0;
 
-	if ( get_manageDSAit( op ) )
+	if ( wants_manageDSAit( op ) )
 		return SLAP_CB_CONTINUE;
 
 	/*

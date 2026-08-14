@@ -40,7 +40,8 @@ request_abandon( LloadConnection *c, LloadOperation *op )
 
     op->o_res = LLOAD_OP_COMPLETED;
 
-    if ( ber_decode_int( &op->o_request, &needle.o_client_msgid ) ) {
+    if ( ber_decode_int( &op->o_request, &needle.o_client_msgid ) ||
+            needle.o_client_msgid <= 0 ) {
         Debug( LDAP_DEBUG_STATS, "request_abandon: "
                 "connid=%lu msgid=%d invalid integer sent in abandon request\n",
                 c->c_connid, op->o_client_msgid );
@@ -48,6 +49,13 @@ request_abandon( LloadConnection *c, LloadOperation *op )
         OPERATION_UNLINK(op);
         CONNECTION_LOCK_DESTROY(c);
         return -1;
+    }
+
+    if ( op->o_client_msgid == needle.o_client_msgid ) {
+        Debug( LDAP_DEBUG_STATS, "request_abandon: "
+                "connid=%lu msgid=%d requests abandon of itself\n",
+                c->c_connid, op->o_client_msgid );
+        goto done;
     }
 
     CONNECTION_LOCK(c);
@@ -538,7 +546,8 @@ fail:
 LloadConnection *
 client_init(
         ber_socket_t s,
-        const char *peername,
+        LloadListenerSocket *ls,
+        struct berval *peername,
         struct event_base *base,
         int flags )
 {
@@ -547,7 +556,8 @@ client_init(
     event_callback_fn read_cb = connection_read_cb,
                       write_cb = connection_write_cb;
 
-    if ( (c = lload_connection_init( s, peername, flags) ) == NULL ) {
+    if ( (c = lload_connection_init(
+                    s, &ls->ls_name, peername, flags )) == NULL ) {
         return NULL;
     }
 
@@ -557,6 +567,7 @@ client_init(
     }
 
     c->c_state = LLOAD_C_READY;
+    c->c_listener = ls;
 
     if ( flags & CONN_IS_TLS ) {
 #ifdef HAVE_TLS
@@ -680,15 +691,17 @@ client_reset( LloadConnection *c )
     if ( restricted && restricted < LLOAD_OP_RESTRICTED_ISOLATE ) {
         if ( c->c_backend ) {
             assert( c->c_restricted <= LLOAD_OP_RESTRICTED_BACKEND );
-            assert( c->c_restricted_inflight == 0 );
+            assert( c->c_restricted_inflight <= executing );
             c->c_backend = NULL;
             c->c_restricted_at = 0;
+            c->c_restricted_inflight = 0;
         } else {
             assert( c->c_restricted == LLOAD_OP_RESTRICTED_UPSTREAM );
             assert( c->c_linked_upstream != NULL );
             linked_upstream = c->c_linked_upstream;
             c->c_linked_upstream = NULL;
         }
+        c->c_restricted = LLOAD_OP_NOT_RESTRICTED;
     }
     CONNECTION_UNLOCK(c);
 

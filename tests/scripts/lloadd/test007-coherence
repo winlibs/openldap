@@ -479,7 +479,7 @@ if test $RC != 0 ; then
 	exit $RC
 fi
 
-test $KILLSERVERS != no && kill -HUP $KILLPIDS
+test $KILLSERVERS != no && { kill -HUP $KILLPIDS || exit $?; }
 
 LDIF=$DATADIR/lloadd/test007-monitor.ldif
 
@@ -487,12 +487,17 @@ echo "Filtering ldapsearch results..."
 # For now, we don't make sure olmIncomingConnections is reflective of current
 # state (=no connections open) since olmIncomingConnections can be != 0 for a
 # second after it's closed
-$LDIFFILTER < $SEARCHOUT | grep -v '^olmIncomingConnections:' > $SEARCHFLT
+$LDIFFILTER < $SEARCHOUT | \
+    grep -v '^olmIncomingConnections:' | \
+    sed \
+        -e '/^olmConnectionLocalAddress:/s/:[0-9]*$/:port/' \
+        -e '/^olmConnectionLocalAddress:/s/IP=127\.0\.0\.1:/IP=localhost:/' \
+        -e '/^olmConnectionLocalAddress:/s/IP=\[::1\]:/IP=localhost:/' \
+        -e '/^olmConnectionPeerAddress:/s/IP=127\.0\.0\.1:/IP=localhost:/' \
+        -e '/^olmConnectionPeerAddress:/s/IP=\[::1\]:/IP=localhost:/' \
+    > $SEARCHFLT
 echo "Filtering original ldif used to create database..."
-$LDIFFILTER < $LDIF | sed \
-    -e "s|@URI2@|$URI2|g" \
-    -e "s|@URI3@|$URI3|g" \
-    > $LDIFFLT
+$LDIFFILTER < $LDIF | . $CONFFILTER $BACKEND > $LDIFFLT
 echo "Comparing filter output..."
 $CMP $SEARCHFLT $LDIFFLT > $CMPOUT
 
@@ -503,6 +508,6 @@ fi
 
 echo ">>>>> Test succeeded"
 
-test $KILLSERVERS != no && wait
+test $KILLSERVERS != no && { wait $KILLPIDS || exit $?; }
 
 exit 0

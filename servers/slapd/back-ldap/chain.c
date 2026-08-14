@@ -51,6 +51,7 @@
 
 #define o_chaining			o_ctrlflag[sc_chainingBehavior]
 #define get_chaining(op)		((op)->o_chaining & SLAP_CONTROL_MASK)
+#define wants_chaining(op)		(_SCM((op)->o_chaining) > SLAP_CONTROL_IGNORED)
 #define get_chainingBehavior(op)	((op)->o_chaining & (SLAP_CH_RESOLVE_MASK|SLAP_CH_CONTINUATION_MASK))
 #define get_resolveBehavior(op)		((op)->o_chaining & SLAP_CH_RESOLVE_MASK)
 #define get_continuationBehavior(op)	((op)->o_chaining & SLAP_CH_CONTINUATION_MASK)
@@ -88,6 +89,10 @@ typedef struct ldap_chain_t {
 
 	/* tree of configured[/generated?] "uri" info */
 	ldap_avl_info_t		lc_lai;
+
+	/* dynamically added databases */
+	BackendDB		**lc_dbs;
+	int			lc_numdbs;
 
 	/* max depth in nested referrals chaining */
 	int			lc_max_depth;
@@ -158,7 +163,7 @@ chaining_control_add(
 	}
 
 	/* already present */
-	if ( get_chaining( op ) > SLAP_CONTROL_IGNORED ) {
+	if ( wants_chaining( op ) ) {
 		return 0;
 	}
 
@@ -299,7 +304,7 @@ ldap_chain_cb_search_response( Operation *op, SlapReply *rs )
 		}
 
 #ifdef LDAP_CONTROL_X_CHAINING_BEHAVIOR
-		if ( rs->sr_err == LDAP_REFERRAL && get_chaining( op ) > SLAP_CONTROL_IGNORED ) {
+		if ( rs->sr_err == LDAP_REFERRAL && wants_chaining( op ) ) {
 			switch ( get_continuationBehavior( op ) ) {
 			case SLAP_CH_RESOLVE_CHAINING_REQUIRED:
 				lb->lb_status = LDAP_CH_ERR;
@@ -368,7 +373,7 @@ retry:;
 			}
 
 #ifdef LDAP_CONTROL_X_CHAINING_BEHAVIOR
-			if ( get_chaining( op ) > SLAP_CONTROL_IGNORED ) {
+			if ( wants_chaining( op ) ) {
 				switch ( get_continuationBehavior( op ) ) {
 				case SLAP_CH_RESOLVE_CHAINING_REQUIRED:
 					lb->lb_status = LDAP_CH_ERR;
@@ -989,7 +994,7 @@ ldap_chain_response( Operation *op, SlapReply *rs )
 	}
 
 #ifdef LDAP_CONTROL_X_CHAINING_BEHAVIOR
-	if ( rs->sr_err == LDAP_REFERRAL && get_chaining( op ) > SLAP_CONTROL_IGNORED ) {
+	if ( rs->sr_err == LDAP_REFERRAL && wants_chaining( op ) ) {
 		switch ( get_resolveBehavior( op ) ) {
 		case SLAP_CH_RESOLVE_REFERRALS_PREFERRED:
 		case SLAP_CH_RESOLVE_REFERRALS_REQUIRED:
@@ -1001,7 +1006,7 @@ ldap_chain_response( Operation *op, SlapReply *rs )
 			break;
 		}
 
-	} else if ( rs->sr_type == REP_SEARCHREF && get_chaining( op ) > SLAP_CONTROL_IGNORED ) {
+	} else if ( rs->sr_type == REP_SEARCHREF && wants_chaining( op ) ) {
 		switch ( get_continuationBehavior( op ) ) {
 		case SLAP_CH_CONTINUATION_REFERRALS_PREFERRED:
 		case SLAP_CH_CONTINUATION_REFERRALS_REQUIRED:
@@ -1382,6 +1387,9 @@ chain_ldadd( CfEntryInfo *p, Entry *e, ConfigArgs *ca )
 	rc = ldap_chain_db_init_one( ca->be );
 	lc->lc_cfg_li = NULL;
 
+	lc->lc_dbs = ch_realloc( lc->lc_dbs, (lc->lc_numdbs + 1) * sizeof(BackendDB *) );
+	lc->lc_dbs[lc->lc_numdbs++] = ca->be;
+
 	if ( rc != 0 ) {
 fail:
 		Debug( LDAP_DEBUG_ANY, "slapd-chain: "
@@ -1492,6 +1500,7 @@ chain_lddel( CfEntryInfo *ce, Operation *op )
 	slap_overinst	*on = (slap_overinst *)pe->ce_bi;
 	ldap_chain_t	*lc = (ldap_chain_t *)on->on_bi.bi_private;
 	ldapinfo_t	*li = (ldapinfo_t *) ce->ce_be->be_private;
+	int i;
 
 	if ( li != lc->lc_common_li ) {
 		if (! ldap_tavl_delete( &lc->lc_lai.lai_tree, li, ldap_chain_uri_cmp ) ) {
@@ -1514,6 +1523,12 @@ chain_lddel( CfEntryInfo *ce, Operation *op )
 	}
 	if ( ce->ce_be->bd_info->bi_db_destroy ) {
 		ce->ce_be->bd_info->bi_db_destroy( ce->ce_be, NULL );
+	}
+
+	for ( i = 0; i < lc->lc_numdbs; i++ ) {
+		if ( lc->lc_dbs[i] == ce->ce_be ) {
+			lc->lc_dbs[i] = lc->lc_dbs[lc->lc_numdbs--];
+		}
 	}
 
 	ch_free(ce->ce_be);
@@ -2032,6 +2047,13 @@ ldap_chain_db_destroy(
 	rc = ldap_chain_db_func( be, db_destroy );
 
 	if ( lc ) {
+		int i;
+
+		for ( i = 0; i < lc->lc_numdbs; i++ ) {
+			ch_free( lc->lc_dbs[i] );
+		}
+		ch_free( lc->lc_dbs );
+
 		ldap_tavl_free( lc->lc_lai.lai_tree, NULL );
 		ldap_pvt_thread_mutex_destroy( &lc->lc_lai.lai_mutex );
 		ch_free( lc );

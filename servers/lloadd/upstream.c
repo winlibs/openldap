@@ -22,6 +22,7 @@
 #include <ac/unistd.h>
 
 #include "lload.h"
+#include "../../libraries/liblber/lber-int.h" /* get ber_ptrlen() */
 
 #include "lutil.h"
 #include "lutil_ldap.h"
@@ -52,9 +53,6 @@ linked_upstream_lost( LloadConnection *client )
     int gentle = 1;
 
     CONNECTION_LOCK(client);
-    assert( client->c_restricted >= LLOAD_OP_RESTRICTED_UPSTREAM );
-    assert( client->c_linked_upstream );
-
     client->c_restricted = LLOAD_OP_NOT_RESTRICTED;
     client->c_linked_upstream = NULL;
     CONNECTION_UNLOCK(client);
@@ -93,6 +91,12 @@ forward_response( LloadConnection *client, LloadOperation *op, BerElement *ber )
 
     checked_lock( &client->c_io_mutex );
     output = client->c_pendingber;
+    if ( sockbuf_max_pending_client && output &&
+            ber_ptrlen( output ) >= sockbuf_max_pending_client ) {
+        ber_free( ber, 1 );
+        checked_unlock( &client->c_io_mutex );
+        return -1;
+    }
     if ( output == NULL && (output = ber_alloc()) == NULL ) {
         ber_free( ber, 1 );
         checked_unlock( &client->c_io_mutex );
@@ -138,11 +142,12 @@ forward_final_response(
 static int
 handle_unsolicited( LloadConnection *c, BerElement *ber )
 {
+    TAvlnode *node;
+
     CONNECTION_ASSERT_LOCKED(c);
 
     assert( c->c_state != LLOAD_C_INVALID );
     if ( c->c_state == LLOAD_C_DYING ) {
-        CONNECTION_UNLOCK(c);
         goto out;
     }
     c->c_state = LLOAD_C_CLOSING;
@@ -151,10 +156,65 @@ handle_unsolicited( LloadConnection *c, BerElement *ber )
             "teardown for upstream connection connid=%lu\n",
             c->c_connid );
 
-    CONNECTION_DESTROY(c);
+    while ( c->c_ops ) {
+        TAvlnode *node = ldap_tavl_end( c->c_ops, TAVL_DIR_LEFT );
+        LloadOperation *op = node->avl_data;
+
+        /* Close operations that the upstream is not tracking, we don't get a
+         * response for those. */
+        if ( op->o_client_msgid || op->o_upstream_msgid ) {
+            assert( op->o_upstream_msgid != 0 );
+            break;
+        }
+
+        CONNECTION_UNLOCK(c);
+        OPERATION_UNLINK(op);
+        CONNECTION_LOCK(c);
+    };
+
+    /* Let all clients unlink */
+    node = ldap_tavl_end( c->c_linked, TAVL_DIR_LEFT );
+    while ( node ) {
+        LloadConnection *client;
+        int cmp = 0;
+
+        /*
+         * The upstream is CLOSING so it won't get new clients in, but
+         * releasing c_mutex allows clients to unregister themselves.
+         */
+        client = (LloadConnection *)node->avl_data;
+        while ( !acquire_ref( &client->c_refcnt ) ) {
+            node = ldap_tavl_next( node, TAVL_DIR_RIGHT );
+            if ( !node ) {
+                break;
+            }
+            client = node->avl_data;
+        }
+        if ( !node ) break;
+
+        CONNECTION_UNLOCK(c);
+        linked_upstream_lost( client );
+        CONNECTION_LOCK(c);
+
+        node = ldap_tavl_find3( c->c_linked, client, lload_upstream_entry_cmp, &cmp );
+        if ( node && cmp <= 0 ) {
+            TAvlnode *next = ldap_tavl_next( node, TAVL_DIR_RIGHT );
+            if ( client == node->avl_data ) {
+                ldap_tavl_delete( &c->c_linked, client, lload_upstream_entry_cmp );
+            }
+            node = next;
+        }
+        RELEASE_REF( client, c_refcnt, client->c_destroy );
+    }
 
 out:
     ber_free( ber, 1 );
+    if ( c->c_state == LLOAD_C_CLOSING && c->c_ops ) {
+        CONNECTION_UNLOCK(c);
+        return 0;
+    }
+
+    CONNECTION_DESTROY(c);
     return -1;
 }
 
@@ -922,7 +982,11 @@ fail:
  * We must already hold b->b_mutex when called.
  */
 LloadConnection *
-upstream_init( ber_socket_t s, LloadBackend *b )
+upstream_init(
+        ber_socket_t s,
+        struct berval *localbv,
+        struct berval *peerbv,
+        LloadBackend *b )
 {
     LloadConnection *c;
     struct event_base *base = lload_get_base( s );
@@ -932,7 +996,7 @@ upstream_init( ber_socket_t s, LloadBackend *b )
     assert( b != NULL );
 
     flags = (b->b_proto == LDAP_PROTO_IPC) ? CONN_IS_IPC : 0;
-    if ( (c = lload_connection_init( s, b->b_host, flags )) == NULL ) {
+    if ( (c = lload_connection_init( s, localbv, peerbv, flags )) == NULL ) {
         return NULL;
     }
 

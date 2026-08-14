@@ -46,6 +46,9 @@
 #include <openssl/bn.h>
 #include <openssl/rsa.h>
 #include <openssl/dh.h>
+#if OPENSSL_VERSION_MAJOR >= 3
+#include <openssl/store.h>
+#endif
 #endif
 
 #if OPENSSL_VERSION_NUMBER >= 0x10100000
@@ -169,37 +172,42 @@ BIO_meth_free( BIO_METHOD *meth )
 #endif /* OpenSSL 1.1 */
 
 static STACK_OF(X509_NAME) *
-tlso_ca_list( char * bundle, char * dir, X509 *cert )
+tlso_ca_list( char * bundle, char * dir, X509 *cert, STACK_OF(X509_NAME) *ca_list )
 {
-	STACK_OF(X509_NAME) *ca_list = NULL;
-
 	if ( bundle ) {
-		ca_list = SSL_load_client_CA_file( bundle );
+		if ( !SSL_add_file_cert_subjects_to_stack( ca_list, bundle ) ) {
+			Debug1( LDAP_DEBUG_ANY, "TLS: "
+				"could not load client CA list (file:`%s').\n",
+				bundle );
+			return NULL;
+		}
 	}
 	if ( dir ) {
 		char **dirs = ldap_str2charray( dir, CERTPATHSEP );
-		int freeit = 0, i, success = 0;
+		int i;
 
-		if ( !ca_list ) {
-			ca_list = sk_X509_NAME_new_null();
-			freeit = 1;
-		}
 		for ( i=0; dirs[i]; i++ ) {
-			success += SSL_add_dir_cert_subjects_to_stack( ca_list, dir );
-		}
-		if ( !success && freeit ) {
-			sk_X509_NAME_free( ca_list );
-			ca_list = NULL;
+			if ( !SSL_add_dir_cert_subjects_to_stack( ca_list, dirs[i] )) {
+				Debug1( LDAP_DEBUG_ANY, "TLS: "
+					"could not load client CA list (dir:`%s').\n",
+					dirs[i] );
+				ldap_charray_free( dirs );
+				return NULL;
+			}
 		}
 		ldap_charray_free( dirs );
 	}
 	if ( cert ) {
-		X509_NAME *xn = X509_get_subject_name( cert );
-		xn = X509_NAME_dup( xn );
-		if ( !ca_list )
-			ca_list = sk_X509_NAME_new_null();
-		if ( xn && ca_list )
+		const X509_NAME *cxn = X509_get_subject_name( cert );
+		X509_NAME *xn = X509_NAME_dup( cxn );
+		if ( xn && ca_list ) {
 			sk_X509_NAME_push( ca_list, xn );
+		}
+		else {
+			Debug0( LDAP_DEBUG_ANY, "TLS: "
+				"could not load client CA list: subject missing\n" );
+			return NULL;
+		}
 	}
 	return ca_list;
 }
@@ -456,7 +464,7 @@ tlso_ctx_init( struct ldapoptions *lo, struct ldaptls *lt, int is_server, char *
 	}
 
 	if ( lo->ldo_tls_cacertfile == NULL && lo->ldo_tls_cacertdir == NULL &&
-		lo->ldo_tls_cacert.bv_val == NULL ) {
+		lo->ldo_tls_cacert.bv_val == NULL && lo->ldo_tls_cacerturis == NULL ) {
 		if ( !SSL_CTX_set_default_verify_paths( ctx ) ) {
 			Debug0( LDAP_DEBUG_ANY, "TLS: "
 				"could not use default certificate paths" );
@@ -465,6 +473,12 @@ tlso_ctx_init( struct ldapoptions *lo, struct ldaptls *lt, int is_server, char *
 		}
 	} else {
 		X509 *cert = NULL;
+
+		if ( is_server ) {
+			STACK_OF(X509_NAME) *ca_list = sk_X509_NAME_new_null();
+			SSL_CTX_set_client_CA_list( ctx, ca_list );
+		}
+
 		if ( lo->ldo_tls_cacert.bv_val ) {
 			const unsigned char *pp = (const unsigned char *) (lo->ldo_tls_cacert.bv_val);
 			cert = d2i_X509( NULL, &pp, lo->ldo_tls_cacert.bv_len );
@@ -509,20 +523,81 @@ tlso_ctx_init( struct ldapoptions *lo, struct ldaptls *lt, int is_server, char *
 			}
 		}
 
+		if ( lo->ldo_tls_cacerturis )
+		{
+#if OPENSSL_VERSION_MAJOR >= 3
+			int i;
+
+			for(i=0; lo->ldo_tls_cacerturis[i] != NULL; i++) {
+				OSSL_STORE_CTX *sctx;
+				OSSL_STORE_INFO *info;
+
+				sctx = OSSL_STORE_open( lo->ldo_tls_cacerturis[i], NULL, NULL, NULL, NULL );
+				if (!sctx) {
+					Debug1( LDAP_DEBUG_ANY,
+						"TLS: could not open uri `%s'.\n",
+						lo->ldo_tls_cacerturis[i] );
+					tlso_report_error( errmsg );
+					return -1;
+				}
+
+				while ((info = OSSL_STORE_load( sctx ))) {
+					switch (OSSL_STORE_INFO_get_type( info )) {
+					case OSSL_STORE_INFO_CERT:
+						X509 *cert = OSSL_STORE_INFO_get0_CERT( info );
+						X509_STORE *store = SSL_CTX_get_cert_store( ctx );
+						if ( !X509_STORE_add_cert( store, cert ) ) {
+							Debug1( LDAP_DEBUG_ANY,
+								"TLS: could not use certificate from uri `%s'.\n",
+								lo->ldo_tls_cacerturis[i] );
+							tlso_report_error( errmsg );
+							OSSL_STORE_close( sctx );
+							return -1;
+						}
+						if ( is_server ) {
+							STACK_OF(X509_NAME) *ca_list = SSL_CTX_get_client_CA_list( ctx );
+							if ( ca_list ) {
+								X509_NAME *xn = (X509_NAME *)X509_get_subject_name( cert );
+								if ( xn )
+									xn = X509_NAME_dup( xn );
+								if ( xn )
+									sk_X509_NAME_push( ca_list, xn );
+							}
+						}
+						break;
+					default:
+						/* ignore other types */
+						break;
+					}
+					OSSL_STORE_INFO_free( info );
+				}
+				if (!OSSL_STORE_eof(sctx) && OSSL_STORE_error(sctx)) {
+					Debug1( LDAP_DEBUG_ANY,
+						"TLS: could not load from uri `%s'.\n",
+						lo->ldo_tls_uris[i] );
+					tlso_report_error( errmsg );
+					OSSL_STORE_close( sctx );
+					return -1;
+				}
+				OSSL_STORE_close( sctx );
+			}
+#else
+			Debug0( LDAP_DEBUG_ANY,
+				"TLS: cacerturis are not supported.\n" );
+			strncpy( errmsg, "TLS: cacerturis are not supported", ERRBUFSIZE );
+			return -1;
+#endif
+		}
+
 		if ( is_server ) {
-			STACK_OF(X509_NAME) *calist;
+			STACK_OF(X509_NAME) *ca_list = SSL_CTX_get_client_CA_list( ctx );
+
 			/* List of CA names to send to a client */
-			calist = tlso_ca_list( lt->lt_cacertfile, lt->lt_cacertdir, cert );
-			if ( !calist ) {
-				Debug2( LDAP_DEBUG_ANY, "TLS: "
-					"could not load client CA list (file:`%s',dir:`%s').\n",
-					lo->ldo_tls_cacertfile ? lo->ldo_tls_cacertfile : "",
-					lo->ldo_tls_cacertdir ? lo->ldo_tls_cacertdir : "" );
+			ca_list = tlso_ca_list( lt->lt_cacertfile, lt->lt_cacertdir, cert, ca_list );
+			if ( !ca_list ) {
 				tlso_report_error( errmsg );
 				return -1;
 			}
-
-			SSL_CTX_set_client_CA_list( ctx, calist );
 		}
 		if ( cert )
 			X509_free( cert );
@@ -634,6 +709,104 @@ tlso_ctx_init( struct ldapoptions *lo, struct ldaptls *lt, int is_server, char *
 		}
 #endif
 #endif	/* OPENSSL_NO_EC */
+	}
+
+	if ( lo->ldo_tls_uris )
+	{
+#if OPENSSL_VERSION_MAJOR >= 3
+		int i;
+
+		for(i=0; lo->ldo_tls_uris[i] != NULL; i++) {
+			OSSL_STORE_CTX *sctx;
+			OSSL_STORE_INFO *info;
+
+			sctx = OSSL_STORE_open(lo->ldo_tls_uris[i], NULL, NULL, NULL, NULL);
+			if (!sctx) {
+				Debug1( LDAP_DEBUG_ANY,
+					"TLS: could not open uri `%s'.\n",
+					lo->ldo_tls_uris[i] );
+				tlso_report_error( errmsg );
+				return -1;
+			}
+
+			while ((info = OSSL_STORE_load(sctx))) {
+				switch (OSSL_STORE_INFO_get_type(info)) {
+				case OSSL_STORE_INFO_PARAMS:
+					if ( !SSL_CTX_set0_tmp_dh_pkey( ctx,
+							OSSL_STORE_INFO_get0_PARAMS(info) )) {
+						Debug1( LDAP_DEBUG_ANY,
+							"TLS: could not use params from uri `%s'.\n",
+							lo->ldo_tls_uris[i] );
+						tlso_report_error( errmsg );
+						OSSL_STORE_close(sctx);
+						return -1;
+					}
+					break;
+				case OSSL_STORE_INFO_PKEY:
+					if ( !SSL_CTX_use_PrivateKey( ctx,
+							OSSL_STORE_INFO_get0_PKEY(info) )) {
+						Debug1( LDAP_DEBUG_ANY,
+							"TLS: could not use private key from uri `%s'.\n",
+							lo->ldo_tls_uris[i] );
+						tlso_report_error( errmsg );
+						OSSL_STORE_close(sctx);
+						return -1;
+					}
+					break;
+				case OSSL_STORE_INFO_CERT:
+					X509 *cert = OSSL_STORE_INFO_get0_CERT(info);
+					int is_ca = X509_check_ca( cert );
+					if ( !is_ca && !SSL_CTX_use_certificate( ctx, cert )) {
+						Debug1( LDAP_DEBUG_ANY,
+							"TLS: could not use leaf certificate from uri `%s'.\n",
+							lo->ldo_tls_uris[i] );
+						tlso_report_error( errmsg );
+						OSSL_STORE_close(sctx);
+						return -1;
+					}
+					if ( is_ca && !SSL_CTX_add_extra_chain_cert( ctx, cert )) {
+						Debug1( LDAP_DEBUG_ANY,
+							"TLS: could not use intermediate certificate from uri `%s'.\n",
+							lo->ldo_tls_uris[i] );
+						tlso_report_error( errmsg );
+						OSSL_STORE_close(sctx);
+						return -1;
+					}
+					break;
+				case OSSL_STORE_INFO_CRL:
+					X509_STORE *x509_s = SSL_CTX_get_cert_store( ctx );
+					if ( !X509_STORE_add_crl( x509_s,
+							OSSL_STORE_INFO_get0_CRL(info) )) {
+						Debug1( LDAP_DEBUG_ANY,
+							"TLS: could not use crl from uri `%s'.\n",
+							lo->ldo_tls_uris[i] );
+						tlso_report_error( errmsg );
+						OSSL_STORE_close(sctx);
+						return -1;
+					}
+					break;
+				default:
+					/* ignore other types */
+					break;
+				}
+				OSSL_STORE_INFO_free(info);
+			}
+			if (!OSSL_STORE_eof(sctx) && OSSL_STORE_error(sctx)) {
+				Debug1( LDAP_DEBUG_ANY,
+					"TLS: could not load from uri `%s'.\n",
+					lo->ldo_tls_uris[i] );
+				tlso_report_error( errmsg );
+				OSSL_STORE_close(sctx);
+				return -1;
+			}
+			OSSL_STORE_close(sctx);
+		}
+#else
+		Debug0( LDAP_DEBUG_ANY,
+			"TLS: uris are not supported.\n" );
+		strncpy( errmsg, "TLS: uris are not supported", ERRBUFSIZE );
+		return -1;
+#endif
 	}
 
 	if ( tlso_opt_trace ) {
@@ -751,7 +924,7 @@ tlso_session_my_dn( tls_session *sess, struct berval *der_dn )
 {
 	tlso_session *s = (tlso_session *)sess;
 	X509 *x;
-	X509_NAME *xn;
+	const X509_NAME *xn;
 
 	x = SSL_get_certificate( s );
 
@@ -788,7 +961,7 @@ tlso_session_peer_dn( tls_session *sess, struct berval *der_dn )
 {
 	tlso_session *s = (tlso_session *)sess;
 	X509 *x = tlso_get_cert( s );
-	X509_NAME *xn;
+	const X509_NAME *xn;
 
 	if ( !x )
 		return LDAP_INVALID_CREDENTIALS;
@@ -830,6 +1003,9 @@ tlso_session_chkhost( LDAP *ld, tls_session *sess, const char *name_in )
 	struct in_addr addr;
 #endif
 
+	if ( !ldap_int_hostname )
+		ldap_int_resolve_hostname();
+
 	if( ldap_int_hostname &&
 		( !name_in || !strcasecmp( name_in, "localhost" ) ) )
 	{
@@ -864,7 +1040,7 @@ tlso_session_chkhost( LDAP *ld, tls_session *sess, const char *name_in )
 		X509_EXTENSION *ex;
 		STACK_OF(GENERAL_NAME) *alt;
 
-		ex = X509_get_ext(x, i);
+		ex = (X509_EXTENSION *)X509_get_ext(x, i);
 		alt = X509V3_EXT_d2i(ex);
 		if (alt) {
 			int n, len2 = 0;
@@ -967,10 +1143,12 @@ tlso_session_chkhost( LDAP *ld, tls_session *sess, const char *name_in )
 	}
 
 	if (ret != LDAP_SUCCESS) {
-		X509_NAME *xn;
-		X509_NAME_ENTRY *ne;
+		const X509_NAME *xn;
+		const X509_NAME_ENTRY *ne;
 		ASN1_OBJECT *obj;
-		ASN1_STRING *cn = NULL;
+		const ASN1_STRING *cn = NULL;
+		char *cnstr;
+		int cnlen;
 		int navas;
 
 		/* find the last CN */
@@ -998,22 +1176,25 @@ no_cn:
 			}
 			ld->ld_error = LDAP_STRDUP(
 				_("TLS: unable to get CN from peer certificate"));
+		} else {
+			cnlen = ASN1_STRING_length( cn );
+			cnstr = (char *)ASN1_STRING_get0_data( cn );
+			if ( cnlen == nlen &&
+				strncasecmp( name, (char *) cnstr, nlen ) == 0 ) {
+				ret = LDAP_SUCCESS;
 
-		} else if ( cn->length == nlen &&
-			strncasecmp( name, (char *) cn->data, nlen ) == 0 ) {
-			ret = LDAP_SUCCESS;
+			} else if (( cnstr[0] == '*' ) && ( cnstr[1] == '.' )) {
+				char *domain = strchr(name, '.');
+				if( domain ) {
+					int dlen;
 
-		} else if (( cn->data[0] == '*' ) && ( cn->data[1] == '.' )) {
-			char *domain = strchr(name, '.');
-			if( domain ) {
-				int dlen;
+					dlen = nlen - (domain-name);
 
-				dlen = nlen - (domain-name);
-
-				/* Is this a wildcard match? */
-				if ((dlen == cn->length-1) &&
-					!strncasecmp(domain, (char *) &cn->data[1], dlen)) {
-					ret = LDAP_SUCCESS;
+					/* Is this a wildcard match? */
+					if ((dlen == cnlen-1) &&
+						!strncasecmp(domain, cnstr+1, dlen)) {
+						ret = LDAP_SUCCESS;
+					}
 				}
 			}
 		}
@@ -1021,7 +1202,7 @@ no_cn:
 		if( ret == LDAP_LOCAL_ERROR ) {
 			Debug3( LDAP_DEBUG_ANY, "TLS: hostname (%s) does not match "
 				"common name in certificate (%.*s).\n", 
-				name, cn->length, cn->data );
+				name, cnlen, cnstr );
 			ret = LDAP_CONNECT_ERROR;
 			if ( ld->ld_error ) {
 				LDAP_FREE( ld->ld_error );
@@ -1561,8 +1742,8 @@ tlso_verify_cb( int ok, X509_STORE_CTX *ctx )
 	X509 *cert;
 	int errnum;
 	int errdepth;
-	X509_NAME *subject;
-	X509_NAME *issuer;
+	const X509_NAME *subject;
+	const X509_NAME *issuer;
 	char *sname;
 	char *iname;
 	char *certerr = NULL;

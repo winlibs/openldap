@@ -7,7 +7,7 @@
      available from http://www.mincom.com/mtr/sdf. -->
 
 <HEAD>
-<TITLE>OpenLDAP Software 2.6 Administrator's Guide</TITLE>
+<TITLE>OpenLDAP Software 2.7 Administrator's Guide</TITLE>
 </HEAD>
 <BODY>
 
@@ -21,9 +21,9 @@
 <BR CLEAR="Left">
 </DIV>
 <DIV CLASS="title">
-<H1 CLASS="doc-title">OpenLDAP Software 2.6 Administrator's Guide</H1>
+<H1 CLASS="doc-title">OpenLDAP Software 2.7 Administrator's Guide</H1>
 <ADDRESS CLASS="doc-author">The OpenLDAP Project &lt;<A HREF="https://www.openldap.org/">https://www.openldap.org/</A>&gt;</ADDRESS>
-<ADDRESS CLASS="doc-modified">9 March 2026</ADDRESS>
+<ADDRESS CLASS="doc-modified">6 August 2026</ADDRESS>
 <BR CLEAR="All">
 </DIV>
 <DIV CLASS="contents">
@@ -167,35 +167,37 @@
 <BR>
 <A HREF="#Access Control Ordering">8.3.6. Access Control Ordering</A></UL>
 <BR>
-<A HREF="#Access Control Common Examples">8.4. Access Control Common Examples</A><UL>
-<A HREF="#Basic ACLs">8.4.1. Basic ACLs</A>
+<A HREF="#Access control to specific operations and controls">8.4. Access control to specific operations and controls</A>
 <BR>
-<A HREF="#Matching Anonymous and Authenticated users">8.4.2. Matching Anonymous and Authenticated users</A>
+<A HREF="#Access Control Common Examples">8.5. Access Control Common Examples</A><UL>
+<A HREF="#Basic ACLs">8.5.1. Basic ACLs</A>
 <BR>
-<A HREF="#Controlling rootdn access">8.4.3. Controlling rootdn access</A>
+<A HREF="#Matching Anonymous and Authenticated users">8.5.2. Matching Anonymous and Authenticated users</A>
 <BR>
-<A HREF="#Controlling the LDAP Proxied Authorization Control">8.4.4. Controlling the LDAP Proxied Authorization Control</A>
+<A HREF="#Controlling rootdn access">8.5.3. Controlling rootdn access</A>
 <BR>
-<A HREF="#Managing access with Groups">8.4.5. Managing access with Groups</A>
+<A HREF="#Controlling the LDAP Proxied Authorization Control">8.5.4. Controlling the LDAP Proxied Authorization Control</A>
 <BR>
-<A HREF="#Granting access to a subset of attributes">8.4.6. Granting access to a subset of attributes</A>
+<A HREF="#Managing access with Groups">8.5.5. Managing access with Groups</A>
 <BR>
-<A HREF="#Allowing a user write to all entries below theirs">8.4.7. Allowing a user write to all entries below theirs</A>
+<A HREF="#Granting access to a subset of attributes">8.5.6. Granting access to a subset of attributes</A>
 <BR>
-<A HREF="#Allowing entry creation">8.4.8. Allowing entry creation</A>
+<A HREF="#Allowing a user write to all entries below theirs">8.5.7. Allowing a user write to all entries below theirs</A>
 <BR>
-<A HREF="#Tips for using regular expressions in Access Control">8.4.9. Tips for using regular expressions in Access Control</A>
+<A HREF="#Allowing entry creation">8.5.8. Allowing entry creation</A>
 <BR>
-<A HREF="#Granting and Denying access based on security strength factors (ssf)">8.4.10. Granting and Denying access based on security strength factors (ssf)</A>
+<A HREF="#Tips for using regular expressions in Access Control">8.5.9. Tips for using regular expressions in Access Control</A>
 <BR>
-<A HREF="#When things aren\'t working as expected">8.4.11. When things aren't working as expected</A></UL>
+<A HREF="#Granting and Denying access based on security strength factors (ssf)">8.5.10. Granting and Denying access based on security strength factors (ssf)</A>
 <BR>
-<A HREF="#Sets - Granting rights based on relationships">8.5. Sets - Granting rights based on relationships</A><UL>
-<A HREF="#Groups of Groups">8.5.1. Groups of Groups</A>
+<A HREF="#When things aren\'t working as expected">8.5.11. When things aren't working as expected</A></UL>
 <BR>
-<A HREF="#Group ACLs without DN syntax">8.5.2. Group ACLs without DN syntax</A>
+<A HREF="#Sets - Granting rights based on relationships">8.6. Sets - Granting rights based on relationships</A><UL>
+<A HREF="#Groups of Groups">8.6.1. Groups of Groups</A>
 <BR>
-<A HREF="#Following references">8.5.3. Following references</A></UL></UL>
+<A HREF="#Group ACLs without DN syntax">8.6.2. Group ACLs without DN syntax</A>
+<BR>
+<A HREF="#Following references">8.6.3. Following references</A></UL></UL>
 <BR>
 <A HREF="#Limits">9. Limits</A><UL>
 <A HREF="#Introduction">9.1. Introduction</A>
@@ -287,26 +289,12 @@
 <BR>
 <A HREF="#Further Information">11.7.3. Further Information</A></UL>
 <BR>
-<A HREF="#Perl">11.8. Perl</A><UL>
+<A HREF="#Relay">11.8. Relay</A><UL>
 <A HREF="#Overview">11.8.1. Overview</A>
 <BR>
-<A HREF="#back-perl Configuration">11.8.2. back-perl Configuration</A>
+<A HREF="#back-relay Configuration">11.8.2. back-relay Configuration</A>
 <BR>
-<A HREF="#Further Information">11.8.3. Further Information</A></UL>
-<BR>
-<A HREF="#Relay">11.9. Relay</A><UL>
-<A HREF="#Overview">11.9.1. Overview</A>
-<BR>
-<A HREF="#back-relay Configuration">11.9.2. back-relay Configuration</A>
-<BR>
-<A HREF="#Further Information">11.9.3. Further Information</A></UL>
-<BR>
-<A HREF="#SQL">11.10. SQL</A><UL>
-<A HREF="#Overview">11.10.1. Overview</A>
-<BR>
-<A HREF="#back-sql Configuration">11.10.2. back-sql Configuration</A>
-<BR>
-<A HREF="#Further Information">11.10.3. Further Information</A></UL></UL>
+<A HREF="#Further Information">11.8.3. Further Information</A></UL></UL>
 <BR>
 <A HREF="#Overlays">12. Overlays</A><UL>
 <A HREF="#Access Logging">12.1. Access Logging</A><UL>
@@ -513,15 +501,17 @@
 <A HREF="#Proxy Authorization Rules">15.3.3. Proxy Authorization Rules</A></UL></UL>
 <BR>
 <A HREF="#Using TLS">16. Using TLS</A><UL>
-<A HREF="#TLS Certificates">16.1. TLS Certificates</A><UL>
-<A HREF="#Server Certificates">16.1.1. Server Certificates</A>
+<A HREF="#Supported TLS libraries">16.1. Supported TLS libraries</A>
 <BR>
-<A HREF="#Client Certificates">16.1.2. Client Certificates</A></UL>
+<A HREF="#TLS Certificates">16.2. TLS Certificates</A><UL>
+<A HREF="#Server Certificates">16.2.1. Server Certificates</A>
 <BR>
-<A HREF="#TLS Configuration">16.2. TLS Configuration</A><UL>
-<A HREF="#Server Configuration">16.2.1. Server Configuration</A>
+<A HREF="#Client Certificates">16.2.2. Client Certificates</A></UL>
 <BR>
-<A HREF="#Client Configuration">16.2.2. Client Configuration</A></UL></UL>
+<A HREF="#TLS Configuration">16.3. TLS Configuration</A><UL>
+<A HREF="#Server Configuration">16.3.1. Server Configuration</A>
+<BR>
+<A HREF="#Client Configuration">16.3.2. Client Configuration</A></UL></UL>
 <BR>
 <A HREF="#Constructing a Distributed Directory Service">17. Constructing a Distributed Directory Service</A><UL>
 <A HREF="#Subordinate Knowledge Information">17.1. Subordinate Knowledge Information</A>
@@ -668,22 +658,41 @@
 <A HREF="#Commercial Support">23.8. Commercial Support</A></UL>
 <BR>
 <A HREF="#Changes Since Previous Release">A. Changes Since Previous Release</A><UL>
-<A HREF="#New Features and Enhancements in 2.6">A.1. New Features and Enhancements in 2.6</A><UL>
-<A HREF="#New features in slapd">A.1.1. New features in slapd</A>
+<A HREF="#New Features and Enhancements in 2.7">A.1. New Features and Enhancements in 2.7</A><UL>
+<A HREF="#New Features in libldap">A.1.1. New Features in libldap</A>
 <BR>
-<A HREF="#New features in lloadd">A.1.2. New features in lloadd</A></UL>
+<A HREF="#New Features in slapadd">A.1.2. New Features in slapadd</A>
 <BR>
-<A HREF="#Obsolete Features Removed From 2.6">A.2. Obsolete Features Removed From 2.6</A><UL>
-<A HREF="#back-ndb">A.2.1. back-ndb</A></UL></UL>
+<A HREF="#New Access Control Features">A.1.3. New Access Control Features</A>
 <BR>
-<A HREF="#Upgrading from 2.5.x">B. Upgrading from 2.5.x</A><UL>
-<A HREF="#ppolicy overlay">B.1. ppolicy overlay</A>
+<A HREF="#New lloadd Configuration Support">A.1.4. New lloadd Configuration Support</A>
 <BR>
-<A HREF="#lloadd backends">B.2. lloadd backends</A>
+<A HREF="#Enhanced syncrepl stats Logging">A.1.5. Enhanced syncrepl stats Logging</A>
 <BR>
-<A HREF="#monitor backend">B.3. monitor backend</A>
+<A HREF="#ppolicy Overlay Enhancements">A.1.6. ppolicy Overlay Enhancements</A>
 <BR>
-<A HREF="#contrib modules">B.4. contrib modules</A></UL>
+<A HREF="#OTP Overlay Enhancements">A.1.7. OTP Overlay Enhancements</A>
+<BR>
+<A HREF="#back-asyncmeta Enhancements">A.1.8. back-asyncmeta Enhancements</A>
+<BR>
+<A HREF="#back-mdb Enhancements">A.1.9. back-mdb Enhancements</A>
+<BR>
+<A HREF="#Updated LMDB to version 1.0">A.1.10. Updated LMDB to version 1.0</A>
+<BR>
+<A HREF="#General slapd enhancements">A.1.11. General slapd enhancements</A></UL>
+<BR>
+<A HREF="#Deprecated Features">A.2. Deprecated Features</A><UL>
+<A HREF="#GnuTLS">A.2.1. GnuTLS</A></UL>
+<BR>
+<A HREF="#Obsolete Features Removed from 2.7">A.3. Obsolete Features Removed from 2.7</A><UL>
+<A HREF="#back-perl and back-sql">A.3.1. back-perl and back-sql</A></UL></UL>
+<BR>
+<A HREF="#Upgrading from 2.6.x">B. Upgrading from 2.6.x</A><UL>
+<A HREF="#mdb backend">B.1. mdb backend</A>
+<BR>
+<A HREF="#ppolicy overlay">B.2. ppolicy overlay</A>
+<BR>
+<A HREF="#lloadd proxyauthz feature">B.3. lloadd proxyauthz feature</A></UL>
 <BR>
 <A HREF="#Common errors encountered when using OpenLDAP Software">C. Common errors encountered when using OpenLDAP Software</A><UL>
 <A HREF="#Common causes of LDAP errors">C.1. Common causes of LDAP errors</A><UL>
@@ -928,7 +937,7 @@
 <P>This document is considered a part of OpenLDAP Software.  This document is subject to terms of conditions set forth in <A HREF="#OpenLDAP Software Copyright Notices">OpenLDAP Software Copyright Notices</A> and the <A HREF="#OpenLDAP Public License">OpenLDAP Public License</A>. Complete copies of the notices and associated license can be found in Appendix K and L, respectively.</P>
 <P>Portions of OpenLDAP Software and this document may be copyright by other parties and/or subject to additional restrictions.  Individual source files should be consulted for additional copyright notices.</P>
 <H2>Scope of this Document</H2>
-<P>This document provides a guide for installing OpenLDAP Software 2.6 (<A HREF="http://www.openldap.org/software/">http://www.openldap.org/software/</A>) on <TERM>UNIX</TERM> (and UNIX-like) systems.  The document is aimed at experienced system administrators with basic understanding of <TERM>LDAP</TERM>-based directory services.</P>
+<P>This document provides a guide for installing OpenLDAP Software 2.7 (<A HREF="http://www.openldap.org/software/">http://www.openldap.org/software/</A>) on <TERM>UNIX</TERM> (and UNIX-like) systems.  The document is aimed at experienced system administrators with basic understanding of <TERM>LDAP</TERM>-based directory services.</P>
 <P>This document is meant to be used in conjunction with other OpenLDAP information resources provided with the software package and on the project's site (<A HREF="http://www.OpenLDAP.org/">http://www.OpenLDAP.org/</A>) on the <TERM>World Wide Web</TERM>.  The site makes available a number of resources.</P>
 <TABLE CLASS="columns" BORDER ALIGN='Center'>
 <CAPTION ALIGN=top>OpenLDAP Resources</CAPTION>
@@ -1089,9 +1098,7 @@ Support Pages
 <P>Once this point is reached, three approaches come to mind. One is to do full normalization so that each attribute type, no matter what, has its own separate table. The simplistic approach where the DN is part of the primary key is extremely wasteful, and calls for an approach where the entry has a unique numeric id that is used instead for the keys and a main table that maps DNs to ids. The approach, anyway, is very inefficient when several attribute types from one or more entries are requested. Such a database, though cumbersomely, can be managed from SQL applications.</P>
 <P>The second approach is to put the whole entry as a blob in a table shared by all entries regardless of the objectclass and have additional tables that act as indices for the first table. Index tables are not database indices, but are fully managed by the LDAP server-side implementation. However, the database becomes unusable from SQL. And, thus, a fully fledged database system provides little or no advantage. The full generality of the database is unneeded. Much better to use something light and fast, like <TERM>LMDB</TERM>.</P>
 <P>A completely different way to see this is to give up any hopes of implementing the directory data model. In this case, LDAP is used as an access protocol to data that provides only superficially the directory data model. For instance, it may be read only or, where updates are allowed, restrictions are applied, such as making single-value attribute types that would allow for multiple values. Or the impossibility to add new objectclasses to an existing entry or remove one of those present. The restrictions span the range from allowed restrictions (that might be elsewhere the result of access control) to outright violations of the data model. It can be, however, a method to provide LDAP access to preexisting data that is used by other applications. But in the understanding that we don't really have a &quot;directory&quot;.</P>
-<P>Existing commercial LDAP server implementations that use a relational database are either from the first kind or the third. I don't know of any implementation that uses a relational database to do inefficiently what LMDB does efficiently. For those who are interested in &quot;third way&quot; (exposing EXISTING data from RDBMS as LDAP tree, having some limitations compared to classic LDAP model, but making it possible to interoperate between LDAP and SQL applications):</P>
-<P>OpenLDAP includes back-sql - the backend that makes it possible. It uses ODBC + additional metainformation about translating LDAP queries to SQL queries in your RDBMS schema, providing different levels of access - from read-only to full access depending on RDBMS you use, and your schema.</P>
-<P>For more information on concept and limitations, see <EM>slapd-sql</EM>(5) man page, or the <A HREF="#Backends">Backends</A> section. There are also several examples for several RDBMSes in <TT>back-sql/rdbms_depend/*</TT> subdirectories.</P>
+<P>Existing commercial LDAP server implementations that use a relational database are either from the first kind or the third. I don't know of any implementation that uses a relational database to do inefficiently what LMDB does efficiently.</P>
 <H2><A NAME="What is slapd and what can it do">1.9. What is slapd and what can it do?</A></H2>
 <P><EM>slapd</EM>(8) is an LDAP directory server that runs on many different platforms. You can use it to provide a directory service of your very own.  Your directory can contain pretty much anything you want to put in it. You can connect it to the global LDAP directory service, or run a service all by yourself. Some of slapd's more interesting features and capabilities include:</P>
 <P><B>LDAPv3</B>: <EM>slapd</EM> implements version 3 of <TERM>Lightweight Directory Access Protocol</TERM>. <EM>slapd</EM> supports LDAP over both <TERM>IPv4</TERM> and <TERM>IPv6</TERM> and Unix <TERM>IPC</TERM>.</P>
@@ -1102,7 +1109,7 @@ Support Pages
 <P><B>Internationalization</B>: <EM>slapd</EM> supports Unicode and language tags.</P>
 <P><B>Choice of database backends</B>: <EM>slapd</EM> comes with a variety of different database backends you can choose from. They include <TERM>MDB</TERM>, a hierarchical high-performance transactional database backend; and PASSWD, a simple backend interface to the <EM>passwd</EM>(5) file. The MDB backend utilizes <TERM>LMDB</TERM>.</P>
 <P><B>Multiple database instances</B>: <EM>slapd</EM> can be configured to serve multiple databases at the same time. This means that a single <EM>slapd</EM> server can respond to requests for many logically different portions of the LDAP tree, using the same or different database backends.</P>
-<P><B>Generic modules API</B>:  If you require even more customization, <EM>slapd</EM> lets you write your own modules easily. <EM>slapd</EM> consists of two distinct parts: a front end that handles protocol communication with LDAP clients; and modules which handle specific tasks such as database operations.  Because these two pieces communicate via a well-defined <TERM>C</TERM> <TERM>API</TERM>, you can write your own customized modules which extend <EM>slapd</EM> in numerous ways.  Also, a number of <EM>programmable database</EM> modules are provided.  These allow you to expose external data sources to <EM>slapd</EM> using popular programming languages (<A HREF="https://www.perl.org/">Perl</A>, and <TERM>SQL</TERM>).</P>
+<P><B>Generic modules API</B>:  If you require even more customization, <EM>slapd</EM> lets you write your own modules easily. <EM>slapd</EM> consists of two distinct parts: a front end that handles protocol communication with LDAP clients; and modules which handle specific tasks such as database operations.  Because these two pieces communicate via a well-defined <TERM>C</TERM> <TERM>API</TERM>, you can write your own customized modules which extend <EM>slapd</EM> in numerous ways.  Also, a <EM>programmable database</EM> module back-sock is provided.  This allows you to expose external data sources to <EM>slapd</EM> using arbitrary programming languages.</P>
 <P><B>Threads</B>: <EM>slapd</EM> is threaded for high performance.  A single multi-threaded <EM>slapd</EM> process handles all incoming requests using a pool of threads.  This reduces the amount of system overhead required while providing high performance.</P>
 <P><B>Replication</B>: <EM>slapd</EM> can be configured to maintain shadow copies of directory information.  This <EM>single-provider/multiple-consumer</EM> replication scheme is vital in high-volume environments where a single <EM>slapd</EM> installation just doesn't provide the necessary availability or reliability.  For extremely demanding environments where a single point of failure is not acceptable, <EM>multi-provider</EM> replication is also available. With <EM>multi-provider</EM> replication two or more nodes can accept write operations allowing for redundancy at the provider level.</P>
 <P><EM>slapd</EM> includes support for <EM>LDAP Sync</EM>-based replication.</P>
@@ -1115,7 +1122,7 @@ Support Pages
 <P></P>
 <HR>
 <H1><A NAME="A Quick-Start Guide">2. A Quick-Start Guide</A></H1>
-<P>The following is a quick start guide to OpenLDAP Software 2.6, including the Standalone <TERM>LDAP</TERM> Daemon, <EM>slapd</EM>(8).</P>
+<P>The following is a quick start guide to OpenLDAP Software 2.7, including the Standalone <TERM>LDAP</TERM> Daemon, <EM>slapd</EM>(8).</P>
 <P>It is meant to walk you through the basic steps needed to install and configure <A HREF="https://www.openldap.org/software/">OpenLDAP Software</A>.  It should be used in conjunction with the other chapters of this document, manual pages, and other materials provided with the distribution (e.g. the <TT>INSTALL</TT> document) or on the <A HREF="https://www.openldap.org/">OpenLDAP</A> web site (<A HREF="http://www.OpenLDAP.org">http://www.OpenLDAP.org</A>), in particular the OpenLDAP Software <TERM>FAQ</TERM> (<A HREF="http://www.OpenLDAP.org/faq/?file=2">http://www.OpenLDAP.org/faq/?file=2</A>).</P>
 <P>If you intend to run OpenLDAP Software seriously, you should review all of this document before attempting to install the software.</P>
 <P><HR WIDTH="80%" ALIGN="Left">
@@ -1959,14 +1966,6 @@ Provides read-only access to <EM>passwd</EM>(5)
 </TR>
 <TR>
 <TD>
-<TT>perl</TT>
-</TD>
-<TD>
-Perl Programmable backend
-</TD>
-</TR>
-<TR>
-<TD>
 <TT>relay</TT>
 </TD>
 <TD>
@@ -1979,14 +1978,6 @@ Relay backend
 </TD>
 <TD>
 Socket backend
-</TD>
-</TR>
-<TR>
-<TD>
-<TT>sql</TT>
-</TD>
-<TD>
-SQL Programmable backend
 </TD>
 </TR>
 <TR>
@@ -2798,14 +2789,6 @@ Provides read-only access to <EM>passwd</EM>(5)
 </TR>
 <TR>
 <TD>
-<TT>perl</TT>
-</TD>
-<TD>
-Perl Programmable backend
-</TD>
-</TR>
-<TR>
-<TD>
 <TT>relay</TT>
 </TD>
 <TD>
@@ -2818,14 +2801,6 @@ Relay backend
 </TD>
 <TD>
 Socket backend
-</TD>
-</TR>
-<TR>
-<TD>
-<TT>sql</TT>
-</TD>
-<TD>
-SQL Programmable backend
 </TD>
 </TR>
 <TR>
@@ -3432,10 +3407,13 @@ only messages that get logged whatever log level is set
     &lt;what&gt; ::= * |
         [dn[.&lt;basic-style&gt;]=&lt;regex&gt; | dn.&lt;scope-style&gt;=&lt;DN&gt;]
         [filter=&lt;ldapfilter&gt;] [attrs=&lt;attrlist&gt;]
+        [op=&lt;opspec&gt;] [control=&lt;OID&gt;]
     &lt;basic-style&gt; ::= regex | exact
     &lt;scope-style&gt; ::= base | one | subtree | children
     &lt;attrlist&gt; ::= &lt;attr&gt; [val[.&lt;basic-style&gt;]=&lt;regex&gt;] | &lt;attr&gt; , &lt;attrlist&gt;
     &lt;attr&gt; ::= &lt;attrname&gt; | entry | children
+    &lt;opspec&gt; ::= bind | search | modify | add | delete | rename | compare |
+       extended | &lt;OID&gt;
     &lt;who&gt; ::= * | [anonymous | users | self
             | dn[.&lt;basic-style&gt;]=&lt;regex&gt; | dn.&lt;scope-style&gt;=&lt;DN&gt;]
         [dnattr=&lt;attrname&gt;]
@@ -3447,8 +3425,9 @@ only messages that get logged whatever log level is set
         [set=&lt;setspec&gt;]
         [aci=&lt;attrname&gt;]
     &lt;access&gt; ::= [self]{&lt;level&gt;|&lt;priv&gt;}
-    &lt;level&gt; ::= none | disclose | auth | compare | search | read | write | manage
-    &lt;priv&gt; ::= {=|+|-}{m|w|r|s|c|x|d|0}+
+    &lt;level&gt; ::= none | disclose | auth | compare | search | read | write |
+        add | delete | increment | manage
+    &lt;priv&gt; ::= {=|+|-}{m|w|a|z|i|r|s|c|x|d|0}+
     &lt;control&gt; ::= [stop | continue | break]
 </PRE>
 <P>where the &lt;what&gt; part selects the entries and/or attributes to which the access applies, the <TT>&lt;who&gt;</TT> part specifies which entities are granted access, and the <TT>&lt;access&gt;</TT> part specifies the access granted. Multiple <TT>&lt;who&gt; &lt;access&gt; &lt;control&gt;</TT> triplets are supported, allowing many entities to be granted different access to the same set of entries and attributes. Not all of these access control options are described here; for more details see the <EM>slapd.access</EM>(5) man page.</P>
@@ -3500,6 +3479,16 @@ only messages that get logged whatever log level is set
     attrs=&lt;attribute&gt; val[.&lt;style&gt;]=&lt;regex&gt;
 </PRE>
 <P>There are two special <EM>pseudo</EM> attributes <TT>entry</TT> and <TT>children</TT>.  To read (and hence return) a target entry, the subject must have <TT>read</TT> access to the target's <EM>entry</EM> attribute.  To perform a search, the subject must have <TT>search</TT> access to the search base's <EM>entry</EM> attribute. To add or delete an entry, the subject must have <TT>write</TT> access to the entry's <TT>entry</TT> attribute AND must have <TT>write</TT> access to the entry's parent's <TT>children</TT> attribute.  To rename an entry, the subject must have <TT>write</TT> access to entry's <TT>entry</TT> attribute AND have <TT>write</TT> access to both the old parent's and new parent's <TT>children</TT> attributes.  The complete examples at the end of this section should help clear things up.</P>
+<PRE>
+   to op=search
+   to op=extended
+   to op=&lt;OID&gt;
+</PRE>
+<P>The rule only applies in the context of a specified operation being processed, or a specific extended operation if &lt;OID&gt; is specified. Note that <TT>objectIdentifier</TT> macros in schemas such as those provided in <TT>core.schema</TT> can be used as a stand in. Nore that this is not useful to completely block access to a specific operation type or control, for that, refer to the <EM>restrictop</EM> keyword documented later in this chapter.</P>
+<PRE>
+   to control=&lt;OID&gt;
+</PRE>
+<P>As with <TT>op=&lt;OID</TT>}, the rule only applies if the control specified by the macro-expanded OID applies to the operation and in many circumstances, <EM>restrictop</EM> keyword is more appropriate.</P>
 <P>Lastly, there is a special entry selector <TT>&quot;*&quot;</TT> that is used to select any entry.  It is used when no other <TT>&lt;what&gt;</TT> selector has been provided.  It's equivalent to &quot;<TT>dn=.*</TT>&quot;</P>
 <H3><A NAME="Who to grant access to">8.2.2. Who to grant access to</A></H3>
 <P>The &lt;who&gt; part identifies the entity or entities being granted access. Note that access is granted to &quot;entities&quot; not &quot;entries.&quot; The following table summarizes entity specifiers:</P>
@@ -3740,10 +3729,13 @@ needed to manage
     &lt;what&gt; ::= * |
         [dn[.&lt;basic-style&gt;]=&lt;regex&gt; | dn.&lt;scope-style&gt;=&lt;DN&gt;]
         [filter=&lt;ldapfilter&gt;] [attrs=&lt;attrlist&gt;]
+        [op=&lt;opspec&gt;] [control=&lt;OID&gt;]
     &lt;basic-style&gt; ::= regex | exact
     &lt;scope-style&gt; ::= base | one | subtree | children
     &lt;attrlist&gt; ::= &lt;attr&gt; [val[.&lt;basic-style&gt;]=&lt;regex&gt;] | &lt;attr&gt; , &lt;attrlist&gt;
     &lt;attr&gt; ::= &lt;attrname&gt; | entry | children
+    &lt;opspec&gt; ::= bind | search | modify | add | delete | rename | compare |
+       extended | &lt;OID&gt;
     &lt;who&gt; ::= * | [anonymous | users | self
             | dn[.&lt;basic-style&gt;]=&lt;regex&gt; | dn.&lt;scope-style&gt;=&lt;DN&gt;]
         [dnattr=&lt;attrname&gt;]
@@ -3755,8 +3747,9 @@ needed to manage
         [set=&lt;setspec&gt;]
         [aci=&lt;attrname&gt;]
     &lt;access&gt; ::= [self]{&lt;level&gt;|&lt;priv&gt;}
-    &lt;level&gt; ::= none | disclose | auth | compare | search | read | write | manage
-    &lt;priv&gt; ::= {=|+|-}{m|w|r|s|c|x|d|0}+
+    &lt;level&gt; ::= none | disclose | auth | compare | search | read | write |
+        add | delete | increment | manage
+    &lt;priv&gt; ::= {=|+|-}{m|w|a|z|i|r|s|c|x|d|0}+
     &lt;control&gt; ::= [stop | continue | break]
 </PRE>
 <P>where the &lt;what&gt; part selects the entries and/or attributes to which the access applies, the <TT>&lt;who&gt;</TT> part specifies which entities are granted access, and the <TT>&lt;access&gt;</TT> part specifies the access granted. Multiple <TT>&lt;who&gt; &lt;access&gt; &lt;control&gt;</TT> triplets are supported, allowing many entities to be granted different access to the same set of entries and attributes. Not all of these access control options are described here; for more details see the <EM>slapd.access</EM>(5) man page.</P>
@@ -4089,8 +4082,60 @@ needed to manage
          by * read
 </PRE>
 <P>which is exactly what was intended.</P>
-<H2><A NAME="Access Control Common Examples">8.4. Access Control Common Examples</A></H2>
-<H3><A NAME="Basic ACLs">8.4.1. Basic ACLs</A></H3>
+<H2><A NAME="Access control to specific operations and controls">8.4. Access control to specific operations and controls</A></H2>
+<P>Similar to the <TT>access</TT> and <TT>olcAccess</TT> it is possible to control who can issue certain operations, or attach which controls. As this happens very early on during operation processing, this is the only reliable way to limit access to certain operation/control combinations that are not otherwise influenced by ACL processing.</P>
+<P>Same as with ACLs do not add the rootdn to the by clauses, restrictop rules are not processed for operations submitted by the rootdn of the target database.</P>
+<P>The general form of the restrictop configuration is:</P>
+<PRE>
+    &lt;restrictop directive&gt; ::= restrictop &lt;opspec&gt;+ [control=&lt;OID&gt;]+
+        {by &lt;who&gt; &lt;action&gt; [&lt;control&gt;] }+
+    &lt;olcRestrictOp directive&gt; ::= olcRestrictOp: &lt;opspec&gt;+ [control=&lt;OID&gt;]+
+        {by &lt;who&gt; &lt;action&gt; [&lt;control&gt;] }+
+    &lt;opspec&gt; ::= all | read | write | bind | search | modify | add |
+        delete | rename | compare | extended | extended=&lt;OID&gt;
+    &lt;basic-style&gt; ::= regex | exact
+    &lt;scope-style&gt; ::= base | one | subtree | children
+    &lt;who&gt; ::= * | [anonymous | users | self
+            | dn[.&lt;basic-style&gt;]=&lt;regex&gt; | dn.&lt;scope-style&gt;=&lt;DN&gt;]
+        [dnattr=&lt;attrname&gt;]
+        [group[/&lt;objectclass&gt;[/&lt;attrname&gt;][.&lt;basic-style&gt;]]=&lt;regex&gt;]
+        [peername[.&lt;basic-style&gt;]=&lt;regex&gt;]
+        [sockname[.&lt;basic-style&gt;]=&lt;regex&gt;]
+        [domain[.&lt;basic-style&gt;]=&lt;regex&gt;]
+        [sockurl[.&lt;basic-style&gt;]=&lt;regex&gt;]
+        [set=&lt;setspec&gt;]
+        [aci=&lt;attrname&gt;]
+    &lt;action&gt; ::= allow | reject | drop control=&lt;OID&gt;
+    &lt;control&gt; ::= [stop | continue | break]
+</PRE>
+<P>Where <TT>&lt;OID&gt;</TT> could be a literal OID of a control/extended operation or an OID macro. For example, <TT>core.schema</TT> file distributed by the project already defines macros for most known controls and extended operations.</P>
+<P>When evaluating whether some requester should be allowed to issue a request or attach a control, slapd picks the restrictop directives provided in the database selected to perform this operation (or the directives specified on the frontend database if none configured) and tries to process them in order until it reaches a clear decision. That decision could be either matching a <TT>&lt;who&gt;</TT> rule with an explicit or implicit <TT>stop</TT>, running out of <TT>&lt;who&gt;</TT> rules in a directive or running out of directives.</P>
+<P>The last <TT>&lt;action&gt;</TT> keyword that applied marks the final decision for this operation. The <TT>allow</TT> decision allows this operation to continue processing as normal, whereas <TT>reject</TT> will deny this operation with <EM>unwillingToPerform</EM>. The <TT>drop control=&lt;OID&gt;</TT> action is special: if that control was provided by the client and marked critical, it acts as <TT>reject</TT>, otherwise is effectively disabled for the operation and the <TT>allow</TT> decision is rememberd instead. If the control was not specified at all, again, it acts as <TT>allow</TT>.</P>
+<P>This opens up various capabilities. A few examples:</P>
+<PRE>
+    olcRestrictOp: all control=relax
+        by group=cn=admins,ou=group,dc=example,dc=com allow
+        by * reject
+</PRE>
+<P>This rule disallows anyone but specified admins from attaching the Relax control. Note that OID macros are case sensitive so <TT>control=Relax</TT> would not be accepted.</P>
+<PRE>
+    restrictop search control=sync control=manageDSAiT
+        by * allow
+    restrictop search control=sync by * reject
+</PRE>
+<P>This somewhat silly rule disallows the use of syncrepl clients that forget to attach a manageDSAiT control. With good clients, the first rule matches and the <TT>by * allow</TT> carries an implicit <TT>stop</TT>, which ends processing there and then. If a syncrepl control was specified but manageDSAiT was not, processing continues to the second rule which forbids this request.</P>
+<P>Take note that if these were the only rules in the list, no other operations would be permitted either. Just like with ACLs, it is as if the following implicitly existed at the end of the list:</P>
+<PRE>
+    restrictop all by * reject
+</PRE>
+<P>By default however no restrictions are set up on the database or the frontend, which implies that everything is allowed.</P>
+<PRE>
+    olcRestrictOp: rename by * reject
+    olcRestrictOp: extended=txnStart by * reject
+</PRE>
+<P>Similarly requests can be limited on a per-operation basis.</P>
+<H2><A NAME="Access Control Common Examples">8.5. Access Control Common Examples</A></H2>
+<H3><A NAME="Basic ACLs">8.5.1. Basic ACLs</A></H3>
 <P>Generally one should start with some basic ACLs such as:</P>
 <PRE>
     access to attrs=userPassword
@@ -4106,7 +4151,7 @@ needed to manage
 </PRE>
 <P>The first ACL allows users to update (but not read) their passwords, anonymous users to authenticate against this attribute, and (implicitly) denying all access to others.</P>
 <P>The second ACL allows users full access to their entry, authenticated users read access to anything, and (implicitly) denying all access to others (in this case, anonymous users).</P>
-<H3><A NAME="Matching Anonymous and Authenticated users">8.4.2. Matching Anonymous and Authenticated users</A></H3>
+<H3><A NAME="Matching Anonymous and Authenticated users">8.5.2. Matching Anonymous and Authenticated users</A></H3>
 <P>An anonymous user has a empty DN. While the <EM>dn.exact=&quot;&quot;</EM> or <EM>dn.regex=&quot;^$&quot;</EM> could be used, <EM>slapd</EM>(8)) offers an anonymous shorthand which should be used instead.</P>
 <PRE>
     access to *
@@ -4121,7 +4166,7 @@ needed to manage
       by * none
 </PRE>
 <P>This ACL grants read permissions to authenticated users while denying others (i.e.: anonymous users).</P>
-<H3><A NAME="Controlling rootdn access">8.4.3. Controlling rootdn access</A></H3>
+<H3><A NAME="Controlling rootdn access">8.5.3. Controlling rootdn access</A></H3>
 <P>You could specify the <EM>rootdn</EM> in <EM>slapd.conf</EM>(5) or <EM>slapd.d</EM> without specifying a <EM>rootpw</EM>. Then you have to add an actual directory entry with the same dn, e.g.:</P>
 <PRE>
     dn: cn=Manager,o=MyOrganization
@@ -4140,7 +4185,7 @@ needed to manage
       by * none
 </PRE>
 <P>The ACLs above will only allow binding using rootdn from localhost and 192.168.0.0/24.</P>
-<H3><A NAME="Controlling the LDAP Proxied Authorization Control">8.4.4. Controlling the LDAP Proxied Authorization Control</A></H3>
+<H3><A NAME="Controlling the LDAP Proxied Authorization Control">8.5.4. Controlling the LDAP Proxied Authorization Control</A></H3>
 <P>The Proxied Authorization Control allows a client to request that an operation be processed under a provided authorization identity instead of under the current authentication identity associated with the connection.</P>
 <P>This facility is controlled by the <TT>authz-policy</TT> configuration option and by the <TT>authzTo</TT> and <TT>authzFrom</TT> attributes. It can be further controlled by applying access control to those attributes.</P>
 <P>A client application might bind as cn=Client,o=MyOrganization whose entry looks like this:</P>
@@ -4167,7 +4212,7 @@ needed to manage
       by * none
 </PRE>
 <P>Now, cn=Client,o=MyOrganization can only make use of the proxy authorization control if it has connected from an appropriate IP address using a sufficient level of cryptographic protection. No other IDs can even see the authzTo attribute.</P>
-<H3><A NAME="Managing access with Groups">8.4.5. Managing access with Groups</A></H3>
+<H3><A NAME="Managing access with Groups">8.5.5. Managing access with Groups</A></H3>
 <P>There are a few ways to do this. One approach is illustrated here. Consider the following DIT layout:</P>
 <PRE>
     +-dc=example,dc=com
@@ -4218,7 +4263,7 @@ needed to manage
 <STRONG>Note: </STRONG>the specified member attribute type MUST be of DN or <EM>NameAndOptionalUID</EM> syntax, and the specified object class SHOULD allow the attribute type.
 <HR WIDTH="80%" ALIGN="Left"></P>
 <P>Dynamic Groups are also supported in Access Control. Please see <EM>slapo-dynlist</EM>(5) and the <A HREF="#Dynamic Lists">Dynamic Lists</A> overlay section.</P>
-<H3><A NAME="Granting access to a subset of attributes">8.4.6. Granting access to a subset of attributes</A></H3>
+<H3><A NAME="Granting access to a subset of attributes">8.5.6. Granting access to a subset of attributes</A></H3>
 <P>You can grant access to a set of attributes by specifying a list of attribute names in the ACL <EM>to</EM> clause. To be useful, you also need to grant access to the <EM>entry</EM> itself. Also note how <EM>children</EM> controls the ability to add, delete, and rename entries.</P>
 <PRE>
     # mail: self may write, authenticated users may read
@@ -4247,7 +4292,7 @@ needed to manage
       by * none
 </PRE>
 <P>ObjectClass names may also be specified in this list, which will affect all the attributes that are required and/or allowed by that <EM>objectClass</EM>. Actually, names in <EM>attrlist</EM> that are prefixed by <EM>@</EM> are directly treated as objectClass names. A name prefixed by <EM>!</EM> is also treated as an objectClass, but in this case the access rule affects the attributes that are not required nor allowed by that <EM>objectClass</EM>.</P>
-<H3><A NAME="Allowing a user write to all entries below theirs">8.4.7. Allowing a user write to all entries below theirs</A></H3>
+<H3><A NAME="Allowing a user write to all entries below theirs">8.5.7. Allowing a user write to all entries below theirs</A></H3>
 <P>For a setup where a user can write to its own record and to all of its children:</P>
 <PRE>
     access to dn.regex=&quot;(.+,)?(uid=[^,]+,o=Company)$&quot;
@@ -4255,7 +4300,7 @@ needed to manage
        by anonymous auth
 </PRE>
 <P>(Add more examples for above)</P>
-<H3><A NAME="Allowing entry creation">8.4.8. Allowing entry creation</A></H3>
+<H3><A NAME="Allowing entry creation">8.5.8. Allowing entry creation</A></H3>
 <P>Let's say, you have it like this:</P>
 <PRE>
         o=&lt;basedn&gt;
@@ -4317,7 +4362,7 @@ needed to manage
     # submatches from the &quot;what&quot; clause, so a &quot;regex&quot; compilation and evaluation
     # is no longer required.
 </PRE>
-<H3><A NAME="Tips for using regular expressions in Access Control">8.4.9. Tips for using regular expressions in Access Control</A></H3>
+<H3><A NAME="Tips for using regular expressions in Access Control">8.5.9. Tips for using regular expressions in Access Control</A></H3>
 <P>Always use <EM>dn.regex=&lt;pattern&gt;</EM> when you intend to use regular expression matching. <EM>dn=&lt;pattern&gt;</EM> alone defaults to <EM>dn.exact&lt;pattern&gt;</EM>.</P>
 <P>Use <EM>(.+)</EM> instead of <EM>(.*)</EM> when you want at least one char to be matched. <EM>(.*)</EM> matches the empty string as well.</P>
 <P>Don't use regular expressions for matches that can be done otherwise in a safer and cheaper manner. Examples:</P>
@@ -4357,7 +4402,7 @@ needed to manage
       by dn.onelevel,expand=&quot;ou=Admin,$1&quot; write
 </PRE>
 <P>where the regex in the <EM>&lt;what&gt;</EM> clause is more compact, and the one in the <EM>&lt;by&gt;</EM> clause is replaced by a much more efficient scoping style of onelevel with substring expansion.</P>
-<H3><A NAME="Granting and Denying access based on security strength factors (ssf)">8.4.10. Granting and Denying access based on security strength factors (ssf)</A></H3>
+<H3><A NAME="Granting and Denying access based on security strength factors (ssf)">8.5.10. Granting and Denying access based on security strength factors (ssf)</A></H3>
 <P>You can restrict access based on the security strength factor (SSF)</P>
 <PRE>
     access to dn=&quot;cn=example,cn=edu&quot;
@@ -4372,7 +4417,7 @@ needed to manage
 </PRE>
 <P>256 is recommended.</P>
 <P>See <EM>slapd.conf</EM>(5) for information on <EM>ssf</EM>.</P>
-<H3><A NAME="When things aren\'t working as expected">8.4.11. When things aren't working as expected</A></H3>
+<H3><A NAME="When things aren\'t working as expected">8.5.11. When things aren't working as expected</A></H3>
 <P>Consider this example:</P>
 <PRE>
     access to *
@@ -4394,13 +4439,13 @@ needed to manage
 </PRE>
 <P>The general rule is: &quot;special access rules first, generic access rules last&quot;</P>
 <P>See also <EM>slapd.access</EM>(5), loglevel 128 and <EM>slapacl</EM>(8) for debugging information.</P>
-<H2><A NAME="Sets - Granting rights based on relationships">8.5. Sets - Granting rights based on relationships</A></H2>
+<H2><A NAME="Sets - Granting rights based on relationships">8.6. Sets - Granting rights based on relationships</A></H2>
 <P>Sets are best illustrated via examples. The following sections will present a few set ACL examples in order to facilitate their understanding.</P>
 <P>(Sets in Access Controls FAQ Entry: <A HREF="http://www.openldap.org/faq/data/cache/1133.html">http://www.openldap.org/faq/data/cache/1133.html</A>)</P>
 <P><HR WIDTH="80%" ALIGN="Left">
 <STRONG>Note: </STRONG>Sets are considered experimental.
 <HR WIDTH="80%" ALIGN="Left"></P>
-<H3><A NAME="Groups of Groups">8.5.1. Groups of Groups</A></H3>
+<H3><A NAME="Groups of Groups">8.6.1. Groups of Groups</A></H3>
 <P>The OpenLDAP ACL for groups doesn't expand groups within groups, which are groups that have another group as a member. For example:</P>
 <PRE>
  dn: cn=sudoadm,ou=group,dc=example,dc=com
@@ -4435,7 +4480,7 @@ needed to manage
  {&quot;uid=john,ou=people,dc=example,dc=com&quot;,&quot;uid=mary,ou=people,dc=example,dc=com&quot;} &amp; user
 </PRE>
 <P>If the authenticated user's DN is any one of those two, write access is granted. So this set will include <TT>mary</TT> in the <TT>sudoadm</TT> group and she will be allowed the write access.</P>
-<H3><A NAME="Group ACLs without DN syntax">8.5.2. Group ACLs without DN syntax</A></H3>
+<H3><A NAME="Group ACLs without DN syntax">8.6.2. Group ACLs without DN syntax</A></H3>
 <P>The traditional group ACLs, and even the previous example about recursive groups, require that the members are specified as DNs instead of just usernames.</P>
 <P>With sets, however, it's also possible to use simple names in group ACLs, as this example will show.</P>
 <P>Let's say we want to allow members of the <TT>sudoadm</TT> group to write to the <TT>ou=sudoers</TT> branch of our tree. But our group definition now is using <TT>memberUid</TT> for the group members:</P>
@@ -4457,7 +4502,7 @@ needed to manage
 <P><CENTER><IMG SRC="set-memberUid.png" ALIGN="center"></CENTER></P>
 <P ALIGN="Center">Figure X.Y: Sets with <TT>memberUid</TT></P>
 <P>In this case, it's a match. If it were <TT>mary</TT> authenticating, however, she would be denied write access to <TT>ou=sudoers</TT> because her <TT>uid</TT> attribute is not listed in the group's <TT>memberUid</TT>.</P>
-<H3><A NAME="Following references">8.5.3. Following references</A></H3>
+<H3><A NAME="Following references">8.6.3. Following references</A></H3>
 <P>We will now show a quite powerful example of what can be done with sets. This example tends to make OpenLDAP administrators smile after they have understood it and its implications.</P>
 <P>Let's start with an user entry:</P>
 <PRE>
@@ -5145,94 +5190,14 @@ Members of a group
 </PRE>
 <H3><A NAME="Further Information">11.7.3. Further Information</A></H3>
 <P><EM>slapd-passwd</EM>(5)</P>
-<H2><A NAME="Perl">11.8. Perl</A></H2>
+<H2><A NAME="Relay">11.8. Relay</A></H2>
 <H3><A NAME="Overview">11.8.1. Overview</A></H3>
-<P>The Perl backend to <EM>slapd</EM>(8) works by embedding a <EM>perl</EM>(1) interpreter into <EM>slapd</EM>(8). Any perl database section of the configuration file <EM>slapd.conf</EM>(5) must then specify what Perl module to use. Slapd then creates a new Perl object that handles all the requests for that particular instance of the backend.</P>
-<H3><A NAME="back-perl Configuration">11.8.2. back-perl Configuration</A></H3>
-<P>LATER</P>
-<H3><A NAME="Further Information">11.8.3. Further Information</A></H3>
-<P><EM>slapd-perl</EM>(5)</P>
-<H2><A NAME="Relay">11.9. Relay</A></H2>
-<H3><A NAME="Overview">11.9.1. Overview</A></H3>
 <P>The primary purpose of this <EM>slapd</EM>(8) backend is to map a naming context defined in a database running in the same <EM>slapd</EM>(8) instance into a virtual naming context, with attributeType and objectClass manipulation, if required. It requires the rwm overlay.</P>
 <P>This backend and the above mentioned overlay are experimental.</P>
-<H3><A NAME="back-relay Configuration">11.9.2. back-relay Configuration</A></H3>
+<H3><A NAME="back-relay Configuration">11.8.2. back-relay Configuration</A></H3>
 <P>LATER</P>
-<H3><A NAME="Further Information">11.9.3. Further Information</A></H3>
+<H3><A NAME="Further Information">11.8.3. Further Information</A></H3>
 <P><EM>slapd-relay</EM>(5)</P>
-<H2><A NAME="SQL">11.10. SQL</A></H2>
-<H3><A NAME="Overview">11.10.1. Overview</A></H3>
-<P>The primary purpose of this <EM>slapd</EM>(8) backend is to PRESENT information stored in some RDBMS as an LDAP subtree without any programming (some SQL and maybe stored procedures can't be considered programming, anyway ;).</P>
-<P>That is, for example, when you (some ISP) have account information you use in an RDBMS, and want to use modern solutions that expect such information in LDAP (to authenticate users, make email lookups etc.). Or you want to synchronize or distribute information between different sites/applications that use RDBMSes and/or LDAP. Or whatever else...</P>
-<P>It is <B>NOT</B> designed as a general-purpose backend that uses RDBMS instead of LMDB (as the standard back-mdb backend does), though it can be used as such with several limitations. Please see <A HREF="#LDAP vs RDBMS">LDAP vs RDBMS</A> for discussion.</P>
-<P>The idea is to use some meta-information to translate LDAP queries to SQL queries, leaving relational schema untouched, so that old applications can continue using it without any modifications. This allows SQL and LDAP applications to interoperate without replication, and exchange data as needed.</P>
-<P>The SQL backend is designed to be tunable to virtually any relational schema without having to change source (through that meta-information mentioned). Also, it uses ODBC to connect to RDBMSes, and is highly configurable for SQL dialects RDBMSes may use, so it may be used for integration and distribution of data on different RDBMSes, OSes, hosts etc., in other words, in highly heterogeneous environments.</P>
-<P>This backend is experimental and deprecated.</P>
-<H3><A NAME="back-sql Configuration">11.10.2. back-sql Configuration</A></H3>
-<P>This backend has to be one of the most abused and complex backends there is. Therefore, we will go through a simple, small example that comes with the OpenLDAP source and can be found in <TT>servers/slapd/back-sql/rdbms_depend/README</TT></P>
-<P>For this example we will be using PostgreSQL.</P>
-<P>First, we add to <TT>/etc/odbc.ini</TT> a block of the form:</P>
-<PRE>
-        [example]                        &lt;===
-        Description         = Example for OpenLDAP's back-sql
-        Driver              = PostgreSQL
-        Trace               = No
-        Database            = example    &lt;===
-        Servername          = localhost
-        UserName            = manager    &lt;===
-        Password            = secret     &lt;===
-        Port                = 5432
-        ;Protocol            = 6.4
-        ReadOnly            = No
-        RowVersioning       = No
-        ShowSystemTables    = No
-        ShowOidColumn       = No
-        FakeOidIndex        = No
-        ConnSettings        =
-</PRE>
-<P>The relevant information for our test setup is highlighted with '&lt;===' on the right above.</P>
-<P>Next, we add to <TT>/etc/odbcinst.ini</TT> a block of the form:</P>
-<PRE>
-        [PostgreSQL]
-        Description     = ODBC for PostgreSQL
-        Driver          = /usr/lib/libodbcpsql.so
-        Setup           = /usr/lib/libodbcpsqlS.so
-        FileUsage       = 1
-</PRE>
-<P>We will presume you know how to create a database and user in PostgreSQL and how to set a password. Also, we'll presume you can populate the 'example' database you've just created with the following files, as found in <TT>servers/slapd/back-sql/rdbms_depend/pgsql </TT></P>
-<PRE>
-        backsql_create.sql, testdb_create.sql, testdb_data.sql, testdb_metadata.sql
-</PRE>
-<P>Lastly, run the test:</P>
-<PRE>
-        [root@localhost]# cd $SOURCES/tests
-        [root@localhost]# SLAPD_USE_SQL=pgsql ./run sql-test000
-</PRE>
-<P>Briefly, you should see something like (cut short for space):</P>
-<PRE>
-        Cleaning up test run directory leftover from previous run.
-        Running ./scripts/sql-test000-read...
-        running defines.sh
-        Starting slapd on TCP/IP port 9011...
-        Testing SQL backend read operations...
-        Waiting 5 seconds for slapd to start...
-        Testing correct bind... dn:cn=Mitya Kovalev,dc=example,dc=com
-        Testing incorrect bind (should fail)... ldap_bind: Invalid credentials (49)
-
-        ......
-
-        Filtering original ldif...
-        Comparing filter output...
-        &gt;&gt;&gt;&gt;&gt; Test succeeded
-</PRE>
-<P>The test is basically readonly; this can be performed by all RDBMSes (listed above).</P>
-<P>There is another test, sql-test900-write, which is currently enabled only for PostgreSQL and IBM db2.</P>
-<P>Using <TT>sql-test000</TT>, files in <TT>servers/slapd/back-sql/rdbms_depend/pgsql/</TT> and the man page, you should be set.</P>
-<P><HR WIDTH="80%" ALIGN="Left">
-<STRONG>Note: </STRONG>This backend is experimental and deprecated.
-<HR WIDTH="80%" ALIGN="Left"></P>
-<H3><A NAME="Further Information">11.10.3. Further Information</A></H3>
-<P><EM>slapd-sql</EM>(5) and <TT>servers/slapd/back-sql/rdbms_depend/README</TT></P>
 <P></P>
 <HR>
 <H1><A NAME="Overlays">12. Overlays</A></H1>
@@ -5798,7 +5763,7 @@ Members of a group
        [...additional database configuration directives go here...]
 
        overlay ppolicy
-       ppolicy_default &quot;cn=default,ou=policies,dc=example,dc=com&quot;
+       ppolicy_rules require_password=yes policy_dn=&quot;cn=default,ou=policies,dc=example,dc=com&quot;
 </PRE>
 <P>Now we need a container for the policy objects. In our example the password policy objects are going to be placed in a section of the tree called &quot;ou=policies,dc=example,dc=com&quot;:</P>
 <PRE>
@@ -5850,8 +5815,9 @@ Members of a group
 <P>You can create additional policy objects as needed.</P>
 <P>The namedPolicy object class is present because the policy entry requires a structural object class.</P>
 <P>There are two ways password policy can be applied to individual objects:</P>
-<P>1. The pwdPolicySubentry in a user's object - If a user's object has a pwdPolicySubEntry attribute specifying the DN of a policy object, then the policy defined by that object is applied.</P>
-<P>2. Default password policy - If there is no specific pwdPolicySubentry set for an object, and the password policy module was configured with the DN of a default policy object and if that object exists, then the policy defined in that object is applied.</P>
+<P>1. The pwdPolicySubentry in a user's object - If a user's object has a pwdPolicySubEntry attribute specifying the DN of a policy object, then the policy defined by that object is applied. This is discouraged.</P>
+<P>2a. Password policy selection rules - A policy or a decision that no policy should be applied can be described as a set of rules.</P>
+<P>2b. Default password policy - If there is no specific pwdPolicySubentry set for an object, the policy selection rules run out without a decision, and the password policy module was configured with the DN of a default policy object and if that object exists, then the policy defined in that object is applied.</P>
 <P>Please see <EM>slapo-ppolicy(5)</EM> for a complete explanation of its features.</P>
 <P>A guiding philosophy for OpenLDAP and directory servers in general has been that they always hand back exactly what they were given, without modification. For example, if the cn attribute of an object was set to fOObaR, the server will return that exact string during a search. Values of attributes of a sensitive nature, such as userPassword, are often hashed to conceal their values. Since the userPassword values are used internally by the directory server to authenticate users, any hash algorithm that is applied to the value must be compatible with the directory server. Historically this problem has been solved by making the LDAP client application be able to hash the userPassword attribute value in a way that is compatible with the directory server, but this solution has the obvious drawback of requiring tight coupling between the LDAP client and server, and limits the choices of usable hashing algorithms to those that are accommodated by both. This is clearly a sub-optimal solution.</P>
 <P>In 2001 RFC 3062 became a standard that specified an LDAP extended operation for cases like this. Extended operations are not bound by the return-what-you-are-given philosophy and so are free to do things to attribute values that the add and modify operations cannot. The change password extended operation accepts a plaintext password and hashes it based on a specification that is contained in the server. This allows the server to be in control of the hashing algorithm which, in turn, ensures that any hashes applied to userPassword attribute values will not prevent users from being authenticated.</P>
@@ -7255,26 +7221,28 @@ object identifier
 <P><HR WIDTH="80%" ALIGN="Left">
 <STRONG>Note: </STRONG>For generating certificates, please reference <A HREF="http://www.openldap.org/faq/data/cache/185.html">http://www.openldap.org/faq/data/cache/185.html</A>
 <HR WIDTH="80%" ALIGN="Left"></P>
-<H2><A NAME="TLS Certificates">16.1. TLS Certificates</A></H2>
+<H2><A NAME="Supported TLS libraries">16.1. Supported TLS libraries</A></H2>
+<P>OpenLDAP supports the OpenSSL and Mbed TLS libraries for TLS functionality. GnuTLS support is deprecated as of the OpenLDAP 2.7 release.</P>
+<H2><A NAME="TLS Certificates">16.2. TLS Certificates</A></H2>
 <P>TLS uses <TERM>X.509</TERM> certificates to carry client and server identities.  All servers are required to have valid certificates, whereas client certificates are optional.  Clients must have a valid certificate in order to authenticate via SASL EXTERNAL. For more information on creating and managing certificates, see the <A HREF="https://www.openssl.org/">OpenSSL</A> or <A HREF="https://gnutls.org/">GnuTLS</A> documentation, depending on which TLS implementation libraries you are using.</P>
-<H3><A NAME="Server Certificates">16.1.1. Server Certificates</A></H3>
+<H3><A NAME="Server Certificates">16.2.1. Server Certificates</A></H3>
 <P>The <TERM>DN</TERM> of a server certificate must use the <TT>CN</TT> attribute to name the server, and the <TT>CN</TT> must carry the server's fully qualified domain name. Additional alias names and wildcards may be present in the <TT>subjectAltName</TT> certificate extension.  More details on server certificate names are in <A HREF="https://www.rfc-editor.org/rfc/rfc4513.txt">RFC4513</A>.</P>
-<H3><A NAME="Client Certificates">16.1.2. Client Certificates</A></H3>
+<H3><A NAME="Client Certificates">16.2.2. Client Certificates</A></H3>
 <P>The DN of a client certificate can be used directly as an authentication DN. Since X.509 is a part of the <TERM>X.500</TERM> standard and LDAP is also based on X.500, both use the same DN formats and generally the DN in a user's X.509 certificate should be identical to the DN of their LDAP entry. However, sometimes the DNs may not be exactly the same, and so the mapping facility described in <A HREF="#Mapping Authentication Identities">Mapping Authentication Identities</A> can be applied to these DNs as well.</P>
-<H2><A NAME="TLS Configuration">16.2. TLS Configuration</A></H2>
+<H2><A NAME="TLS Configuration">16.3. TLS Configuration</A></H2>
 <P>After obtaining the required certificates, a number of options must be configured on both the client and the server to enable TLS and make use of the certificates.  At a minimum, the clients must be configured with the name of the file containing all of the <TERM>Certificate Authority</TERM> (CA) certificates it will trust. The server must be configured with the <TERM>CA</TERM> certificates and also its own server certificate and private key.</P>
 <P>Typically a single CA will have issued the server certificate and all of the trusted client certificates, so the server only needs to trust that one signing CA. However, a client may wish to connect to a variety of secure servers managed by different organizations, with server certificates generated by many different CAs. As such, a client is likely to need a list of many different trusted CAs in its configuration.</P>
-<H3><A NAME="Server Configuration">16.2.1. Server Configuration</A></H3>
+<H3><A NAME="Server Configuration">16.3.1. Server Configuration</A></H3>
 <P>The configuration directives for slapd belong in the global directives section of <EM>slapd.conf</EM>(5).</P>
-<H4><A NAME="TLSCACertificateFile &lt;filename&gt;">16.2.1.1. TLSCACertificateFile &lt;filename&gt;</A></H4>
+<H4><A NAME="TLSCACertificateFile &lt;filename&gt;">16.3.1.1. TLSCACertificateFile &lt;filename&gt;</A></H4>
 <P>This directive specifies the <TERM>PEM</TERM>-format file containing certificates for the CA's that slapd will trust. The certificate for the CA that signed the server certificate must be included among these certificates. If the signing CA was not a top-level (root) CA, certificates for the entire sequence of CA's from the signing CA to the top-level CA should be present. Multiple certificates are simply appended to the file; the order is not significant.</P>
-<H4><A NAME="TLSCACertificatePath &lt;path&gt;">16.2.1.2. TLSCACertificatePath &lt;path&gt;</A></H4>
+<H4><A NAME="TLSCACertificatePath &lt;path&gt;">16.3.1.2. TLSCACertificatePath &lt;path&gt;</A></H4>
 <P>This directive specifies the path of a directory that contains individual <TERM>CA</TERM> certificates in separate files.  In addition, this directory must be specially managed using the OpenSSL <EM>rehash</EM> command. When using this feature, the OpenSSL library will attempt to locate certificate files based on a hash of their name and serial number. The OpenSSL <EM>rehash</EM> command is used to generate symbolic links with the hashed names that point to the actual certificate files. As such, this option can only be used with a filesystem that actually supports symbolic links. In general, it is simpler to use the <TT>TLSCACertificateFile</TT> directive instead.</P>
-<H4><A NAME="TLSCertificateFile &lt;filename&gt;">16.2.1.3. TLSCertificateFile &lt;filename&gt;</A></H4>
+<H4><A NAME="TLSCertificateFile &lt;filename&gt;">16.3.1.3. TLSCertificateFile &lt;filename&gt;</A></H4>
 <P>This directive specifies the file that contains the slapd server certificate. Certificates are generally public information and require no special protection.</P>
-<H4><A NAME="TLSCertificateKeyFile &lt;filename&gt;">16.2.1.4. TLSCertificateKeyFile &lt;filename&gt;</A></H4>
+<H4><A NAME="TLSCertificateKeyFile &lt;filename&gt;">16.3.1.4. TLSCertificateKeyFile &lt;filename&gt;</A></H4>
 <P>This directive specifies the file that contains the private key that matches the certificate stored in the <TT>TLSCertificateFile</TT> file. Private keys themselves are sensitive data and are usually password encrypted for protection. However, the current implementation doesn't support encrypted keys so the key must not be encrypted and the file itself must be protected carefully.</P>
-<H4><A NAME="TLSCipherSuite &lt;cipher-suite-spec&gt;">16.2.1.5. TLSCipherSuite &lt;cipher-suite-spec&gt;</A></H4>
+<H4><A NAME="TLSCipherSuite &lt;cipher-suite-spec&gt;">16.3.1.5. TLSCipherSuite &lt;cipher-suite-spec&gt;</A></H4>
 <P>This directive configures what ciphers will be accepted and the preference order. <TT>&lt;cipher-suite-spec&gt;</TT> should be a cipher specification for OpenSSL. You can use the command</P>
 <PRE>
         openssl ciphers -v ALL
@@ -7285,41 +7253,41 @@ object identifier
 <PRE>
         gnutls-cli -l
 </PRE>
-<H4><A NAME="TLSRandFile &lt;filename&gt;">16.2.1.6. TLSRandFile &lt;filename&gt;</A></H4>
+<H4><A NAME="TLSRandFile &lt;filename&gt;">16.3.1.6. TLSRandFile &lt;filename&gt;</A></H4>
 <P>This directive specifies the file to obtain random bits from when <TT>/dev/urandom</TT> is not available. If the system provides <TT>/dev/urandom</TT> then this option is not needed, otherwise a source of random data must be configured.  Some systems (e.g. Linux) provide <TT>/dev/urandom</TT> by default, while others (e.g. Solaris) require the installation of a patch to provide it, and others may not support it at all. In the latter case, EGD or PRNGD should be installed, and this directive should specify the name of the EGD/PRNGD socket. The environment variable <TT>RANDFILE</TT> can also be used to specify the filename. Also, in the absence of these options, the <TT>.rnd</TT> file in the slapd user's home directory may be used if it exists. To use the <TT>.rnd</TT> file, just create the file and copy a few hundred bytes of arbitrary data into the file. The file is only used to provide a seed for the pseudo-random number generator, and it doesn't need very much data to work.</P>
 <P>This directive is ignored with GnuTLS.</P>
-<H4><A NAME="TLSDHParamFile &lt;filename&gt;">16.2.1.7. TLSDHParamFile &lt;filename&gt;</A></H4>
+<H4><A NAME="TLSDHParamFile &lt;filename&gt;">16.3.1.7. TLSDHParamFile &lt;filename&gt;</A></H4>
 <P>This directive specifies the file that contains parameters for Diffie-Hellman ephemeral key exchange.  This is required in order to use DHE-based cipher suites, including all DSA-based suites (i.e. <TT>TLSCertificateKeyFile</TT> points to a DSA key), and RSA when the 'key encipherment' key usage is not specified in the certificate.  Parameters can be generated using the following command</P>
 <PRE>
         openssl dhparam [-dsaparam] -out &lt;filename&gt; &lt;numbits&gt; or
         certtool --generate-dh-params --bits &lt;numbits&gt; --outfile &lt;filename&gt;
 </PRE>
-<H4><A NAME="TLSECName &lt;name&gt;">16.2.1.8. TLSECName &lt;name&gt;</A></H4>
+<H4><A NAME="TLSECName &lt;name&gt;">16.3.1.8. TLSECName &lt;name&gt;</A></H4>
 <P>This directive specifies the curve to use for Elliptic Curve Diffie-Hellman ephemeral key exchange.  This option is only needed to use ECDHE-based cipher suites in OpenSSL.  The names of supported curves may be shown using the following command</P>
 <PRE>
         openssl ecparam -list_curves
 </PRE>
 <P>See the OpenSSL documentation for details. This directive is not used for GnuTLS. For GnuTLS the curves may be specified in the ciphersuite.</P>
-<H4><A NAME="TLSVerifyClient { never | allow | try | demand }">16.2.1.9. TLSVerifyClient { never | allow | try | demand }</A></H4>
+<H4><A NAME="TLSVerifyClient { never | allow | try | demand }">16.3.1.9. TLSVerifyClient { never | allow | try | demand }</A></H4>
 <P>This directive specifies what checks to perform on client certificates in an incoming TLS session, if any. This option is set to <TT>never</TT> by default, in which case the server never asks the client for a certificate. With a setting of <TT>allow</TT> the server will ask for a client certificate; if none is provided the session proceeds normally. If a certificate is provided but the server is unable to verify it, the certificate is ignored and the session proceeds normally, as if no certificate had been provided. With a setting of <TT>try</TT> the certificate is requested, and if none is provided, the session proceeds normally. If a certificate is provided and it cannot be verified, the session is immediately terminated. With a setting of <TT>demand</TT> the certificate is requested and a valid certificate must be provided, otherwise the session is immediately terminated.</P>
 <P><HR WIDTH="80%" ALIGN="Left">
 <STRONG>Note: </STRONG>The server must request a client certificate in order to use the SASL EXTERNAL authentication mechanism with a TLS session. As such, a non-default <TT>TLSVerifyClient</TT> setting must be configured before SASL EXTERNAL authentication may be attempted, and the SASL EXTERNAL mechanism will only be offered to the client if a valid client certificate was received.
 <HR WIDTH="80%" ALIGN="Left"></P>
-<H3><A NAME="Client Configuration">16.2.2. Client Configuration</A></H3>
+<H3><A NAME="Client Configuration">16.3.2. Client Configuration</A></H3>
 <P>Most of the client configuration directives parallel the server directives. The names of the directives are different, and they go into <EM>ldap.conf</EM>(5) instead of <EM>slapd.conf</EM>(5), but their functionality is mostly the same. Also, while most of these options may be configured on a system-wide basis, they may all be overridden by individual users in their <EM>.ldaprc</EM> files.</P>
 <P>The LDAP Start TLS operation is used in LDAP to initiate TLS negotiation.  All OpenLDAP command line tools support a <TT>-Z</TT> and <TT>-ZZ</TT> flag to indicate whether a Start TLS operation is to be issued.  The latter flag indicates that the tool is to cease processing if TLS cannot be started while the former allows the command to continue.</P>
 <P>In LDAPv2 environments, TLS is normally started using the LDAP Secure URI scheme (<TT>ldaps://</TT>) instead of the normal LDAP URI scheme (<TT>ldap://</TT>).  OpenLDAP command line tools allow either scheme to used with the <TT>-H</TT> flag and with the <TT>URI</TT> <EM>ldap.conf</EM>(5) option.</P>
-<H4><A NAME="TLS_CACERT &lt;filename&gt;">16.2.2.1. TLS_CACERT &lt;filename&gt;</A></H4>
+<H4><A NAME="TLS_CACERT &lt;filename&gt;">16.3.2.1. TLS_CACERT &lt;filename&gt;</A></H4>
 <P>This is equivalent to the server's <TT>TLSCACertificateFile</TT> option. As noted in the <A HREF="#TLS Configuration">TLS Configuration</A> section, a client typically may need to know about more CAs than a server, but otherwise the same considerations apply.</P>
-<H4><A NAME="TLS_CACERTDIR &lt;path&gt;">16.2.2.2. TLS_CACERTDIR &lt;path&gt;</A></H4>
+<H4><A NAME="TLS_CACERTDIR &lt;path&gt;">16.3.2.2. TLS_CACERTDIR &lt;path&gt;</A></H4>
 <P>This is equivalent to the server's <TT>TLSCACertificatePath</TT> option. The specified directory must be managed with the OpenSSL <EM>rehash</EM> command as well.</P>
-<H4><A NAME="TLS_CERT &lt;filename&gt;">16.2.2.3. TLS_CERT &lt;filename&gt;</A></H4>
+<H4><A NAME="TLS_CERT &lt;filename&gt;">16.3.2.3. TLS_CERT &lt;filename&gt;</A></H4>
 <P>This directive specifies the file that contains the client certificate. This is a user-only directive and can only be specified in a user's <EM>.ldaprc</EM> file.</P>
-<H4><A NAME="TLS_KEY &lt;filename&gt;">16.2.2.4. TLS_KEY &lt;filename&gt;</A></H4>
+<H4><A NAME="TLS_KEY &lt;filename&gt;">16.3.2.4. TLS_KEY &lt;filename&gt;</A></H4>
 <P>This directive specifies the file that contains the private key that matches the certificate stored in the <TT>TLS_CERT</TT> file. The same constraints mentioned for <TT>TLSCertificateKeyFile</TT> apply here. This is also a user-only directive.</P>
-<H4><A NAME="TLS_RANDFILE &lt;filename&gt;">16.2.2.5. TLS_RANDFILE &lt;filename&gt;</A></H4>
+<H4><A NAME="TLS_RANDFILE &lt;filename&gt;">16.3.2.5. TLS_RANDFILE &lt;filename&gt;</A></H4>
 <P>This directive is the same as the server's <TT>TLSRandFile</TT> option.</P>
-<H4><A NAME="TLS_REQCERT { never | allow | try | demand }">16.2.2.6. TLS_REQCERT { never | allow | try | demand }</A></H4>
+<H4><A NAME="TLS_REQCERT { never | allow | try | demand }">16.3.2.6. TLS_REQCERT { never | allow | try | demand }</A></H4>
 <P>This directive is equivalent to the server's <TT>TLSVerifyClient</TT> option. However, for clients the default value is <TT>demand</TT> and there generally is no good reason to change this setting.</P>
 <P></P>
 <HR>
@@ -8042,8 +8010,7 @@ object identifier
 <H2><A NAME="Checkpointing">19.2. Checkpointing</A></H2>
 <P>Setting a checkpoint is only necessary when back-mdb has the dbnosync flag set. Otherwise it has no effect. With back-mdb the kbyte option is not implemented, meaning it will only run a checkpoint based on the elapsed amount of minutes flag.</P>
 <H2><A NAME="Migration">19.3. Migration</A></H2>
-<P>If upgrading, please consult <A HREF="#Upgrading from 2.5.x">Upgrading from 2.5.x</A> first to see if you need to make changes to your configuration as part of the upgrade.</P>
-<P>After that, the simplest steps needed to migrate between versions or upgrade, depending on your deployment type are:</P>
+<P>The simplest steps needed to migrate between versions or upgrade, depending on your deployment type are:</P>
 <UL>
 &nbsp;</UL><OL>
 <LI><B>Stop the current server when convenient</B>
@@ -8056,9 +8023,6 @@ object identifier
 <BR>
 &nbsp;
 <LI><B>Perform the software upgrades</B>
-<BR>
-&nbsp;
-<LI><B>Perform any configuration upgrades required</B>
 <BR>
 &nbsp;
 <LI><B>slapadd the exported data back into the directory</B>
@@ -8750,29 +8714,83 @@ database        monitor
 <P></P>
 <HR>
 <H1><A NAME="Changes Since Previous Release">A. Changes Since Previous Release</A></H1>
-<P>The following sections attempt to summarize the new features and changes in OpenLDAP software since the 2.5.x release and the OpenLDAP Admin Guide.</P>
-<H2><A NAME="New Features and Enhancements in 2.6">A.1. New Features and Enhancements in 2.6</A></H2>
-<H3><A NAME="New features in slapd">A.1.1. New features in slapd</A></H3>
-<P>slapd now supports logging directly to a file, bypassing syslog.</P>
-<H3><A NAME="New features in lloadd">A.1.2. New features in lloadd</A></H3>
-<P>lloadd now supports additional balancing mechansims</P>
-<H2><A NAME="Obsolete Features Removed From 2.6">A.2. Obsolete Features Removed From 2.6</A></H2>
-<P>These features were strongly deprecated in 2.5 and removed in 2.6.</P>
-<H3><A NAME="back-ndb">A.2.1. back-ndb</A></H3>
-<P>The experimental and incomplete back-ndb backend was removed.</P>
+<P>The following sections attempt to summarize the new features and changes in OpenLDAP software since the 2.6.x release and the OpenLDAP Admin Guide.</P>
+<H2><A NAME="New Features and Enhancements in 2.7">A.1. New Features and Enhancements in 2.7</A></H2>
+<H3><A NAME="New Features in libldap">A.1.1. New Features in libldap</A></H3>
+<UL>
+<LI>DNS SRV record support now also supports ldaps.
+<LI>Options LDAP_OPT_X_TLS_URIS, LDAP_OPT_X_TLS_CACERTURIS: allow certificates and keys to be read from URIs. This enables support for TPM chips, smartcards, or Hardware Security Modules.
+<LI>Support for LDAP_OPT_REFHOPLIMIT in ldap.conf: previously the option was only accessible via explicit ldap_set_option() calls.
+<LI>Support for fractional seconds in timeouts in ldaprc: previously the ldaprc parser only supported integer seconds.
+<LI>Debug messages now include timestamp and thread ID.
+<LI>Better error reporting during connection failures: error codes distinguish hostname lookup failures from network connection failures.
+<LI>Support for mbedTLS. Another TLS library with smaller footprint than OpenSSL and better support than GnuTLS.
+<LI>Documented the ldap_pvt_put_filter() function, which has been available as a non-standard OpenLDAP-specific function since OpenLDAP 2.1.</UL>
+<H3><A NAME="New Features in slapadd">A.1.2. New Features in slapadd</A></H3>
+<UL>
+<LI>The option -o remove-sids= has been added for stripping obsolete server IDs while importing an LDIF file.
+<LI>slapadd will now implicitly strip dynamic attributes while importing an LDIF file.</UL>
+<H3><A NAME="New Access Control Features">A.1.3. New Access Control Features</A></H3>
+<UL>
+<LI>There is now an explicit &quot;increment&quot; permission for ACLs.
+<LI>ACLs can now be applied to operations and controls.
+<LI>A new restrictop keyword can be used to limit combinations of operations and controls.</UL>
+<H3><A NAME="New lloadd Configuration Support">A.1.4. New lloadd Configuration Support</A></H3>
+<UL>
+<LI>The listen setting can now be modified at runtime.
+<LI>The feature keyword has been split into separate enable and disable keywords.</UL>
+<H3><A NAME="Enhanced syncrepl stats Logging">A.1.5. Enhanced syncrepl stats Logging</A></H3>
+<UL>
+<LI>Some syncrepl consumer logging has been added to STATS log level.</UL>
+<H3><A NAME="ppolicy Overlay Enhancements">A.1.6. ppolicy Overlay Enhancements</A></H3>
+<UL>
+<LI>Added support for dynamic policy selection.
+<LI>Added support for per-policy default password hashes.
+<LI>Added support for rehashing of passwords on Simple Bind.</UL>
+<H3><A NAME="OTP Overlay Enhancements">A.1.7. OTP Overlay Enhancements</A></H3>
+<UL>
+<LI>Added support for LDAP Compare operation.</UL>
+<H3><A NAME="back-asyncmeta Enhancements">A.1.8. back-asyncmeta Enhancements</A></H3>
+<UL>
+<LI>Improved target connection management.</UL>
+<H3><A NAME="back-mdb Enhancements">A.1.9. back-mdb Enhancements</A></H3>
+<UL>
+<LI>Now using LMDB 1.0.
+<LI>Added support for page-level database encryption and/or checksums.
+<LI>Added support for configurable page size, up to 64KB. Using larger pages allows using longer RDNs and multival values.</UL>
+<H3><A NAME="Updated LMDB to version 1.0">A.1.10. Updated LMDB to version 1.0</A></H3>
+<UL>
+<LI>Added support for page-level checksums and encryption.
+<LI>Added support for incremental backup.
+<LI>Added support for DB storage on raw block devices.
+<LI>Added support for 2-phase commit.
+<LI>Added support for configurable page sizes up to 64KB.
+<LI>Allow multiple read-only child txns for a write txn</UL>
+<H3><A NAME="General slapd enhancements">A.1.11. General slapd enhancements</A></H3>
+<UL>
+<LI>Index keys use 64 bit hashes by default now instead of 32 bit.</UL>
+<H2><A NAME="Deprecated Features">A.2. Deprecated Features</A></H2>
+<H3><A NAME="GnuTLS">A.2.1. GnuTLS</A></H3>
+<UL>
+<LI>No longer recommended, scheduled to be removed in 2.8.</UL>
+<H2><A NAME="Obsolete Features Removed from 2.7">A.3. Obsolete Features Removed from 2.7</A></H2>
+<P>These features were strongly deprecated in 2.6 and removed in 2.7.</P>
+<H3><A NAME="back-perl and back-sql">A.3.1. back-perl and back-sql</A></H3>
+<UL>
+<LI>back-perl has been superseded by back-sock.
+<LI>back-sql lacks an official maintainer and had to be removed from the release. If someone from the community is willing to maintain it, back-sql could be restored in a future release series.</UL>
 <P></P>
 <HR>
-<H1><A NAME="Upgrading from 2.5.x">B. Upgrading from 2.5.x</A></H1>
-<P>The following sections attempt to document the steps you will need to take in order to upgrade from the latest 2.5.x OpenLDAP version.</P>
-<P>The normal upgrade procedure, as discussed in the <A HREF="#Maintenance">Maintenance</A> section, should of course still be followed prior to doing any of this.</P>
-<H2><A NAME="ppolicy overlay">B.1. ppolicy overlay</A></H2>
-<P>The pwdCheckModule option has been moved to the overlay configuration. Existing settings in password policy entries will be ignored. It will be necessary to use pwdUseCheckModule instead and add this configuration directive to the overlay when upgrading if it is currently in use.</P>
-<H2><A NAME="lloadd backends">B.2. lloadd backends</A></H2>
-<P>Backends for lloadd are now grouped in tiers specifying the balancing strategy. OpenLDAP 2.5 configurations must be updated to account for this change.</P>
-<H2><A NAME="monitor backend">B.3. monitor backend</A></H2>
-<P>In 2.5 and prior, the managedInfo attribute in the cn=Log entry could be used to change the loglevel of the slapd process. In 2.6, monitorLogLevel can be used to change the slapd log level and monitorDebugLevel can be used to change the slapd debug level.</P>
-<H2><A NAME="contrib modules">B.4. contrib modules</A></H2>
-<P>If still using the lastbind overlay with olcLastBindPrecision (when olcLastBindForwardUpdates is needed), you will need to configure precision on its backend entry instead and the overlay will honour it. The old attribute is no longer accepted or supported.</P>
+<H1><A NAME="Upgrading from 2.6.x">B. Upgrading from 2.6.x</A></H1>
+<P>This section documents the steps necessary to upgrade from the latest OpenLDAP 2.6.x version.</P>
+<P>The standard upgrade procedure documented in <A HREF="#Maintenance">Maintenance</A> must be completed prior to the steps documented in this section.</P>
+<H2><A NAME="mdb backend">B.1. mdb backend</A></H2>
+<P>The underlying MDB database engine was upgraded to the LMDB 1.0 series in OpenLDAP 2.7. Due to a file format change, it is mandatory for existing <EM>slapd-mdb</EM>(5) databases to be exported prior to upgrade using an OpenLDAP 2.6 slapcat binary. The exported databases must be reloaded using an OpenLDAP 2.7 slapadd after OpenLDAP has been upgraded.</P>
+<H2><A NAME="ppolicy overlay">B.2. ppolicy overlay</A></H2>
+<P>Starting with OpenLDAP 2.7, it is now possible to express password policy selection with rule based definitions. As such, setting the pwdPolicySubentry attribute by hand is discouraged. It is now essentially a virtual attribute that represents the active policy as configured via the rule based definitions.</P>
+<H2><A NAME="lloadd proxyauthz feature">B.3. lloadd proxyauthz feature</A></H2>
+<P>The feature/olcBkLloadFeature option has now been split into enable/disable keywords to allow for features to have a default on/off state. The current &quot;feature&quot; keyword is still supported and means broadly the same as &quot;enable&quot;, but it is highly recommended to migrate usage to the new keyword set.</P>
+<P>Additionally, the default proxyauthz feature flag has changed from disabled in 2.6 to enabled in 2.7. This setting should only be set to disabled in environments where the backend implementation does not understand the control. In all other situations this is a potential security gap and the full ramifications of disabling it must be carefully considered.</P>
 <P></P>
 <HR>
 <H1><A NAME="Common errors encountered when using OpenLDAP Software">C. Common errors encountered when using OpenLDAP Software</A></H1>
@@ -10790,14 +10808,6 @@ University of Michigan LDAP Team
 </TD>
 <TD>
 <A HREF="https://www.openssl.org/">https://www.openssl.org/</A>
-</TD>
-</TR>
-<TR>
-<TD>
-<A HREF="https://www.perl.org/">Perl</A>
-</TD>
-<TD>
-<A HREF="https://www.perl.org/">https://www.perl.org/</A>
 </TD>
 </TR>
 <TR>

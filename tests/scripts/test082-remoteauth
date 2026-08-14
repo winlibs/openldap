@@ -313,7 +313,8 @@ echo "Testing slapd.conf support..."
 sed -e "s,database.*monitor,\\
 TLSCACertificateFile $TESTDIR/tls/ca/certs/testsuiteCA.crt\\
 \\
-#remoteauthmod#moduleload ../servers/slapd/overlays/remoteauth.la\\
+#remoteauthmod#modulepath ../servers/slapd/overlays/\\
+#remoteauthmod#moduleload remoteauth.la\\
 include $TESTDIR/remoteauth.conf\\
 \\
 database monitor," $TLSCONF | . $CONFFILTER $BACKEND >$CONF1
@@ -387,7 +388,7 @@ echo -n "3 "
 
 echo "ok"
 
-test $KILLSERVERS != no && kill -HUP $KILLPIDS
+test $KILLSERVERS != no && { kill -HUP $KILLPIDS || exit $?; }
 
 # LDIFFILTER doesn't (un)wrap long lines yet, so the result would differ
 #. $CONFFILTER $BACKEND < $DATADIR/remoteauth/config.ldif \
@@ -412,6 +413,6 @@ fi
 
 echo ">>>>> Test succeeded"
 
-test $KILLSERVERS != no && wait
+test $KILLSERVERS != no && { wait $KILLPIDS || exit $?; }
 
 exit 0

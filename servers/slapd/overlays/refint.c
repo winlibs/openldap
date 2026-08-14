@@ -96,8 +96,6 @@ typedef struct refint_pre_s {
 	int do_sub;
 } refint_pre;
 
-#define	RUNQ_INTERVAL	36000	/* a long time */
-
 static MatchingRule	*mr_dnSubtreeMatch;
 
 enum {
@@ -244,10 +242,13 @@ refint_cf_gen(ConfigArgs *c)
 			rc = 0;
 			if ( c->op != SLAP_CONFIG_ADD && c->argc > 2 ) {
 				/* We wouldn't know how to delete these values later */
-				Debug( LDAP_DEBUG_CONFIG|LDAP_DEBUG_NONE,
-					"Supplying multiple names in a single %s value is "
-					"unsupported and will be disallowed in a future version\n",
+				snprintf( c->cr_msg, sizeof( c->cr_msg ),
+					"Please insert multiple names as separate %s values",
 					c->argv[0] );
+				Debug( LDAP_DEBUG_CONFIG|LDAP_DEBUG_NONE,
+					"%s: %s\n", c->log, c->cr_msg );
+				rc = LDAP_INVALID_SYNTAX;
+				break;
 			}
 
 			for ( i=1; i < c->argc; ++i ) {
@@ -925,18 +926,18 @@ refint_qtask( void *ctx, void *arg )
 		fptr = f_next;
 	}
 
-	/* wait until we get explicitly scheduled again */
+	/* wait until there's more work to do */
+	ldap_pvt_thread_mutex_lock( &id->qmutex );
 	ldap_pvt_thread_mutex_lock( &slapd_rq.rq_mutex );
 	ldap_pvt_runqueue_stoptask( &slapd_rq, id->qtask );
-	if ( pausing ) {
-		/* try to run again as soon as the pause is done */
-		id->qtask->interval.tv_sec = 0;
+	if ( pausing || id->qhead ) {
+		/* try to run again when possible */
 		ldap_pvt_runqueue_resched( &slapd_rq, id->qtask, 0 );
-		id->qtask->interval.tv_sec = RUNQ_INTERVAL;
 	} else {
-		ldap_pvt_runqueue_resched( &slapd_rq,id->qtask, 1 );
+		ldap_pvt_runqueue_resched( &slapd_rq, id->qtask, 1 );
 	}
 	ldap_pvt_thread_mutex_unlock( &slapd_rq.rq_mutex );
+	ldap_pvt_thread_mutex_unlock( &id->qmutex );
 
 	return NULL;
 }
@@ -957,7 +958,6 @@ refint_response(
 	refint_data *id;
 	refint_q *rq;
 	refint_attrs *ip;
-	int ac;
 
 	/* If the main op failed or is not a Delete or ModRdn, ignore it */
 	if (( op->o_tag != LDAP_REQ_DELETE && op->o_tag != LDAP_REQ_MODRDN ) ||
@@ -989,25 +989,17 @@ refint_response(
 	id->qtail = rq;
 	ldap_pvt_thread_mutex_unlock( &id->qmutex );
 
-	ac = 0;
 	ldap_pvt_thread_mutex_lock( &slapd_rq.rq_mutex );
 	if ( !id->qtask ) {
-		id->qtask = ldap_pvt_runqueue_insert( &slapd_rq, RUNQ_INTERVAL,
+		id->qtask = ldap_pvt_runqueue_insert( &slapd_rq, 0,
 			refint_qtask, id, "refint_qtask",
 			op->o_bd->be_suffix[0].bv_val );
-		ac = 1;
 	} else {
-		if ( !ldap_pvt_runqueue_isrunning( &slapd_rq, id->qtask ) &&
-			!id->qtask->next_sched.tv_sec ) {
-			id->qtask->interval.tv_sec = 0;
+		if ( !ldap_pvt_runqueue_isrunning( &slapd_rq, id->qtask ) ) {
 			ldap_pvt_runqueue_resched( &slapd_rq, id->qtask, 0 );
-			id->qtask->interval.tv_sec = RUNQ_INTERVAL;
-			ac = 1;
 		}
 	}
 	ldap_pvt_thread_mutex_unlock( &slapd_rq.rq_mutex );
-	if ( ac )
-		slap_wake_listener();
 
 	return SLAP_CB_CONTINUE;
 }

@@ -509,7 +509,8 @@ ldap_new_connection( LDAP *ld, LDAPURLDesc **srvlist, int use_ldsb,
 				ber_sockbuf_free( lc->lconn_sb );
 			}
 			LDAP_FREE( (char *)lc );
-			ld->ld_errno = LDAP_SERVER_DOWN;
+			if ( !ld->ld_errno )
+				ld->ld_errno = LDAP_SERVER_DOWN;
 			return( NULL );
 		}
 
@@ -528,9 +529,10 @@ ldap_new_connection( LDAP *ld, LDAPURLDesc **srvlist, int use_ldsb,
 	ld->ld_conns = lc;
 
 	if ( connect ) {
-#ifdef HAVE_TLS
 		if ( lc->lconn_server->lud_exts ) {
-			int rc, ext = find_tls_ext( lc->lconn_server );
+			int rc, ext, crit = 0;
+#ifdef HAVE_TLS
+			ext = find_tls_ext( lc->lconn_server );
 			if ( ext ) {
 				LDAPConn	*savedefconn;
 
@@ -547,14 +549,23 @@ ldap_new_connection( LDAP *ld, LDAPURLDesc **srvlist, int use_ldsb,
 				LDAP_REQ_LOCK_IF(m_req);
 				ld->ld_defconn = savedefconn;
 				--lc->lconn_refcnt;
+				if ( ext == 2 ) {
+					crit++;
 
-				if ( rc != LDAP_SUCCESS && ext == 2 ) {
-					ldap_free_connection( ld, lc, 1, 0 );
-					return NULL;
+					if ( rc != LDAP_SUCCESS ) {
+						ldap_free_connection( ld, lc, 1, 0 );
+						return NULL;
+					}
 				}
 			}
-		}
 #endif
+			if ( crit != lc->lconn_server->lud_crit_exts ) {
+				/* there were unrecognized critical extensions */
+				ldap_free_connection( ld, lc, 1, 0 );
+				ld->ld_errno = LDAP_NOT_SUPPORTED;
+				return NULL;
+			}
+		}
 	}
 
 	if ( bind != NULL ) {
@@ -1157,19 +1168,12 @@ ldap_chase_v3referrals( LDAP *ld, LDAPRequest *lr, char **refs, int sref, char *
 			goto done;
 		}
 
-		if( srv->lud_crit_exts ) {
-			int ok = 0;
-#ifdef HAVE_TLS
-			/* If StartTLS is the only critical ext, OK. */
-			if ( find_tls_ext( srv ) == 2 && srv->lud_crit_exts == 1 )
-				ok = 1;
-#endif
-			if ( !ok ) {
-				/* we do not support any other extensions */
-				ld->ld_errno = LDAP_NOT_SUPPORTED;
-				rc = -1;
-				goto done;
-			}
+		/* check for unrecognized critical extensions */
+		if( srv->lud_crit_exts &&
+			( rc = ldap_url_check_ext( srv ))) {
+			ld->ld_errno = LDAP_NOT_SUPPORTED;
+			rc = -1;
+			goto done;
 		}
 
 		/* check connection for re-bind in progress */

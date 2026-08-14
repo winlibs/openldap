@@ -30,8 +30,6 @@
 #include "lber_pvt.h"
 #include "back-monitor.h"
 
-#include "slap-config.h"
-
 #undef INTEGRATE_CORE_SCHEMA
 
 /*
@@ -1956,6 +1954,55 @@ monitor_back_initialize(
 			"SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 "
 			"USAGE dSAOperation )", SLAP_AT_FINAL|SLAP_AT_HIDE,
 			offsetof(monitor_info_t, mi_ad_monitorDebugLevel) },
+		{ "( 1.3.6.1.4.1.4203.666.1.55.34 "
+			"NAME 'monitorTotalListenerConnections' "
+			"DESC 'monitor total number established of connections per listener since startup' "
+			"SUP monitorCounter "
+			"NO-USER-MODIFICATION "
+			"USAGE dSAOperation )", SLAP_AT_FINAL|SLAP_AT_HIDE,
+			offsetof(monitor_info_t, mi_ad_monitorTotalListenerConnections) },
+			{ "( 1.3.6.1.4.1.4203.666.1.55.35 "
+			"NAME 'monitorConnectionOpsDeferTotal' "
+			"DESC 'monitor total number of deferred operations within the connection' "
+			"SUP monitorCounter "
+			"NO-USER-MODIFICATION "
+			"USAGE dSAOperation )", SLAP_AT_FINAL|SLAP_AT_HIDE,
+			offsetof(monitor_info_t, mi_ad_monitorConnectionOpsDeferTotal) },
+			{ "( 1.3.6.1.4.1.4203.666.1.55.36 "
+			"NAME 'monitorConnectionOpsDeferBinding' "
+			"DESC 'monitor number of operations deferred because the connection is binding' "
+			"SUP monitorCounter "
+			"NO-USER-MODIFICATION "
+			"USAGE dSAOperation )", SLAP_AT_FINAL|SLAP_AT_HIDE,
+			offsetof(monitor_info_t, mi_ad_monitorConnectionOpsDeferBinding) },
+			{ "( 1.3.6.1.4.1.4203.666.1.55.37 "
+			"NAME 'monitorConnectionOpsDeferClosing' "
+			"DESC 'monitor number of operations deferred because the connection is closing' "
+			"SUP monitorCounter "
+			"NO-USER-MODIFICATION "
+			"USAGE dSAOperation )", SLAP_AT_FINAL|SLAP_AT_HIDE,
+			offsetof(monitor_info_t, mi_ad_monitorConnectionOpsDeferClosing) },
+			{ "( 1.3.6.1.4.1.4203.666.1.55.38 "
+			"NAME 'monitorConnectionOpsDeferExecuting' "
+			"DESC 'monitor number of operations deferred because there are too many executing operations within the connection' "
+			"SUP monitorCounter "
+			"NO-USER-MODIFICATION "
+			"USAGE dSAOperation )", SLAP_AT_FINAL|SLAP_AT_HIDE,
+			offsetof(monitor_info_t, mi_ad_monitorConnectionOpsDeferExecuting) },
+			{ "( 1.3.6.1.4.1.4203.666.1.55.39 "
+			"NAME 'monitorConnectionOpsDeferPending' "
+			"DESC 'monitor number of operations deferred because there are too many pending operations within the connection' "
+			"SUP monitorCounter "
+			"NO-USER-MODIFICATION "
+			"USAGE dSAOperation )", SLAP_AT_FINAL|SLAP_AT_HIDE,
+			offsetof(monitor_info_t, mi_ad_monitorConnectionOpsDeferPending) },
+			{ "( 1.3.6.1.4.1.4203.666.1.55.40 "
+			"NAME 'monitorConnectionOpsDeferWritewait' "
+			"DESC 'monitor number of operations deferred because the server is waiting to write on the connection' "
+			"SUP monitorCounter "
+			"NO-USER-MODIFICATION "
+			"USAGE dSAOperation )", SLAP_AT_FINAL|SLAP_AT_HIDE,
+			offsetof(monitor_info_t, mi_ad_monitorConnectionOpsDeferWritewait) },
 		{ NULL, 0, -1 }
 	};
 

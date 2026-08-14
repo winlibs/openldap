@@ -94,6 +94,8 @@ static int process_response(
 	int res,
 	const struct berval *dn );
 
+static long interval;
+static struct timeval interval_tv;
 static int txn = 0;
 static int txnabort = 0;
 struct berval *txn_id = NULL;
@@ -114,6 +116,7 @@ usage( void )
 	fprintf( stderr, _("  -E [!]ext=extparam	modify extensions"
 		" (! indicate s criticality)\n"));
 	fprintf( stderr, _("  -f file    read operations from `file'\n"));
+	fprintf( stderr, _("  -i time    wait `time' microseconds between operations\n"));
 	fprintf( stderr, _("  -j lineno  jump to lineno before processing\n"));
 	fprintf( stderr, _("  -M         enable Manage DSA IT control (-MM to make critical)\n"));
 	fprintf( stderr, _("  -P version protocol version (default: 3)\n"));
@@ -127,7 +130,7 @@ usage( void )
 
 
 const char options[] = "aE:rS:"
-	"cd:D:e:f:H:Ij:MnNO:o:P:QR:U:vVw:WxX:y:Y:Z";
+	"cd:D:e:f:H:i:Ij:MnNO:o:P:QR:U:vVw:WxX:y:Y:Z";
 
 int
 handle_private_option( int i )
@@ -187,6 +190,19 @@ handle_private_option( int i )
 
 	case 'a':	/* add */
 		ldapadd = 1;
+		break;
+
+	case 'i':	/* interval */
+		{
+			char *next;
+			interval = strtol( optarg, &next, 10 );
+			if ( !next || *next ) {
+				fprintf( stderr, "%s: unable to parse interval \"%s\"\n", prog, optarg);
+                exit(EXIT_FAILURE);
+			}
+			interval_tv.tv_usec = interval % 1000000;
+			interval_tv.tv_sec = interval / 1000000;
+		}
 		break;
 
 	case 'j':	/* jump */
@@ -263,7 +279,9 @@ main( int argc, char **argv )
 		ldiffp = &ldifdummy;
 	}
 
-	if ( debug ) ldif_debug = debug;
+	if ( !debug )
+		debug = 32768; /* needs to be non-zero */
+	ldif_debug = debug;
 
 	ld = tool_conn_setup( dont, 0 );
 
@@ -310,6 +328,10 @@ main( int argc, char **argv )
 				goto fail;
 			}
 			memcpy( rejbuf, rbuf, len+1 );
+		}
+
+		if ( interval ) {
+			select( 0, NULL, NULL, NULL, &interval_tv );
 		}
 
 		rc = process_ldif_rec( rbuf, lineno );

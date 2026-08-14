@@ -164,6 +164,8 @@ LDAP_BEGIN_DECL
 #define LDAP_OPT_X_TLS_PEERKEY_HASH	0x6019
 #define LDAP_OPT_X_TLS_REQUIRE_SAN	0x601a
 #define LDAP_OPT_X_TLS_PROTOCOL_MAX	0x601b
+#define LDAP_OPT_X_TLS_URIS		0x601c
+#define LDAP_OPT_X_TLS_CACERTURIS	0x601d
 
 #define LDAP_OPT_X_TLS_NEVER	0
 #define LDAP_OPT_X_TLS_HARD		1
@@ -751,6 +753,7 @@ typedef struct ldapcontrol {
 #define LDAP_CLIENT_LOOP				(-16)
 #define LDAP_REFERRAL_LIMIT_EXCEEDED	(-17)
 #define	LDAP_X_CONNECTING			(-18)
+#define	LDAP_X_SERVER_UNKNOWN			(-19)
 
 
 /*
@@ -1107,6 +1110,12 @@ LDAP_F( int )
 ldap_domain2hostlist LDAP_P((
 	LDAP_CONST char *domain,
 	char** hostlist ));
+
+LDAP_F( int )
+ldap_domain2hostlist_proto LDAP_P((
+	LDAP_CONST char *domain,
+	char** hostlist,
+	char* proto ));
 
 /*
  * in extended.c:

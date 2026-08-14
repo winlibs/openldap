@@ -141,6 +141,8 @@ static int			deref_cid;
 static slap_overinst 		deref;
 static int ov_count;
 
+static const char deref_oid[] = LDAP_CONTROL_X_DEREF;
+
 static int
 deref_parseCtrl (
 	Operation *op,
@@ -275,6 +277,21 @@ deref_cleanup( Operation *op, SlapReply *rs )
 		op->o_ctrlderef = NULL;
 	}
 
+	if ( rs->sr_ctrls ) {
+		int n;
+
+		for ( n = 0; rs->sr_ctrls[n]; n++ ) {
+			if ( rs->sr_ctrls[n]->ldctl_oid == deref_oid ) {
+				op->o_tmpfree( rs->sr_ctrls[n], op->o_tmpmemctx );
+				break;
+			}
+		}
+
+		for ( ; rs->sr_ctrls[n]; n++ ) {
+			rs->sr_ctrls[n] = rs->sr_ctrls[n+1];
+		}
+	}
+
 	return SLAP_CB_CONTINUE;
 }
 
@@ -292,7 +309,7 @@ deref_response( Operation *op, SlapReply *rs )
 		struct berval bv = BER_BVNULL;
 		int nDerefRes = 0, nDerefVals = 0, nAttrs = 0, nVals = 0;
 		struct berval ctrlval;
-		LDAPControl *ctrl, *ctrlsp[2];
+		LDAPControl *ctrl;
 		AccessControlState acl_state = ACL_STATE_INIT;
 		static char dummy = '\0';
 		Entry *ebase;
@@ -465,7 +482,7 @@ deref_response( Operation *op, SlapReply *rs )
 			sizeof( LDAPControl ) + ctrlval.bv_len + 1,
 			op->o_tmpmemctx );
 		ctrl->ldctl_value.bv_val = (char *)&ctrl[ 1 ];
-		ctrl->ldctl_oid = LDAP_CONTROL_X_DEREF;
+		ctrl->ldctl_oid = deref_oid;
 		ctrl->ldctl_iscritical = 0;
 		ctrl->ldctl_value.bv_len = ctrlval.bv_len;
 		AC_MEMCPY( ctrl->ldctl_value.bv_val, ctrlval.bv_val, ctrlval.bv_len );
@@ -473,9 +490,7 @@ deref_response( Operation *op, SlapReply *rs )
 
 		ber_free_buf( ber );
 
-		ctrlsp[0] = ctrl;
-		ctrlsp[1] = NULL;
-		slap_add_ctrls( op, rs, ctrlsp );
+		slap_add_ctrl( op, rs, ctrl );
 
 		rc = SLAP_CB_CONTINUE;
 

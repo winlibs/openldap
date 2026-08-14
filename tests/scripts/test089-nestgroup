@@ -427,9 +427,9 @@ fi
 echo ">>>>> Test succeeded (first half)"
 
 if [ "$MEMBEROF" = memberofno ]; then
-	test $KILLSERVERS != no && kill -HUP $KILLPIDS
+	test $KILLSERVERS != no && { kill -HUP $KILLPIDS || exit $?; }
 
-	test $KILLSERVERS != no && wait
+	test $KILLSERVERS != no && { wait $KILLPIDS || exit $?; }
 
 	exit 0
 fi
@@ -676,7 +676,7 @@ if test $RC != 0 ; then
 	exit $RC
 fi
 
-test $KILLSERVERS != no && kill -HUP $KILLPIDS
+test $KILLSERVERS != no && { kill -HUP $KILLPIDS || exit $?; }
 
 LDIF=$NESTGROUPOUT2
 
@@ -694,6 +694,6 @@ fi
 
 echo ">>>>> Test succeeded"
 
-test $KILLSERVERS != no && wait
+test $KILLSERVERS != no && { wait $KILLPIDS || exit $?; }
 
 exit 0

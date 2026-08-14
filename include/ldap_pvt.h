@@ -67,6 +67,9 @@ LDAP_F (int) ldap_url_parselist_ext LDAP_P((
 	const char *sep,
 	unsigned flags ));
 
+LDAP_F (int) ldap_url_check_ext LDAP_P((
+	struct ldap_url_desc *ludlist ));
+
 LDAP_F (char *) ldap_url_list2urls LDAP_P((
 	struct ldap_url_desc *ludlist ));
 
@@ -381,10 +384,6 @@ LDAP_F (int) ldap_pvt_sasl_generic_install LDAP_P(( Sockbuf *sb,
 LDAP_F (void) ldap_pvt_sasl_generic_remove LDAP_P(( Sockbuf *sb ));
 
 /* search.c */
-LDAP_F( int ) ldap_pvt_put_filter LDAP_P((
-	BerElement *ber,
-	const char *str ));
-
 LDAP_F( char * )
 ldap_pvt_find_wildcard LDAP_P((	const char *s ));
 

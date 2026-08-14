@@ -21,19 +21,19 @@
 
 SRCS	= init.c config.c search.c message_queue.c bind.c add.c compare.c \
 		delete.c modify.c modrdn.c map.c \
-		conn.c candidates.c dncache.c meta_result.c
+		conn.c candidates.c dncache.c meta_result.c monitor.c
 OBJS	= init.lo config.lo search.lo message_queue.lo bind.lo add.lo compare.lo \
 		delete.lo modify.lo modrdn.lo map.lo \
-		conn.lo candidates.lo dncache.lo meta_result.lo
+		conn.lo candidates.lo dncache.lo meta_result.lo monitor.lo
 
 LDAP_INCDIR= ../../../include
 LDAP_LIBDIR= ../../../libraries
 
 BUILD_OPT = "--enable-asyncmeta"
-BUILD_MOD = @BUILD_ASYNCMETA@
+BUILD_MOD = $(BUILD_ASYNCMETA)
 
 mod_DEFS = -DSLAPD_IMPORT
-MOD_DEFS = $(@BUILD_ASYNCMETA@_DEFS)
+MOD_DEFS = $($(BUILD_MOD)_DEFS)
 
 shared_LDAP_LIBS = $(LDAP_LIBLDAP_LA) $(LDAP_LIBLBER_LA)
 NT_LINK_LIBS = -L.. -lslapd $(LIBS) $(@BUILD_LIBS_DYNAMIC@_LDAP_LIBS)
@@ -44,7 +44,5 @@ LIBBASE = back_asyncmeta
 XINCPATH = -I.. -I$(srcdir)/..
 XDEFS = $(MODULES_CPPFLAGS)
 
-all-local-lib:	../.backend
+all-local-lib:	libobj.a
 
-../.backend: lib$(LIBBASE).a
-	@touch $@

@@ -175,7 +175,7 @@ chkResponseList(
 		nextlm = lm->lm_next;
 		++cnt;
 
-		if ( ldap_abandoned( ld, lm->lm_msgid ) ) {
+		if ( ldap_abandoned( ld, lm->lm_msgid ) > 0 ) {
 			Debug2( LDAP_DEBUG_ANY,
 				"response list msg abandoned, "
 				"msgid %d message type %s\n",
@@ -220,11 +220,13 @@ chkResponseList(
 				tmp = NULL;
 			}
 
-			if ( tmp == NULL ) {
+			if ( tmp == NULL && msgid != LDAP_RES_ANY ) {
 				lm = NULL;
 			}
 
-			break;
+			if ( tmp || msgid != LDAP_RES_ANY ) {
+				break;
+			}
 		}
 		lastlm = &lm->lm_next;
 	}
@@ -288,8 +290,8 @@ wait4msg(
 		Debug2( LDAP_DEBUG_TRACE, "wait4msg ld %p msgid %d (infinite timeout)\n",
 			(void *)ld, msgid );
 	} else {
-		Debug3( LDAP_DEBUG_TRACE, "wait4msg ld %p msgid %d (timeout %ld usec)\n",
-			(void *)ld, msgid, (long)timeout->tv_sec * 1000000 + timeout->tv_usec );
+		Debug3( LDAP_DEBUG_TRACE, "wait4msg ld %p msgid %d (timeout %lld usec)\n",
+			(void *)ld, msgid, (long long)((long long)timeout->tv_sec * 1000000 + timeout->tv_usec) );
 	}
 #endif /* LDAP_DEBUG */
 
@@ -319,7 +321,11 @@ wait4msg(
 #endif /* LDAP_DEBUG */
 
 		if ( ( *result = chkResponseList( ld, msgid, all ) ) != NULL ) {
-			rc = (*result)->lm_msgtype;
+			if ( all == LDAP_MSG_ALL && (*result)->lm_chain ) {
+				rc = (*result)->lm_chain_tail->lm_msgtype;
+			} else {
+				rc = (*result)->lm_msgtype;
+			}
 
 		} else {
 			int lc_ready = 0;
@@ -604,7 +610,7 @@ fail:
 	
 	/* if it's been abandoned, toss it */
 	if ( id > 0 ) {
-		if ( ldap_abandoned( ld, id ) ) {
+		if ( ldap_abandoned( ld, id ) > 0 ) {
 			/* the message type */
 			tag = ber_peek_tag( ber, &len );
 			switch ( tag ) {
@@ -1143,7 +1149,7 @@ nextresp2:
 			chain_head->lm_chain_tail = newmsg;
 			*result = chkResponseList( ld, msgid, all );
 			ld->ld_errno = LDAP_SUCCESS;
-			return( (*result)->lm_msgtype );
+			return( (*result)->lm_chain_tail->lm_msgtype );
 		}
 	}
 #endif /* LDAP_CONNECTIONLESS */
@@ -1427,8 +1433,8 @@ ldap_msgdelete( LDAP *ld, int msgid )
 /*
  * ldap_abandoned
  *
- * return the location of the message id in the array of abandoned
- * message ids, or -1
+ * return 1 if message id is in the array of abandoned message ids,
+ * 0 if not, -1 on error.
  */
 static int
 ldap_abandoned( LDAP *ld, ber_int_t msgid )

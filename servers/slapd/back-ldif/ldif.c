@@ -390,7 +390,7 @@ static const ber_uint_t crctab[256] = {
 
 #define CRC1	crc = crctab[(crc ^ *buf++) & 0xff] ^ (crc >> 8)
 #define CRC8	CRC1; CRC1; CRC1; CRC1; CRC1; CRC1; CRC1; CRC1
-unsigned int
+static unsigned int
 crc32(const void *vbuf, int len)
 {
 	const unsigned char	*buf = vbuf;
@@ -764,7 +764,7 @@ ldif_send_entry( Operation *op, SlapReply *rs, Entry *e, int scope )
 			return rc;
 		}
 
-		else if ( !get_manageDSAit( op ) && is_entry_referral( e ) ) {
+		else if ( !wants_manageDSAit( op ) && is_entry_referral( e ) ) {
 			/* Send a continuation reference.
 			 * (ldif_back_referrals() handles baseobject referrals.)
 			 * Don't check the filter since it's only a candidate.
@@ -1091,7 +1091,7 @@ ldif_prepare_create(
 			/* No parent dir, check parent .ldif */
 			dir2ldif_name( ppath );
 			rc = ldif_read_entry( op, ppath.bv_val, NULL, NULL,
-				(op->o_tag != LDAP_REQ_ADD || get_manageDSAit( op )
+				(op->o_tag != LDAP_REQ_ADD || wants_manageDSAit( op )
 				 ? &parent : NULL),
 				text );
 			switch ( rc ) {
@@ -1147,7 +1147,6 @@ apply_modify_to_entry(
 	SlapReply *rs,
 	char *textbuf )
 {
-	int rc = modlist ? LDAP_UNWILLING_TO_PERFORM : LDAP_SUCCESS;
 	int is_oc = 0;
 	Modification *mods;
 
@@ -1155,92 +1154,8 @@ apply_modify_to_entry(
 		return LDAP_INSUFFICIENT_ACCESS;
 	}
 
-	for (; modlist != NULL; modlist = modlist->sml_next) {
-		mods = &modlist->sml_mod;
-
-		if ( mods->sm_desc == slap_schema.si_ad_objectClass ) {
-			is_oc = 1;
-		}
-		switch (mods->sm_op) {
-		case LDAP_MOD_ADD:
-			rc = modify_add_values(entry, mods,
-				   get_permissiveModify(op),
-				   &rs->sr_text, textbuf,
-				   SLAP_TEXT_BUFLEN );
-			break;
-
-		case LDAP_MOD_DELETE:
-			rc = modify_delete_values(entry, mods,
-				get_permissiveModify(op),
-				&rs->sr_text, textbuf,
-				SLAP_TEXT_BUFLEN );
-			break;
-
-		case LDAP_MOD_REPLACE:
-			rc = modify_replace_values(entry, mods,
-				 get_permissiveModify(op),
-				 &rs->sr_text, textbuf,
-				 SLAP_TEXT_BUFLEN );
-			break;
-
-		case LDAP_MOD_INCREMENT:
-			rc = modify_increment_values( entry,
-				mods, get_permissiveModify(op),
-				&rs->sr_text, textbuf,
-				SLAP_TEXT_BUFLEN );
-			break;
-
-		case SLAP_MOD_SOFTADD:
-			mods->sm_op = LDAP_MOD_ADD;
-			rc = modify_add_values(entry, mods,
-				   get_permissiveModify(op),
-				   &rs->sr_text, textbuf,
-				   SLAP_TEXT_BUFLEN );
-			mods->sm_op = SLAP_MOD_SOFTADD;
-			if (rc == LDAP_TYPE_OR_VALUE_EXISTS) {
-				rc = LDAP_SUCCESS;
-			}
-			break;
-
-		case SLAP_MOD_SOFTDEL:
-			mods->sm_op = LDAP_MOD_DELETE;
-			rc = modify_delete_values(entry, mods,
-				   get_permissiveModify(op),
-				   &rs->sr_text, textbuf,
-				   SLAP_TEXT_BUFLEN );
-			mods->sm_op = SLAP_MOD_SOFTDEL;
-			if (rc == LDAP_NO_SUCH_ATTRIBUTE) {
-				rc = LDAP_SUCCESS;
-			}
-			break;
-
-		case SLAP_MOD_ADD_IF_NOT_PRESENT:
-			if ( attr_find( entry->e_attrs, mods->sm_desc ) ) {
-				rc = LDAP_SUCCESS;
-				break;
-			}
-			mods->sm_op = LDAP_MOD_ADD;
-			rc = modify_add_values(entry, mods,
-				   get_permissiveModify(op),
-				   &rs->sr_text, textbuf,
-				   SLAP_TEXT_BUFLEN );
-			mods->sm_op = SLAP_MOD_ADD_IF_NOT_PRESENT;
-			break;
-		}
-		if(rc != LDAP_SUCCESS) break;
-	}
-
-	if ( rc == LDAP_SUCCESS ) {
-		rs->sr_text = NULL; /* Needed at least with SLAP_MOD_SOFTADD */
-		if ( is_oc ) {
-			entry->e_ocflags = 0;
-		}
-		/* check that the entry still obeys the schema */
-		rc = entry_schema_check( op, entry, NULL, 0, 0, NULL,
-			  &rs->sr_text, textbuf, SLAP_TEXT_BUFLEN );
-	}
-
-	return rc;
+	return modify_entry( op, entry, modlist, wants_permissiveModify(op), 1,
+		&rs->sr_text, textbuf, SLAP_TEXT_BUFLEN );
 }
 
 
@@ -1263,7 +1178,7 @@ ldif_back_referrals( Operation *op, SlapReply *rs )
 		return LDAP_SUCCESS;	/* Root DSE again */
 	}
 
-	entryp = get_manageDSAit( op ) ? NULL : &entry;
+	entryp = wants_manageDSAit( op ) ? NULL : &entry;
 	ldap_pvt_thread_rdwr_rlock( &li->li_rdwr );
 
 	for (;;) {
@@ -1408,7 +1323,7 @@ ldif_back_add( Operation *op, SlapReply *rs )
 
 	Debug( LDAP_DEBUG_TRACE, "ldif_back_add: \"%s\"\n", e->e_dn );
 
-	rc = entry_schema_check( op, e, NULL, 0, 1, NULL,
+	rc = entry_schema_check( op, e, 0, 1, NULL,
 		&rs->sr_text, textbuf, sizeof( textbuf ) );
 	if ( rc != LDAP_SUCCESS )
 		goto send_res;
@@ -1421,7 +1336,7 @@ ldif_back_add( Operation *op, SlapReply *rs )
 
 	rc = ldif_prepare_create( op, e, &path, &parentdir, &rs->sr_text );
 
-	if ( rc == LDAP_SUCCESS && op->o_postread ) {
+	if ( rc == LDAP_SUCCESS && wants_postread( op ) ) {
 		if ( postread_ctrl == NULL ) {
 			postread_ctrl = &ctrls[num_ctrls++];
 			ctrls[num_ctrls] = NULL;
@@ -1432,7 +1347,7 @@ ldif_back_add( Operation *op, SlapReply *rs )
 			Debug( LDAP_DEBUG_ANY, "ldif_back_add: "
 				"post-read failed \"%s\"\n",
 				e->e_name.bv_val );
-			if ( op->o_postread & SLAP_CONTROL_CRITICAL ) {
+			if ( get_postread( op ) == SLAP_CONTROL_CRITICAL ) {
 				/* FIXME: is it correct to abort
 					* operation if control fails? */
 				rc = rs->sr_err;
@@ -1486,7 +1401,7 @@ ldif_back_modify( Operation *op, SlapReply *rs )
 
 	rc = get_entry( op, &entry, &path, &rs->sr_text );
 	if ( rc == LDAP_SUCCESS ) {
-		if ( op->o_preread ) {
+		if ( wants_preread( op ) ) {
 			if ( preread_ctrl == NULL ) {
 				preread_ctrl = &ctrls[num_ctrls++];
 				ctrls[num_ctrls] = NULL;
@@ -1497,7 +1412,7 @@ ldif_back_modify( Operation *op, SlapReply *rs )
 				Debug( LDAP_DEBUG_ANY, "ldif_back_modify: "
 					"pre-read failed \"%s\"\n",
 					entry->e_name.bv_val );
-				if ( op->o_preread & SLAP_CONTROL_CRITICAL ) {
+				if ( get_preread( op ) == SLAP_CONTROL_CRITICAL ) {
 					/* FIXME: is it correct to abort
 					 * operation if control fails? */
 					rc = rs->sr_err;
@@ -1507,7 +1422,7 @@ ldif_back_modify( Operation *op, SlapReply *rs )
 
 		rc = apply_modify_to_entry( entry, modlst, op, rs, textbuf );
 
-		if ( rc == LDAP_SUCCESS && op->o_postread ) {
+		if ( rc == LDAP_SUCCESS && wants_postread( op ) ) {
 			if ( postread_ctrl == NULL ) {
 				postread_ctrl = &ctrls[num_ctrls++];
 				ctrls[num_ctrls] = NULL;
@@ -1518,7 +1433,7 @@ ldif_back_modify( Operation *op, SlapReply *rs )
 				Debug( LDAP_DEBUG_ANY, "ldif_back_modify: "
 					"post-read failed \"%s\"\n",
 					entry->e_name.bv_val );
-				if ( op->o_postread & SLAP_CONTROL_CRITICAL ) {
+				if ( get_postread( op ) == SLAP_CONTROL_CRITICAL ) {
 					/* FIXME: is it correct to abort
 					 * operation if control fails? */
 					rc = rs->sr_err;
@@ -1577,7 +1492,7 @@ ldif_back_delete( Operation *op, SlapReply *rs )
 	}
 
 	/* pre-read */
-	if ( op->o_preread ) {
+	if ( wants_preread( op ) ) {
 		Entry *e = NULL;
 
 		if ( preread_ctrl == NULL ) {
@@ -1591,7 +1506,7 @@ ldif_back_delete( Operation *op, SlapReply *rs )
 			Debug( LDAP_DEBUG_ANY, "ldif_back_delete: "
 				"pre-read failed \"%s\"\n",
 				e->e_name.bv_val );
-			if ( op->o_preread & SLAP_CONTROL_CRITICAL ) {
+			if ( get_preread( op ) == SLAP_CONTROL_CRITICAL ) {
 				/* FIXME: is it correct to abort
 				 * operation if control fails? */
 				rc = rs->sr_err;
@@ -1756,7 +1671,7 @@ ldif_back_modrdn( Operation *op, SlapReply *rs )
 
 	rc = get_entry( op, &entry, &old_path, &rs->sr_text );
 	if ( rc == LDAP_SUCCESS ) {
-		if ( op->o_preread ) {
+		if ( wants_preread( op ) ) {
 			if ( preread_ctrl == NULL ) {
 				preread_ctrl = &ctrls[num_ctrls++];
 				ctrls[num_ctrls] = NULL;
@@ -1767,7 +1682,7 @@ ldif_back_modrdn( Operation *op, SlapReply *rs )
 				Debug( LDAP_DEBUG_ANY, "ldif_back_modify: "
 					"pre-read failed \"%s\"\n",
 					entry->e_name.bv_val );
-				if ( op->o_preread & SLAP_CONTROL_CRITICAL ) {
+				if ( get_preread( op ) == SLAP_CONTROL_CRITICAL ) {
 					/* FIXME: is it correct to abort
 					 * operation if control fails? */
 					rc = rs->sr_err;
@@ -1786,7 +1701,7 @@ ldif_back_modrdn( Operation *op, SlapReply *rs )
 			rc = ldif_move_entry( op, entry, same_ndn, &old_path,
 				&rs->sr_text );
 
-		if ( rc == LDAP_SUCCESS && op->o_postread ) {
+		if ( rc == LDAP_SUCCESS && wants_postread( op ) ) {
 			if ( postread_ctrl == NULL ) {
 				postread_ctrl = &ctrls[num_ctrls++];
 				ctrls[num_ctrls] = NULL;
@@ -1797,7 +1712,7 @@ ldif_back_modrdn( Operation *op, SlapReply *rs )
 				Debug( LDAP_DEBUG_ANY, "ldif_back_modify: "
 					"post-read failed \"%s\"\n",
 					entry->e_name.bv_val );
-				if ( op->o_postread & SLAP_CONTROL_CRITICAL ) {
+				if ( get_postread( op ) == SLAP_CONTROL_CRITICAL ) {
 					/* FIXME: is it correct to abort
 					 * operation if control fails? */
 					rc = rs->sr_err;

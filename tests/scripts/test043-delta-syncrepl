@@ -131,7 +131,7 @@ sleep $SLEEP1
 
 echo "Stopping the provider, sleeping 10 seconds and restarting it..."
 kill -HUP "$PID"
-wait $PID
+wait $PID || { kill -HUP $KILLPIDS; exit 1; }
 sleep 10
 echo "RESTART" >> $LOG1
 $SLAPD -f $CONF1 -h $URI1 -d $LVL >> $LOG1 2>&1 &
@@ -299,7 +299,7 @@ fi
 
 echo "Stopping consumer to test recovery..."
 kill -HUP $CONSUMERPID
-wait $CONSUMERPID
+wait $CONSUMERPID || { kill -HUP $KILLPIDS; exit 1; }
 KILLPIDS="$PID"
 
 echo "Modifying more entries on the provider..."
@@ -408,7 +408,7 @@ fi
 
 echo "Stopping consumer to test recovery after logpurge expired..."
 kill -HUP $CONSUMERPID
-wait $CONSUMERPID
+wait $CONSUMERPID || { kill -HUP $KILLPIDS; exit 1; }
 KILLPIDS="$PID"
 
 echo "Modifying even more entries on the provider..."
@@ -492,19 +492,6 @@ if test $WAIT != 0 ; then
 fi
 KILLPIDS="$PID $CONSUMERPID"
 
-echo "Waiting $SLEEP1 seconds for syncrepl to reschedule (ITS#9878) and poking it..."
-sleep $SLEEP1
-
-$LDAPSEARCH -s base -b "$MONITOR" -H $URI2 \
-    'objectclass=*' > /dev/null 2>&1
-RC=$?
-
-if test $RC != 0; then
-	echo "ldapsearch failed at consumer ($RC)!"
-	test $KILLSERVERS != no && kill -HUP $KILLPIDS
-	exit 1
-fi
-
 echo "Waiting $SLEEP1 seconds for syncrepl to receive changes..."
 sleep $SLEEP1
 
@@ -530,7 +517,7 @@ if test $RC != 0 ; then
 	exit $RC
 fi
 
-test $KILLSERVERS != no && kill -HUP $KILLPIDS
+test $KILLSERVERS != no && { kill -HUP $KILLPIDS || exit $?; }
 
 echo "Filtering provider results..."
 $LDIFFILTER -b $BACKEND -s $SPEC < $PROVIDEROUT | grep -iv "^auditcontext:" > $PROVIDERFLT
@@ -547,6 +534,6 @@ fi
 
 echo ">>>>> Test succeeded"
 
-test $KILLSERVERS != no && wait
+test $KILLSERVERS != no && { wait $KILLPIDS || exit $?; }
 
 exit 0

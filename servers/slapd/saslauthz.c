@@ -368,6 +368,10 @@ is_dn:		bv.bv_len = in->bv_len - ( bv.bv_val - in->bv_val );
 				if ( rc != LDAP_SUCCESS ) {
 					return rc;
 				}
+				if (ad->ad_type->sat_syntax != slap_schema.si_syn_distinguishedName &&
+					!is_at_syntax( ad->ad_type, SLAPD_NAMEUID_SYNTAX )) {
+					return LDAP_INVALID_SYNTAX;
+				}
 			}
 
 			if ( oc_bvfind( &group_oc ) == NULL ) {
@@ -1504,7 +1508,6 @@ out:
 int slap_sasl_regexp_config( const char *match, const char *replace, int valx )
 {
 	int i, rc;
-	SaslRegexp_t sr;
 	struct rewrite_info *rw = NULL;
 
 	if ( valx < 0 || valx > nSaslRegexp )
@@ -1529,7 +1532,6 @@ int slap_sasl_regexp_config( const char *match, const char *replace, int valx )
 			SaslRegexp[i] = SaslRegexp[i - 1];
 		}
 
-		SaslRegexp[i] = sr;
 		SaslRegexp[i].sr_match = ch_strdup( match );
 		SaslRegexp[i].sr_replace = ch_strdup( replace );
 

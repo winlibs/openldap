@@ -643,7 +643,8 @@ void slap_free_ctrls(
 int slap_add_ctrls(
 	Operation *op,
 	SlapReply *rs,
-	LDAPControl **ctrls )
+	LDAPControl **ctrls,
+	int numctrls )
 {
 	int i = 0, j;
 	LDAPControl **ctrlsp;
@@ -652,7 +653,12 @@ int slap_add_ctrls(
 		for ( ; rs->sr_ctrls[ i ]; i++ ) ;
 	}
 
-	for ( j=0; ctrls[j]; j++ ) ;
+	if ( numctrls ) {
+		j = numctrls;
+	} else {
+		for ( j=0; ctrls[j]; j++ ) ;
+		numctrls = j;
+	}
 
 	ctrlsp = op->o_tmpalloc(( i+j+1 )*sizeof(LDAPControl *), op->o_tmpmemctx );
 	i = 0;
@@ -660,7 +666,7 @@ int slap_add_ctrls(
 		for ( ; rs->sr_ctrls[i]; i++ )
 			ctrlsp[i] = rs->sr_ctrls[i];
 	}
-	for ( j=0; ctrls[j]; j++)
+	for ( j=0; j < numctrls; j++)
 		ctrlsp[i++] = ctrls[j];
 	ctrlsp[i] = NULL;
 
@@ -669,6 +675,15 @@ int slap_add_ctrls(
 	rs->sr_ctrls = ctrlsp;
 	rs->sr_flags |= REP_CTRLS_MUSTBEFREED;
 	return i;
+}
+
+int
+slap_add_ctrl(
+	Operation *op,
+	SlapReply *rs,
+	LDAPControl *ctrl )
+{
+	return slap_add_ctrls( op, rs, &ctrl, 1 );
 }
 
 int slap_parse_ctrl(
@@ -949,7 +964,7 @@ return_results:
 #ifdef SLAP_CONTROL_X_WHATFAILED
 			/* might have not been parsed yet? */
 			if ( failed_oid != NULL ) {
-				if ( !get_whatFailed( op ) ) {
+				if ( !wants_whatFailed( op ) ) {
 					/* look it up */
 
 					/* step through each remaining element */
@@ -1002,7 +1017,7 @@ return_results:
 					}
 				}
 
-				if ( get_whatFailed( op ) ) {
+				if ( wants_whatFailed( op ) ) {
 					char *oids[ 2 ];
 					oids[ 0 ] = failed_oid;
 					oids[ 1 ] = NULL;
@@ -1027,7 +1042,7 @@ slap_remove_control(
 {
 	int		i, j;
 
-	switch ( op->o_ctrlflag[ ctrl ] ) {
+	switch ( _SCM(op->o_ctrlflag[ ctrl ]) ) {
 	case SLAP_CONTROL_NONCRITICAL:
 		for ( i = 0, j = -1; op->o_ctrls[ i ] != NULL; i++ ) {
 			if ( strcmp( op->o_ctrls[ i ]->ldctl_oid,
@@ -1078,10 +1093,6 @@ slap_remove_control(
 			"critical control \"%s\" not supported.\n",
 			op->o_log_prefix, slap_known_controls[ ctrl ] );
 		break;
-
-	default:
-		/* handle all cases! */
-		assert( 0 );
 	}
 
 	return rs->sr_err;
@@ -1488,7 +1499,7 @@ parseReadAttrs(
 		return LDAP_PROTOCOL_ERROR;
 	}
 
-	if ( op->o_txnSpec ) { /* temporary limitation */
+	if ( wants_txnSpec( op ) ) { /* temporary limitation */
 		rs->sr_text = READMSG( post, "cannot perform in transaction" );
 		return LDAP_UNWILLING_TO_PERFORM;
 	}
@@ -1817,6 +1828,21 @@ struct berval session_tracking_formats[] = {
 	BER_BVNULL
 };
 
+static int is_printable( struct berval *bv )
+{
+	unsigned char *c = (unsigned char *)bv->bv_val;
+	ber_len_t i;
+
+	if ( !bv->bv_len || !bv->bv_val )
+		return 0;
+
+	for ( i = 0; i < bv->bv_len; i++ ) {
+		if ( !isascii( c[i] ) || !isprint( c[i] ))
+			return 0;
+	}
+	return 1;
+}
+
 static int parseSessionTracking(
 	Operation *op,
 	SlapReply *rs,
@@ -1883,7 +1909,7 @@ static int parseSessionTracking(
 		tag = ber_scanf( ber, "m", &sessionSourceIp );
 	}
 
-	if ( ldif_is_not_printable( sessionSourceIp.bv_val, sessionSourceIp.bv_len ) ) {
+	if ( !is_printable( &sessionSourceIp ) ) {
 		BER_BVZERO( &sessionSourceIp );
 	}
 
@@ -1906,7 +1932,7 @@ static int parseSessionTracking(
 		tag = ber_scanf( ber, "m", &sessionSourceName );
 	}
 
-	if ( ldif_is_not_printable( sessionSourceName.bv_val, sessionSourceName.bv_len ) ) {
+	if ( !is_printable( &sessionSourceName ) ) {
 		BER_BVZERO( &sessionSourceName );
 	}
 
@@ -1958,7 +1984,7 @@ static int parseSessionTracking(
 	} else {
 		/* note: should not be more than 65536... */
 		tag = ber_scanf( ber, "m", &sessionTrackingIdentifier );
-		if ( ldif_is_not_printable( sessionTrackingIdentifier.bv_val, sessionTrackingIdentifier.bv_len ) ) {
+		if ( !is_printable( &sessionTrackingIdentifier ) ) {
 			/* we want the OID printed, at least */
 			BER_BVSTR( &sessionTrackingIdentifier, "" );
 		}

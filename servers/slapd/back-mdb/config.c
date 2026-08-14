@@ -29,7 +29,6 @@
 #include "lutil.h"
 #include "ldap_rq.h"
 
-
 static ConfigDriver mdb_cf_gen;
 static ConfigDriver mdb_bk_cfg;
 
@@ -45,6 +44,10 @@ enum {
 	MDB_SSTACK,
 	MDB_MULTIVAL,
 	MDB_IDLEXP,
+#ifdef MDB_ENCRYPT
+	MDB_CRYPTO,
+	MDB_ENCKEY,
+#endif
 };
 
 static ConfigTable mdbcfg[] = {
@@ -68,6 +71,12 @@ static ConfigTable mdbcfg[] = {
 			"DESC 'Disable synchronous database writes' "
 			"EQUALITY booleanMatch "
 			"SYNTAX OMsBoolean SINGLE-VALUE )", NULL, NULL },
+	{ "dbpagesize", "size", 2, 2, 0, ARG_UINT|ARG_OFFSET,
+		(void *)offsetof(struct mdb_info, mi_pagesize),
+			"( OLcfgDbAt:1.15 NAME 'olcDbPageSize' "
+			"DESC 'Page size in bytes, in range 256-65536' "
+			"EQUALITY integerMatch "
+			"SYNTAX OMsInteger SINGLE-VALUE )", NULL, NULL },
 	{ "envflags", "flags", 2, 0, 0, ARG_MAGIC|MDB_ENVFLAGS,
 		mdb_cf_gen, "( OLcfgDbAt:12.3 NAME 'olcDbEnvFlags' "
 			"DESC 'Database environment flags' "
@@ -117,6 +126,18 @@ static ConfigTable mdbcfg[] = {
 		"DESC 'Depth of search stack in IDLs' "
 		"EQUALITY integerMatch "
 		"SYNTAX OMsInteger SINGLE-VALUE )", NULL, NULL },
+#ifdef MDB_ENCRYPT
+	{ "crypto", "module", 2, 2, 0, ARG_STRING|ARG_MAGIC|MDB_CRYPTO,
+		mdb_cf_gen, "( OLcfgDbAt:12.7 NAME 'olcDbCryptoModule' "
+			"DESC 'Encryption module to load' "
+			"EQUALITY caseExactMatch "
+			"SYNTAX OMsDirectoryString SINGLE-VALUE )", NULL, NULL },
+	{ "passphrase", "pass", 2, 2, 0, ARG_STRING|ARG_MAGIC|MDB_ENCKEY,
+		mdb_cf_gen, "( OLcfgDbAt:12.8 NAME 'olcDbPassphrase' "
+			"DESC 'Encryption passphrase' "
+			"EQUALITY caseExactMatch "
+			"SYNTAX OMsDirectoryString SINGLE-VALUE )", NULL, NULL },
+#endif
 	{ NULL, NULL, 0, 0, 0, ARG_IGNORED,
 		NULL, NULL, NULL, NULL }
 };
@@ -135,10 +156,14 @@ static ConfigOCs mdbocs[] = {
 		"DESC 'MDB database configuration' "
 		"SUP olcDatabaseConfig "
 		"MUST olcDbDirectory "
-		"MAY ( olcDbCheckpoint $ olcDbEnvFlags $ "
-		"olcDbNoSync $ olcDbIndex $ olcDbMaxReaders $ olcDbMaxSize $ "
-		"olcDbMode $ olcDbSearchStack $ olcDbMaxEntrySize $ olcDbRtxnSize $ "
-		"olcDbMultival ) )",
+		"MAY ( olcDbCheckpoint $ olcDbEnvFlags "
+		"$ olcDbNoSync $ olcDbIndex $ olcDbMaxReaders $ olcDbMaxSize "
+		"$ olcDbMode $ olcDbSearchStack $ olcDbMaxEntrySize $ olcDbRtxnSize "
+		"$ olcDbMultival $ olcDbPageSize "
+#ifdef MDB_ENCRYPT
+		"$ olcDbCryptoModule $ olcDbPassphrase "
+#endif
+		") )",
 			Cft_Database, mdbcfg+1 },
 	{ NULL, 0, NULL }
 };
@@ -468,7 +493,7 @@ mdb_start_index_task( BackendDB *be )
 {
 	struct mdb_info *mdb = be->be_private;
 	ldap_pvt_thread_mutex_lock( &slapd_rq.rq_mutex );
-	mdb->mi_index_task = ldap_pvt_runqueue_insert( &slapd_rq, 36000,
+	mdb->mi_index_task = ldap_pvt_runqueue_insert( &slapd_rq, 0,
 		mdb_online_index, be,
 		LDAP_XSTRING(mdb_online_index), be->be_suffix[0].bv_val );
 	ldap_pvt_thread_mutex_unlock( &slapd_rq.rq_mutex );
@@ -487,8 +512,10 @@ mdb_cf_cleanup( ConfigArgs *c )
 	}
 
 	if ( mdb->mi_flags & MDB_RE_OPEN ) {
+		void *key = mdb->mi_dbenv;
 		mdb->mi_flags ^= MDB_RE_OPEN;
 		rc = c->be->bd_info->bi_db_close( c->be, &c->reply );
+		ldap_pvt_thread_pool_purgekey( key );
 		if ( rc == 0 )
 			rc = c->be->bd_info->bi_db_open( c->be, &c->reply );
 		/* If this fails, we need to restart */
@@ -557,6 +584,24 @@ mdb_cf_gen( ConfigArgs *c )
 				rc = 1;
 			}
 			break;
+
+#ifdef MDB_ENCRYPT
+		case MDB_CRYPTO:
+			if ( mdb->mi_dbenv_crypto ) {
+				c->value_string = ch_strdup( mdb->mi_dbenv_crypto );
+			} else {
+				rc = 1;
+			}
+			break;
+
+		case MDB_ENCKEY:
+			if ( mdb->mi_dbenv_enckey ) {
+				c->value_string = ch_strdup( mdb->mi_dbenv_enckey );
+			} else {
+				rc = 1;
+			}
+			break;
+#endif /* MDB_ENCRYPT */
 
 		case MDB_DBNOSYNC:
 			if ( mdb->mi_dbenv_flags & MDB_NOSYNC )
@@ -627,8 +672,22 @@ mdb_cf_gen( ConfigArgs *c )
 			ch_free( mdb->mi_dbenv_home );
 			mdb->mi_dbenv_home = NULL;
 			config_push_cleanup( c, mdb_cf_cleanup );
-			ldap_pvt_thread_pool_purgekey( mdb->mi_dbenv );
 			break;
+#ifdef MDB_ENCRYPT
+		case MDB_CRYPTO:
+			mdb->mi_flags |= MDB_RE_OPEN;
+			ch_free( mdb->mi_dbenv_crypto );
+			mdb->mi_dbenv_crypto = NULL;
+			config_push_cleanup( c, mdb_cf_cleanup );
+			break;
+		case MDB_ENCKEY:
+			mdb->mi_flags |= MDB_RE_OPEN;
+			ch_free( mdb->mi_dbenv_enckey );
+			mdb->mi_dbenv_enckey = NULL;
+			config_push_cleanup( c, mdb_cf_cleanup );
+			break;
+#endif /* MDB_ENCRYPT */
+
 		case MDB_DBNOSYNC:
 			mdb_env_set_flags( mdb->mi_dbenv, MDB_NOSYNC, 0 );
 			mdb->mi_dbenv_flags &= ~MDB_NOSYNC;
@@ -709,6 +768,10 @@ mdb_cf_gen( ConfigArgs *c )
 						slap_str2ad( attrs[ i ], &ad, &text );
 						/* if we got here... */
 						assert( ad != NULL );
+
+						/* silently ignore deletes of objectClass index */
+						if ( ad == slap_schema.si_ad_objectClass )
+							continue;
 
 						ai = mdb_attr_mask( mdb, ad );
 						/* if we got here... */
@@ -896,6 +959,37 @@ mdb_cf_gen( ConfigArgs *c )
 		}
 		break;
 
+#ifdef MDB_ENCRYPT
+	case MDB_CRYPTO:
+		if ( mdb->mi_dbenv_crypto ) {
+			ch_free( mdb->mi_dbenv_crypto );
+			mdb->mi_dbenv_crypto = NULL;
+		}
+		if ( mdb->mi_dbenv_encmodule )
+			mdb_modunload( mdb->mi_dbenv_encmodule );
+		{
+			char *errmsg = NULL;
+			MDB_crypto_funcs *mcf = NULL;
+
+			mdb->mi_dbenv_encmodule = mdb_modload( c->value_string, NULL, &mcf, &errmsg );
+			if ( !mdb->mi_dbenv_encmodule ) {
+				snprintf( c->cr_msg, sizeof( c->cr_msg ), "%s: couldn't load crypto module: %s",
+					c->log, errmsg );
+				Debug( LDAP_DEBUG_ANY, "%s\n", c->cr_msg );
+				return -1;
+			}
+			mdb->mi_dbenv_encfuncs = mcf;
+		}
+		mdb->mi_dbenv_crypto = c->value_string;
+		break;
+
+	case MDB_ENCKEY:
+		if ( mdb->mi_dbenv_enckey )
+			ch_free( mdb->mi_dbenv_enckey );
+		mdb->mi_dbenv_enckey = c->value_string;
+		break;
+#endif /* MDB_ENCRYPT */
+
 	case MDB_DBNOSYNC:
 		if ( c->value_int )
 			mdb->mi_dbenv_flags |= MDB_NOSYNC;
@@ -952,7 +1046,7 @@ mdb_cf_gen( ConfigArgs *c )
 					return 1;
 				}
 				ldap_pvt_thread_mutex_lock( &slapd_rq.rq_mutex );
-				mdb->mi_index_task = ldap_pvt_runqueue_insert( &slapd_rq, 36000,
+				mdb->mi_index_task = ldap_pvt_runqueue_insert( &slapd_rq, 0,
 					mdb_online_index, c->be,
 					LDAP_XSTRING(mdb_online_index), c->be->be_suffix[0].bv_val );
 				ldap_pvt_thread_mutex_unlock( &slapd_rq.rq_mutex );

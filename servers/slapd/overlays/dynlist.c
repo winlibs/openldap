@@ -452,6 +452,8 @@ typedef struct dynlist_name_t {
 	dynlist_info_t *dy_dli;
 	dynlist_map_t *dy_dlm;
 	AttributeDescription *dy_staticmember;
+	Filter *dy_filter;
+	int dy_filter_reused;
 	int dy_seen;
 	int dy_numuris;
 	TAvlnode *dy_subs;
@@ -939,7 +941,7 @@ dynlist_compare( Operation *op, SlapReply *rs )
 	BackendDB *be;
 	int ret = SLAP_CB_CONTINUE;
 
-	if ( get_manageDSAit( op ) )
+	if ( wants_manageDSAit( op ) )
 		return SLAP_CB_CONTINUE;
 
 	for ( ; dli != NULL; dli = dli->dli_next ) {
@@ -1382,8 +1384,21 @@ dynlist_filter_group( Operation *op, dynlist_name_t *dyn, Filter *n, dynlist_sea
 	Attribute *a;
 	int rc = -1;
 
-	if ( ldap_tavl_insert( &ds->ds_fnodes, dyn, dynlist_ptr_cmp, ldap_avl_dup_error ))
+	if ( ldap_tavl_insert( &ds->ds_fnodes, dyn, dynlist_ptr_cmp, ldap_avl_dup_error )) {
+		if ( !dyn->dy_filter_reused ) {
+			Filter *nf = op->o_tmpalloc( sizeof(Filter), op->o_tmpmemctx );
+			nf->f_choice = dyn->dy_filter->f_choice;
+			nf->f_list = dyn->dy_filter->f_list;
+			nf->f_next = NULL;
+			dyn->dy_filter->f_choice = LDAP_FILTER_OR;
+			dyn->dy_filter->f_list = nf;
+			dyn->dy_filter_reused = 1;
+		}
+		n->f_choice = LDAP_FILTER_OR | SLAPD_FILTER_REUSED;
+		n->f_list = dyn->dy_filter->f_list;
 		return 0;
+	}
+	dyn->dy_filter = n;
 
 	if ( overlay_entry_get_ov( op, &dyn->dy_nname, NULL, NULL, 0, &e, on ) !=
 		LDAP_SUCCESS || e == NULL ) {
@@ -1689,7 +1704,7 @@ dynlist_search2resp( Operation *op, SlapReply *rs )
 		dynlist_filterinst_t *df = NULL;
 		int ndf = 0;
 
-		if ( get_pagedresults( op ) > SLAP_CONTROL_IGNORED )
+		if ( wants_pagedresults( op ) )
 			return SLAP_CB_CONTINUE;
 
 		/* Check for any unexpanded dynamic group entries that weren't picked up
@@ -1881,7 +1896,7 @@ dynlist_search( Operation *op, SlapReply *rs )
 	int nested, found, tmpwant;
 	int opattrs, userattrs;
 
-	if ( get_manageDSAit( op ) )
+	if ( wants_manageDSAit( op ) )
 		return SLAP_CB_CONTINUE;
 
 	sc = op->o_tmpcalloc( 1, sizeof(slap_callback)+sizeof(dynlist_search_t), op->o_tmpmemctx );

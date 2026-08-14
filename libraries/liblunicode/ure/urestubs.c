@@ -41,7 +41,11 @@
 
 #include "ure.h"
 
-#include "ucdata.h"
+#ifdef _MSC_VER
+#  include "../ucdata/ucdata.h"
+#else
+#  include "ucdata.h"
+#endif
 
 /*
  * This file contains stub routines needed by the URE package to test

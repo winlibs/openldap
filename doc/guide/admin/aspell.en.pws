@@ -168,7 +168,6 @@ reqAttr
 dynlist
 args
 hardcoded
-pgsql
 argv
 kdz
 notAllowedOnRDN
@@ -361,7 +360,6 @@ matchedDN
 ufn
 allusersgroup
 FIXME
-sql
 uid
 crit
 objectClassViolation
@@ -757,7 +755,6 @@ schemas
 pwdPolicySubentry
 pwdPolicySubEntry
 reqId
-backsql
 scanf
 olcBackend
 TLSCACertificatePath
@@ -992,7 +989,6 @@ searchFilter
 wholeSubtree
 SASLprep
 nisMailAlias
-libodbcpsqlS
 OxObjects
 attributeDescription
 groupnummer
@@ -1093,7 +1089,6 @@ nops
 PDUs
 baseObject
 bvecadd
-perl
 inplace
 lossy
 pers
@@ -1172,6 +1167,7 @@ whitespace
 seeAlso
 monitorRuntimeConfig
 olcAuditlogFile
+olcAuditlogNonBlocking
 namingContexts
 referralAttrDN
 moddn
@@ -1458,7 +1454,6 @@ LDAPSync
 bitstring
 objclass
 oplist
-libodbcpsql
 LDAPObjectClass
 sockurl
 somevalue

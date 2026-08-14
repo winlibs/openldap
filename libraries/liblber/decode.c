@@ -228,7 +228,9 @@ ber_skip_element( BerElement *ber, struct berval *bv )
 
 	if ( tag != LBER_DEFAULT ) {
 		ber->ber_ptr = bv->bv_val + bv->bv_len;
-		ber->ber_tag = *(unsigned char *) ber->ber_ptr;
+		ber->ber_tag = ( ber->ber_ptr < ber->ber_end ) ?
+			*(unsigned char *) ber->ber_ptr :
+			LBER_DEFAULT;
 	}
 
 	return tag;
@@ -271,8 +273,12 @@ ber_skip_tag( BerElement *ber, ber_len_t *lenp )
 	struct berval bv;
 	ber_tag_t tag = ber_peek_element( ber, &bv );
 
-	ber->ber_ptr = bv.bv_val;
-	ber->ber_tag = *(unsigned char *) ber->ber_ptr;
+	if ( tag != LBER_DEFAULT ) {
+		ber->ber_ptr = bv.bv_val;
+		ber->ber_tag = ( ber->ber_ptr < ber->ber_end ) ?
+			*(unsigned char *) ber->ber_ptr :
+			LBER_DEFAULT;
+	}
 
 	*lenp = bv.bv_len;
 	return tag;
@@ -409,7 +415,9 @@ ber_get_stringbvl( BerElement *ber, bgbvr *b )
 		}
 
 		ber->ber_ptr = orig;
-		ber->ber_tag = *(unsigned char *) orig;
+		ber->ber_tag = ( orig < ber->ber_end ) ?
+			*(unsigned char *)orig :
+			LBER_DEFAULT;
 	}
 
 	b->siz = i;

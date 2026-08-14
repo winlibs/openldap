@@ -2,37 +2,38 @@
 # Copyright 2007-2026 The OpenLDAP Foundation, All Rights Reserved.
 # COPYING RESTRICTIONS APPLY, see COPYRIGHT.
 
-H1: Upgrading from 2.5.x
+H1: Upgrading from 2.6.x
 
-The following sections attempt to document the steps you will need to take
-in order to upgrade from the latest 2.5.x OpenLDAP version.
+This section documents the steps necessary to upgrade from the latest OpenLDAP
+2.6.x version.
 
-The normal upgrade procedure, as discussed in the {{SECT:Maintenance}}
-section, should of course still be followed prior to doing any of this.
+The standard upgrade procedure documented in {{SECT:Maintenance}} must be
+completed prior to the steps documented in this section.
+
+H2: mdb backend
+
+The underlying MDB database engine was upgraded to the LMDB 1.0 series in
+OpenLDAP 2.7. Due to a file format change, it is mandatory for existing
+{{slapd-mdb}}(5) databases to be exported prior to upgrade using an OpenLDAP
+2.6 slapcat binary. The exported databases must be reloaded using an OpenLDAP
+2.7 slapadd after OpenLDAP has been upgraded.
 
 H2: ppolicy overlay
 
-The pwdCheckModule option has been moved to the overlay configuration.
-Existing settings in password policy entries will be ignored. It will be
-necessary to use pwdUseCheckModule instead and add this configuration
-directive to the overlay when upgrading if it is currently in use.
+Starting with OpenLDAP 2.7, it is now possible to express password policy
+selection with rule based definitions. As such, setting the pwdPolicySubentry
+attribute by hand is discouraged. It is now essentially a virtual attribute
+that represents the active policy as configured via the rule based definitions.
 
-H2: lloadd backends
+H2: lloadd proxyauthz feature
 
-Backends for lloadd are now grouped in tiers specifying the balancing
-strategy. OpenLDAP 2.5 configurations must be updated to account for this
-change.
+The feature/olcBkLloadFeature option has now been split into enable/disable
+keywords to allow for features to have a default on/off state. The current
+"feature" keyword is still supported and means broadly the same as "enable",
+but it is highly recommended to migrate usage to the new keyword set.
 
-H2: monitor backend
-
-In 2.5 and prior, the managedInfo attribute in the cn=Log entry could be
-used to change the loglevel of the slapd process. In 2.6, monitorLogLevel
-can be used to change the slapd log level and monitorDebugLevel can be used
-to change the slapd debug level.
-
-H2: contrib modules
-
-If still using the lastbind overlay with olcLastBindPrecision (when
-olcLastBindForwardUpdates is needed), you will need to configure
-precision on its backend entry instead and the overlay will honour it.
-The old attribute is no longer accepted or supported.
+Additionally, the default proxyauthz feature flag has changed from disabled in
+2.6 to enabled in 2.7. This setting should only be set to disabled in
+environments where the backend implementation does not understand the control.
+In all other situations this is a potential security gap and the full
+ramifications of disabling it must be carefully considered.

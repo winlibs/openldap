@@ -6,14 +6,14 @@
 # Preamble for all OpenLDAP SDF documents
 #
 
-!default VERSION 2.6
+!default VERSION 2.7
 
 #
 # Paths are relative to the main subdirectories
 #
 
 !define DOC_AUTHOR	"The OpenLDAP Project <{{URL:https://www.openldap.org/}}>"
-!define DOC_NAME    "OpenLDAP Software 2.6"
+!define DOC_NAME    "OpenLDAP Software 2.7"
 !define DOC_TYPE    "Guide"
 
 !define DOC_LOGO	"../images/LDAPlogo.gif"
@@ -141,7 +141,6 @@ OpenLDAP FAQ|https://www.openldap.org/faq/
 OpenLDAP ITS|https://bugs.openldap.org/
 OpenLDAP Software|https://www.openldap.org/software/
 OpenSSL|https://www.openssl.org/
-Perl|https://www.perl.org/
 SDF|https://metacpan.org/release/sdf
 UMLDAP|https://web.archive.org/web/20160302011357/http://www.umich.edu/~dirsvcs/ldap/ldap.html
 !endblock

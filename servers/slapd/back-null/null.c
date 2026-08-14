@@ -124,12 +124,12 @@ null_back_respond( Operation *op, SlapReply *rs, int rc )
 
 	/* this comes first, as in case of assertion failure
 	 * any further processing must stop */
-	if ( get_assert( op ) ) {
+	if ( wants_assert( op ) ) {
 		rs->sr_err = LDAP_ASSERTION_FAILED;
 		goto respond;
 	}
 
-	if ( op->o_preread ) {
+	if ( wants_preread( op ) ) {
 		Entry		e = { 0 };
 
 		switch ( op->o_tag ) {
@@ -151,7 +151,7 @@ null_back_respond( Operation *op, SlapReply *rs, int rc )
 					"<=- null_back_respond: pre-read "
 					"failed!\n" );
 
-				if ( op->o_preread & SLAP_CONTROL_CRITICAL ) {
+				if ( get_preread( op ) == SLAP_CONTROL_CRITICAL ) {
 					/* FIXME: is it correct to abort
 					 * operation if control fails? */
 					goto respond;
@@ -164,7 +164,7 @@ null_back_respond( Operation *op, SlapReply *rs, int rc )
 		}
 	}
 
-	if ( op->o_postread ) {
+	if ( wants_postread( op ) ) {
 		Entry		e = { 0 };
 
 		switch ( op->o_tag ) {
@@ -192,7 +192,7 @@ null_back_respond( Operation *op, SlapReply *rs, int rc )
 					"<=- null_back_respond: post-read "
 					"failed!\n" );
 
-				if ( op->o_postread & SLAP_CONTROL_CRITICAL ) {
+				if ( get_postread( op ) == SLAP_CONTROL_CRITICAL ) {
 					/* FIXME: is it correct to abort
 					 * operation if control fails? */
 					goto respond;
@@ -205,7 +205,7 @@ null_back_respond( Operation *op, SlapReply *rs, int rc )
 		}
 	}
 
-	if ( op->o_noop ) {
+	if ( wants_noop( op ) ) {
 		switch ( op->o_tag ) {
 		case LDAP_REQ_ADD:
 		case LDAP_REQ_MODIFY:
@@ -217,7 +217,7 @@ null_back_respond( Operation *op, SlapReply *rs, int rc )
 		}
 	}
 
-	if ( get_pagedresults( op ) > SLAP_CONTROL_IGNORED ) {
+	if ( wants_pagedresults( op ) ) {
 		struct berval		cookie = BER_BVC( "" );
 
 		/* should not be here... */

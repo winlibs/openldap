@@ -184,7 +184,18 @@ do_add( Operation *op, SlapReply *rs )
 		goto done;
 	}
 
+	/* after mods2entry succeeds, vals must not be freed here */
 	freevals = 0;
+
+	/* make sure RDN is present in attrs */
+	if ( !is_entry_glue ( op->ora_e )) {
+		rs->sr_err = entry_naming_check( op->ora_e, wants_relax( op ), 1, &rs->sr_text, textbuf, textlen );
+		if ( rs->sr_err != LDAP_SUCCESS ) {
+			send_ldap_result( op, rs );
+			goto done;
+		}
+	}
+
 	oex = op->o_tmpalloc( sizeof(OpExtraDB), op->o_tmpmemctx );
 	oex->oe.oe_key = (void *)do_add;
 	oex->oe_db = NULL;
@@ -332,7 +343,7 @@ fe_op_add( Operation *op, SlapReply *rs )
 				}
 			}
 
-			if ( op->o_txnSpec ) {
+			if ( wants_txnSpec( op ) ) {
 				rc = txn_preop( op, rs );
 				goto done;
 			}

@@ -13,9 +13,6 @@
 ## top-level directory of the distribution or, alternatively, at
 ## <http://www.OpenLDAP.org/license.html>.
 
-echo "Test disabled until ITS#9782 is fixed"
-exit 0
-
 echo "running defines.sh"
 . $SRCDIR/scripts/defines.sh
 
@@ -164,7 +161,7 @@ fi
 echo "Stopping slapd and reworking configuration for MPR..."
 
 kill -HUP $KILLPIDS
-wait $KILLPIDS
+wait $KILLPIDS || exit $?
 
 KILLPIDS=
 n=1
@@ -378,7 +375,7 @@ EOMODS
 done
 
 kill -HUP $KILLPIDS
-wait $KILLPIDS
+wait $KILLPIDS || exit $?
 
 echo "The next step of the test will perform $iterations random write operations and may take some time."
 echo "As this test is for a deadlock, it will take manual intervention to exit the test if one occurs."
@@ -507,10 +504,10 @@ if [ "$check_sync_every" -gt 0 ] && [ `expr $n % $check_sync_every` = 0 ]; then
 	n=`expr $n + 1`
 done
 
-test $KILLSERVERS != no && kill -HUP $KILLPIDS
+test $KILLSERVERS != no && { kill -HUP $KILLPIDS || exit $?; }
 
 echo ">>>>> Test succeeded"
 
-test $KILLSERVERS != no && wait
+test $KILLSERVERS != no && { wait $KILLPIDS || exit $?; }
 
 exit 0

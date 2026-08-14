@@ -733,8 +733,8 @@ asyncmeta_handle_bind_result(LDAPMessage *msg, a_metaconn_t *mc, int candidate, 
 	return retcode;
 }
 
-int
-asyncmeta_handle_search_msg(LDAPMessage *res, a_metaconn_t *mc, bm_context_t *bc, int candidate)
+static int
+asyncmeta_handle_search_msg(LDAPMessage *msg, a_metaconn_t *mc, bm_context_t *bc, int candidate)
 {
 	a_metainfo_t	*mi;
 	a_metatarget_t	*mt;
@@ -746,7 +746,6 @@ asyncmeta_handle_search_msg(LDAPMessage *res, a_metaconn_t *mc, bm_context_t *bc
 	char		**references = NULL;
 	LDAPControl	**ctrls = NULL;
 	a_dncookie dc;
-	LDAPMessage *msg;
 	ber_int_t id;
 
 	rs = &bc->rs;
@@ -756,14 +755,11 @@ asyncmeta_handle_search_msg(LDAPMessage *res, a_metaconn_t *mc, bm_context_t *bc
 	dc.op = op;
 	dc.target = mt;
 	dc.to_from = MASSAGE_REP;
-	id = ldap_msgid(res);
-
+	id = ldap_msgid(msg);
 
 	candidates = bc->candidates;
 	i = candidate;
-
-	while (res && !META_BACK_CONN_INVALID(msc)) {
-	for (msg = ldap_first_message(msc->msc_ldr, res); msg; msg = ldap_next_message(msc->msc_ldr, msg)) {
+	{
 		switch(ldap_msgtype(msg)) {
 		case LDAP_RES_SEARCH_ENTRY:
 			Debug( LDAP_DEBUG_TRACE,
@@ -1180,26 +1176,17 @@ err_cleanup:
 				asyncmeta_drop_bc( mc, bc);
 				asyncmeta_clear_bm_context(bc);
 				ldap_pvt_thread_mutex_unlock( &mc->mc_om_mutex );
-				ldap_msgfree(res);
+				ldap_msgfree(msg);
 				return rc;
 			}
 finish:
 			break;
 
 		default:
-			continue;
+			break;
 		}
 	}
-		ldap_msgfree(res);
-		res = NULL;
-		if (candidates[ i ].sr_type != REP_RESULT) {
-			struct timeval	tv = {0};
-			rc = ldap_result( msc->msc_ldr, id, LDAP_MSG_RECEIVED, &tv, &res );
-			if (res != NULL) {
-				msc->msc_result_time = slap_get_time();
-			}
-		}
-	}
+	ldap_msgfree(msg);
 	ldap_pvt_thread_mutex_lock( &mc->mc_om_mutex );
 	bc->bc_active--;
 	ldap_pvt_thread_mutex_unlock( &mc->mc_om_mutex );
@@ -1393,7 +1380,8 @@ asyncmeta_op_read_error(a_metaconn_t *mc, int candidate, int error, void* ctx)
 	ldap_pvt_thread_mutex_lock( &mc->mc_om_mutex );
 	/*someone may be trying to write */
 	if (mc->mc_conns[candidate].msc_active <= 1) {
-		asyncmeta_clear_one_msc(NULL, mc, candidate, 0, __FUNCTION__);
+		asyncmeta_clear_one_msc( mc->mc_info->mi_targets[candidate],
+			&mc->mc_conns[candidate], __FUNCTION__);
 	} else {
 		META_BACK_CONN_INVALID_SET(&mc->mc_conns[candidate]);
 	}
@@ -1480,7 +1468,7 @@ void *
 asyncmeta_op_handle_result(void *ctx, void *arg)
 {
 	a_metaconn_t *mc = arg;
-	int		i, j, rc, ntargets;
+	int		i, j, rc, ntargets, first_active = 0;
 	struct timeval	tv = {0};
 	LDAPMessage     *msg;
 	a_metasingleconn_t *msc;
@@ -1503,7 +1491,9 @@ asyncmeta_op_handle_result(void *ctx, void *arg)
 	oldctx = slap_sl_mem_create(SLAP_SLAB_SIZE, SLAP_SLAB_STACK, ctx, 0);	/* get existing memctx */
 
 again:
-	for (j=0; j<ntargets; j++) {
+	j = first_active;
+	first_active = ntargets;
+	for (j; j<ntargets; j++) {
 		i++;
 		if (i >= ntargets) i = 0;
 		msc = &mc->mc_conns[i];
@@ -1518,7 +1508,7 @@ again:
 		msc->msc_active++;
 		ldap_pvt_thread_mutex_unlock( &mc->mc_om_mutex );
 
-		rc = ldap_result( mc->mc_conns[i].msc_ldr, LDAP_RES_ANY, LDAP_MSG_RECEIVED, &tv, &msg );
+		rc = ldap_result( mc->mc_conns[i].msc_ldr, LDAP_RES_ANY, LDAP_MSG_ONE, &tv, &msg );
 		if (rc < 1) {
 			if (rc < 0) {
 				ldap_get_option( mc->mc_conns[i].msc_ldr, LDAP_OPT_ERROR_NUMBER, &rc);
@@ -1530,6 +1520,7 @@ again:
 			ldap_pvt_thread_mutex_unlock( &mc->mc_om_mutex );
 			continue;
 		}
+		if ( j < first_active ) first_active = j;
 		rc = ldap_msgtype( msg );
 		if (rc == LDAP_RES_BIND) {
 			if ( LogTest( asyncmeta_debug ) ) {
@@ -1549,6 +1540,42 @@ again:
 
 			continue;
 		}
+		/* unsolicited msg */
+		if ( ldap_msgid(msg) == 0 && rc == LDAP_RES_EXTENDED ) {
+			char		*retoid = NULL;
+			struct berval	*retdata = NULL;
+			if ( LogTest( asyncmeta_debug ) ) {
+				char	time_buf[ SLAP_TEXT_BUFLEN ];
+				asyncmeta_get_timestamp(time_buf);
+				Debug( asyncmeta_debug, "[%s] asyncmeta_op_handle_result received exop msc: %p\n",
+				      time_buf, msc );
+			}
+			rc = ldap_parse_extended_result( msc->msc_ldr, msg, &retoid, &retdata, 0 );
+
+			if ( rc == LDAP_SUCCESS ) {
+				if ( retoid && strcmp( LDAP_NOTICE_OF_DISCONNECTION, retoid ) == 0) {
+					if ( LogTest( asyncmeta_debug ) ) {
+						char	time_buf[ SLAP_TEXT_BUFLEN ];
+						asyncmeta_get_timestamp(time_buf);
+						Debug( asyncmeta_debug, "[%s] asyncmeta_op_handle_result received NOD msc: %p\n",
+							   time_buf, msc );
+					}
+					ldap_pvt_thread_mutex_lock( &mc->mc_om_mutex );
+					META_BACK_CONN_CLOSING_SET( msc );
+					msc->msc_active--;
+					ldap_pvt_thread_mutex_unlock( &mc->mc_om_mutex );
+				}
+			}
+
+			if ( retoid )
+				ber_memfree( retoid );
+			if ( retdata )
+				ber_memfree( retdata );
+			if ( msg )
+				ldap_msgfree(msg);
+			continue;
+		}
+
 retry_bc:
 		ldap_pvt_thread_mutex_lock( &mc->mc_om_mutex );
 		bc = asyncmeta_find_message(ldap_msgid(msg), mc, i);
@@ -1630,11 +1657,13 @@ retry_bc:
 			ldap_msgfree(msg);
 	}
 
+	if ( first_active < ntargets ) goto again;
 	ldap_pvt_thread_mutex_lock( &mc->mc_om_mutex );
 	rc = --mc->mc_active;
 	if (rc) {
 		i++;
 		ldap_pvt_thread_mutex_unlock( &mc->mc_om_mutex );
+		first_active = 0;
 		goto again;
 	}
 	slap_sl_mem_setctx(ctx, oldctx);
@@ -1655,17 +1684,46 @@ void asyncmeta_set_msc_time(a_metasingleconn_t *msc)
 	msc->msc_time = slap_get_time();
 }
 
+static void
+asyncmeta_update_msc_pending_ops( a_metaconn_t *mc,
+									   bm_context_t *bc)
+{
+	int i;
+	a_metainfo_t *mi = mc->mc_info;
+	for (i=0; i<mi->mi_ntargets; i++) {
+		if ( !META_IS_CANDIDATE( &bc->candidates[ i ] ) ||
+			bc->candidates[i].sr_msgid == META_MSGID_IGNORE ||
+			bc->candidates[i].sr_type == REP_RESULT) {
+			continue;
+		}
+		mc->mc_conns[i].msc_pending_ops++;
+	}
+}
+
+static void
+asyncmeta_reset_msc_pending_ops( a_metaconn_t *mc )
+{
+	int i;
+	a_metainfo_t *mi = mc->mc_info;
+	for (i=0; i<mi->mi_ntargets; i++) {
+		mc->mc_conns[i].msc_pending_ops = 0;
+	}
+}
+
 void* asyncmeta_timeout_loop(void *ctx, void *arg)
 {
 	struct re_s* rtask = arg;
 	a_metainfo_t *mi = rtask->arg;
 	bm_context_t *bc, *onext;
 	time_t current_time = slap_get_time();
+	time_t conn_ttl;
+	time_t conn_reset_interval;
 	int i, j;
 	LDAP_STAILQ_HEAD(BCList, bm_context_t) timeout_list;
 	LDAP_STAILQ_INIT( &timeout_list );
+	a_metasingleconn_t* oldest[mi->mi_ntargets];
 
-	Debug( asyncmeta_debug, "asyncmeta_timeout_loop[%p] start at [%ld] \n", rtask, current_time );
+	Debug( asyncmeta_debug, "asyncmeta_timeout_loop[%p] start at [%lld] \n", rtask, (long long)current_time );
 	if ( mi->mi_disabled > 0 && asyncmeta_db_has_pending_ops( mi ) == 0 ) {
 		Debug( asyncmeta_debug, "asyncmeta_timeout_loop[%p] database disabled, clearing connections [%ld] \n", rtask, current_time );
 		ldap_pvt_thread_mutex_lock( &mi->mi_mc_mutex );
@@ -1675,12 +1733,18 @@ void* asyncmeta_timeout_loop(void *ctx, void *arg)
 		return NULL;
 	}
 	void *oldctx = slap_sl_mem_create(SLAP_SLAB_SIZE, SLAP_SLAB_STACK, ctx, 0);
+
+	for (i=0; i<mi->mi_ntargets; i++ ) {
+		oldest[i] = NULL;
+	}
 	for (i=0; i<mi->mi_num_conns; i++) {
 		a_metaconn_t * mc= &mi->mi_conns[i];
 		ldap_pvt_thread_mutex_lock( &mc->mc_om_mutex );
+		asyncmeta_reset_msc_pending_ops(mc);
 		for (bc = LDAP_STAILQ_FIRST(&mc->mc_om_list); bc; bc = onext) {
 			onext = LDAP_STAILQ_NEXT(bc, bc_next);
 			if (bc->bc_active > 0) {
+				asyncmeta_update_msc_pending_ops( mc, bc);
 				continue;
 			}
 
@@ -1702,7 +1766,8 @@ void* asyncmeta_timeout_loop(void *ctx, void *arg)
 				for (j=0; j<mi->mi_ntargets; j++) {
 					if (bc->candidates[j].sr_msgid >= 0) {
 						a_metasingleconn_t *msc = &mc->mc_conns[j];
-						if ( op->o_tag == LDAP_REQ_SEARCH ) {
+						if ( op->o_tag == LDAP_REQ_SEARCH &&
+							 !META_BACK_CONN_CLOSING(msc) ) {
 							msc->msc_active++;
 							asyncmeta_back_cancel( mc, op,
 									       bc->candidates[ j ].sr_msgid, j );
@@ -1729,7 +1794,8 @@ void* asyncmeta_timeout_loop(void *ctx, void *arg)
 					if (bc->candidates[j].sr_msgid >= 0) {
 						a_metasingleconn_t *msc = &mc->mc_conns[j];
 						asyncmeta_set_msc_time(msc);
-						if ( op->o_tag == LDAP_REQ_SEARCH ) {
+						if ( op->o_tag == LDAP_REQ_SEARCH &&
+							 !META_BACK_CONN_CLOSING(msc) ) {
 							msc->msc_active++;
 							asyncmeta_back_cancel( mc, op,
 									       bc->candidates[ j ].sr_msgid, j );
@@ -1738,7 +1804,17 @@ void* asyncmeta_timeout_loop(void *ctx, void *arg)
 					}
 				}
 			}
+			asyncmeta_update_msc_pending_ops( mc, bc);
 		}
+		for (j=0; j<mi->mi_ntargets; j++) {
+			a_metasingleconn_t *msc = &mc->mc_conns[j];
+			if ( META_BACK_CONN_CLOSING(msc) &&
+				 msc->msc_pending_ops == 0 &&
+				 msc->msc_active <= 0 ) {
+				asyncmeta_clear_one_msc (mi->mi_targets[j], msc, __FUNCTION__ );
+			}
+		}
+
 		ldap_pvt_thread_mutex_unlock( &mc->mc_om_mutex );
 
 		for (bc = LDAP_STAILQ_FIRST(&timeout_list); bc; bc = onext) {
@@ -1768,9 +1844,9 @@ void* asyncmeta_timeout_loop(void *ctx, void *arg)
 				a_metasingleconn_t *log_msc =  &mc->mc_conns[0];
 				Debug( asyncmeta_debug,
 				       "asyncmeta_timeout_loop:Timeout op %s loop[%p], "
-				       "current_time:%ld, op->o_time:%ld msc: %p, "
+				       "current_time:%lld, op->o_time:%lld msc: %p, "
 				       "msc->msc_binding_time: %x, msc->msc_flags:%x \n",
-				       bc->op->o_log_prefix, rtask, current_time, bc->op->o_time,
+				       bc->op->o_log_prefix, rtask, (long long)current_time, (long long)bc->op->o_time,
 				       log_msc, (unsigned int)log_msc->msc_binding_time, log_msc->msc_mscflags );
 
 				if (bc->searchtime) {
@@ -1822,16 +1898,43 @@ void* asyncmeta_timeout_loop(void *ctx, void *arg)
 				}
 				current_time = slap_get_time();
 				if (msc->msc_ld && msc->msc_time > 0 && msc->msc_time + mi->mi_idle_timeout < current_time) {
-					asyncmeta_clear_one_msc(NULL, mc, j, 1, __FUNCTION__);
+					asyncmeta_clear_one_msc(mi->mi_targets[j], msc,  __FUNCTION__);
 				}
+			}
+		}
+		/* find the oldest connection to reset */
+		for (j=0; j<mi->mi_ntargets; j++) {
+			a_metasingleconn_t *msc = &mc->mc_conns[j];
+			if ( msc->msc_established_time > 0 &&
+				 ( oldest[j] == NULL || oldest[j]->msc_established_time > msc->msc_established_time ) ) {
+				oldest[j] = msc;
 			}
 		}
 		ldap_pvt_thread_mutex_unlock( &mc->mc_om_mutex );
 	}
 
+	current_time = slap_get_time();
+	for (j=0; j<mi->mi_ntargets; j++) {
+		a_metasingleconn_t *msc = oldest[j];
+		a_metatarget_t *mt = mi->mi_targets[j];
+		conn_ttl = (mt->mt_conn_ttl > 0)?mt->mt_conn_ttl:mi->mi_conn_ttl;
+		conn_reset_interval = (mt->mt_conn_reset_interval > 0) ?
+			mt->mt_conn_reset_interval:mi->mi_conn_reset_interval;
+
+		if ( conn_ttl || conn_reset_interval ) {
+			if ( (current_time - mt->msc_reset_time) <= conn_reset_interval )
+				continue;
+			if ( msc != NULL && msc->msc_established_time
+				 && (msc->msc_established_time + conn_ttl <= current_time) ) {
+				ldap_pvt_thread_mutex_lock( &msc->mc->mc_om_mutex );
+				META_BACK_CONN_CLOSING_SET( msc );
+				ldap_pvt_thread_mutex_unlock( &msc->mc->mc_om_mutex );
+			}
+		}
+	}
 	slap_sl_mem_setctx(ctx, oldctx);
 	current_time = slap_get_time();
-	Debug( asyncmeta_debug, "asyncmeta_timeout_loop[%p] stop at [%ld] \n", rtask, current_time );
+	Debug( asyncmeta_debug, "asyncmeta_timeout_loop[%p] stop at [%lld] \n", rtask, (long long)current_time );
 	ldap_pvt_thread_mutex_lock( &slapd_rq.rq_mutex );
 	if ( ldap_pvt_runqueue_isrunning( &slapd_rq, rtask )) {
 		ldap_pvt_runqueue_stoptask( &slapd_rq, rtask );

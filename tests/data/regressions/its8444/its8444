@@ -61,6 +61,12 @@ while [ $n -le $MPR ]; do
 	mkdir -p ${XDIR}$n $DBDIR.1 $DBDIR.2 $CFDIR
 	. $CONFFILTER $BACKEND < $ITSDIR/slapd-provider${n}.ldif > $CONFLDIF
 	$SLAPADD -F $CFDIR -n 0 -l $CONFLDIF
+	RC=$?
+	if test $RC != 0 ; then
+		echo "slapadd failed ($RC)!"
+		exit $RC
+	fi
+
 	n=`expr $n + 1`
 done
 
@@ -313,10 +319,10 @@ EOF
 	modloop=`expr $modloop + 1`
 done
 
-test $KILLSERVERS != no && kill -HUP $KILLPIDS
+test $KILLSERVERS != no && { kill -HUP $KILLPIDS || exit $?; }
 
 echo ">>>>> Test succeeded"
 
-test $KILLSERVERS != no && wait
+test $KILLSERVERS != no && { wait $KILLPIDS || exit $?; }
 
 exit 0

@@ -87,6 +87,18 @@ if test $RC != 0 ; then
 	exit $RC
 fi
 
+echo "Testing group based matching..."
+$LDAPCOMPARE -D "$MANAGERDN" -H $URI1 -w $PASSWD \
+	"uid=another, ou=People, dc=example, dc=com" \
+	"pwdPolicySubentry:cn=Another Policy, ou=Policies, dc=example, dc=com" \
+	>> $TESTOUT 2>&1
+RC=$?
+if test $RC != 6 ; then
+	echo "ldapcompare failed ($RC)!"
+	test $KILLSERVERS != no && kill -HUP $KILLPIDS
+	exit 1
+fi
+
 echo "Testing account lockout..."
 $LDAPSEARCH -H $URI1 -D "$USER" -w wrongpw >$SEARCHOUT 2>&1
 sleep 2
@@ -107,9 +119,14 @@ DELAYATTR=`$LDAPSEARCH -D "$MANAGERDN" -H $URI1 -w $PASSWD -b "$USER" -E account
 echo "$DELAYATTR" >> $SEARCHOUT
 DELAY=`echo "$DELAYATTR" | sed -n -e 's/.*seconds_before_unlock=\([[:digit:]]*\)/\1/p'`
 
-echo "Waiting $DELAY seconds for lockout to reset..."
-sleep $DELAY
-sleep 1
+# $DELAY is empty if we were so slow that the lockout expired already,
+# continue test but the next part might fail anyway since we rely on
+# cumulative timing
+if test -n "$DELAY" ; then
+	echo "Waiting $DELAY seconds for lockout to reset..."
+	sleep $DELAY
+	sleep 1
+fi
 
 $LDAPSEARCH -e ppolicy -H $URI1 -D "$USER" -w $PASS \
 	-b "$BASEDN" -s base >> $SEARCHOUT 2>&1
@@ -125,9 +142,12 @@ echo "$DELAYATTR" >> $SEARCHOUT
 DELAY=`echo "$DELAYATTR" | sed -n -e 's/.*expire=\([[:digit:]]*\)/\1/p'`
 
 echo "Testing password expiration"
-echo "Waiting $DELAY seconds for password to expire..."
-sleep $DELAY
-sleep 1
+# $DELAY is empty if we were so slow that the password expired already
+if test -n "$DELAY" ; then
+	echo "Waiting $DELAY seconds for password to expire..."
+	sleep $DELAY
+	sleep 1
+fi
 
 $LDAPSEARCH -e ppolicy -H $URI1 -D "$USER" -w $PASS \
 	-b "$BASEDN" -s base > $SEARCHOUT 2>&1
@@ -245,6 +265,16 @@ fi
 echo "Testing failed logins when password/policy missing..."
 
 $LDAPSEARCH -e ppolicy -H $URI1 \
+	-D "$PWADMIN" -w hasnopolicy \
+	-b "$BASEDN" -s base > $SEARCHOUT 2>&1
+RC=$?
+if test $RC = 0 ; then
+	echo "Password accepted ($RC)!"
+	test $KILLSERVERS != no && kill -HUP $KILLPIDS
+	exit 1
+fi
+
+$LDAPSEARCH -e ppolicy -H $URI1 \
 	-D "uid=test, ou=People,$BASEDN" -w hasnopolicy \
 	-b "$BASEDN" -s base > $SEARCHOUT 2>&1
 RC=$?
@@ -304,6 +334,22 @@ if test $COUNT != 1 ; then
 	exit 1
 fi
 
+# The add is rejected because ppolicy restricts the connection to password change.
+echo "Testing ppolicy control reject on add while connection restricted..."
+$LDAPADD -e ppolicy -H $URI1 -D "$USER" -w $PASS >> \
+	$TESTOUT 2>&1 << EOMODS
+dn: cn=dummy,ou=People,dc=example,dc=com
+objectClass: person
+cn: dummy
+sn: dummy
+EOMODS
+RC=$?
+if test $RC = 0 ; then
+	echo "ldapadd should have been rejected!"
+	test $KILLSERVERS != no && kill -HUP $KILLPIDS
+	exit 1
+fi
+
 echo "Clearing forced reset..."
 
 $LDAPMODIFY -v -D "$MANAGERDN" -H $URI1 -w $PASSWD >> \
@@ -337,6 +383,22 @@ $LDAPPASSWD -H $URI1 \
 RC=$?
 if test $RC = 0 ; then
 	echo "Safe modify test 1 failed ($RC)!"
+	test $KILLSERVERS != no && kill -HUP $KILLPIDS
+	exit 1
+fi
+
+# The modify is rejected because pwdSafeModify requires the old password.
+echo "Testing ppolicy control reject on modify without old password..."
+$LDAPMODIFY -e ppolicy -H $URI1 -D "$USER" -w $PASS >> \
+	$TESTOUT 2>&1 << EOMODS
+dn: $USER
+changetype: modify
+replace: userPassword
+userPassword: newpassword1
+EOMODS
+RC=$?
+if test $RC = 0 ; then
+	echo "ldapmodify should have been rejected!"
 	test $KILLSERVERS != no && kill -HUP $KILLPIDS
 	exit 1
 fi
@@ -469,16 +531,34 @@ if test $RC = 0 ; then
 	exit 1
 fi
 
+# The add is rejected because the password is shorter than pwdMinLength.
+echo "Testing ppolicy control reject on add with short password..."
+$LDAPADD -e ppolicy -H $URI1 -D "$USER" -w $PASS >> \
+	$TESTOUT 2>&1 << EOMODS
+dn: uid=weakpw,ou=People,dc=example,dc=com
+objectClass: top
+objectClass: person
+objectClass: inetOrgPerson
+cn: Weak Password
+uid: weakpw
+sn: Weak
+userPassword: ab
+EOMODS
+RC=$?
+if test $RC = 0 ; then
+	echo "ldapadd should have been rejected!"
+	test $KILLSERVERS != no && kill -HUP $KILLPIDS
+	exit 1
+fi
+
 echo "Testing idle password expiration"
-echo "Reconfiguring policy to replace expiration with idle expiration..."
+echo "Switching to a policy with idle expiration..."
 $LDAPMODIFY -v -D "$MANAGERDN" -H $URI1 -w $PASSWD >> \
 	$TESTOUT 2>&1 << EOMODS
-dn: cn=Standard Policy, ou=Policies, dc=example, dc=com
+dn: $USER
 changetype: modify
-delete: pwdMaxAge
--
-add: pwdMaxIdle
-pwdMaxIdle: 15
+add: description
+description: idle
 
 EOMODS
 RC=$?
@@ -486,6 +566,16 @@ if test $RC != 0 ; then
 	echo "ldapmodify failed ($RC)!"
 	test $KILLSERVERS != no && kill -HUP $KILLPIDS
 	exit $RC
+fi
+
+$LDAPCOMPARE -D "$MANAGERDN" -H $URI1 -w $PASSWD \
+	"$USER" "pwdPolicySubentry:cn=Idle Expiration Policy, ou=Policies, dc=example, dc=com" \
+	>> $TESTOUT 2>&1
+RC=$?
+if test $RC != 6 ; then
+	echo "ldapcompare failed ($RC)!"
+	test $KILLSERVERS != no && kill -HUP $KILLPIDS
+	exit 1
 fi
 
 $LDAPSEARCH -e ppolicy -H $URI1 -D "$USER" -w $PASS \
@@ -508,15 +598,27 @@ if test $RC != 49 ; then
 	exit 1
 fi
 
-echo "Reverting policy changes..."
+echo "Listing a password hashed with a custom default, then rehashing..."
+
+# {SHA} is good that it doesn't use salt, we don't expect the base64 binary on
+# all systems we support, so we precomputed the expected value:
+# passwd -h '{SHA}' -s hashed -n | base64
+$LDAPSEARCH -o ldif-wrap=no -H $URI1 -D "$MANAGERDN" -w $PASSWD \
+    -b "uid=hashed, ou=People, dc=example, dc=com" userPassword | \
+    grep -q "userPassword:: e1NIQX1ZeGhWT0puYXJpbEJjWXdDVUlydTZUaXZHaHc9"
+RC=$?
+if test $RC != 0 ; then
+	echo "Unexpected password hash returned!"
+	test $KILLSERVERS != no && kill -HUP $KILLPIDS
+	exit $RC
+fi
+
 $LDAPMODIFY -v -D "$MANAGERDN" -H $URI1 -w $PASSWD >> \
 	$TESTOUT 2>&1 << EOMODS
-dn: cn=Standard Policy, ou=Policies, dc=example, dc=com
+dn: cn=Hashing Policy, ou=Policies, dc=example, dc=com
 changetype: modify
-delete: pwdMaxIdle
--
-add: pwdMaxAge
-pwdMaxAge: 30
+replace: pwdDefaultHash
+pwdDefaultHash: {SSHA}
 
 EOMODS
 RC=$?
@@ -524,6 +626,59 @@ if test $RC != 0 ; then
 	echo "ldapmodify failed ($RC)!"
 	test $KILLSERVERS != no && kill -HUP $KILLPIDS
 	exit $RC
+fi
+
+# '{SSHA}' fits nicely onto base64 chunk length, we don't have to work too hard
+# to check it as a prefix
+$LDAPSEARCH -H $URI1 -D "uid=hashed, ou=People, dc=example, dc=com" -w hashed \
+    -b "uid=hashed, ou=People, dc=example, dc=com" | \
+    grep -q '^userPassword:: e1NTSEF9'
+RC=$?
+if test $RC != 0 ; then
+	echo "Password not rehashed as configured!"
+	test $KILLSERVERS != no && kill -HUP $KILLPIDS
+	exit $RC
+fi
+
+$LDAPCOMPARE -D "$MANAGERDN" -H $URI1 -w $PASSWD \
+	"uid=hashed, ou=People, dc=example, dc=com" "pwdReset:FALSE" \
+	>> $TESTOUT 2>&1
+RC=$?
+case $RC in
+6)
+	;;
+16)
+	;;
+*)
+	echo "ldapcompare failed ($RC)!"
+	test $KILLSERVERS != no && kill -HUP $KILLPIDS
+	exit 1
+esac
+
+echo "Reverting to Standard policy..."
+$LDAPMODIFY -v -D "$MANAGERDN" -H $URI1 -w $PASSWD >> \
+	$TESTOUT 2>&1 << EOMODS
+dn: $USER
+changetype: modify
+delete: description
+description: idle
+
+EOMODS
+RC=$?
+if test $RC != 0 ; then
+	echo "ldapmodify failed ($RC)!"
+	test $KILLSERVERS != no && kill -HUP $KILLPIDS
+	exit $RC
+fi
+
+$LDAPCOMPARE -D "$MANAGERDN" -H $URI1 -w $PASSWD \
+	"$USER" "pwdPolicySubentry:cn=Standard Policy, ou=Policies, dc=example, dc=com" \
+	>> $TESTOUT 2>&1
+RC=$?
+if test $RC != 6 ; then
+	echo "ldapcompare failed ($RC)!"
+	test $KILLSERVERS != no && kill -HUP $KILLPIDS
+	exit 1
 fi
 
 if test "$BACKLDAP" != "ldapno" && test "$SYNCPROV" != "syncprovno"  ; then 
@@ -534,12 +689,12 @@ mkdir $DBDIR2
 sed -e "s,$DBDIR1,$DBDIR2," < $CONF1 > $CONF2
 echo "Starting slapd consumer on TCP/IP port $PORT2..."
 $SLAPD -f $CONF2 -h $URI2 -d $LVL > $LOG2 2>&1 &
-PID=$!
+CONSUMERPID=$!
 if test $WAIT != 0 ; then
-    echo PID $PID
+    echo CONSUMERPID $CONSUMERPID
     read foo
 fi
-KILLPIDS="$KILLPIDS $PID"
+KILLPIDS="$KILLPIDS $CONSUMERPID"
 
 echo "Configuring syncprov on provider..."
 if [ "$SYNCPROV" = syncprovmod ]; then
@@ -698,15 +853,15 @@ if test $RC != 0 ; then
 fi
 
 echo "Reconfiguring policy to remove grace logins..."
-$LDAPMODIFY -v -D "$MANAGERDN" -H $URI1 -w $PASSWD >> \
+$LDAPMODIFY -v -D cn=config -H $URI1 -y $CONFIGPWF >> \
 	$TESTOUT 2>&1 << EOMODS
-dn: cn=Standard Policy, ou=Policies, dc=example, dc=com
-changetype: modify
-delete: pwdGraceAuthnLimit
--
-replace: pwdMaxAge
-pwdMaxAge: 15
--
+dn: cn={0}Stricter Policy,olcOverlay={0}ppolicy,olcDatabase={1}$BACKEND,cn=config
+changetype: add
+objectClass: olcPPolicyScopedRule
+olcPPolicyRuleObject: dc=example,dc=com
+olcPPolicyRuleScope: sub
+olcPPolicyRuleGroup: cn=Policy Group, ou=Groups, dc=example, dc=com
+olcPPolicyRulePolicy: cn=Stricter Policy, ou=Policies, dc=example, dc=com
 
 EOMODS
 RC=$?
@@ -714,6 +869,47 @@ if test $RC != 0 ; then
 	echo "ldapmodify failed ($RC)!"
 	test $KILLSERVERS != no && kill -HUP $KILLPIDS
 	exit $RC
+fi
+
+$LDAPCOMPARE -D "$MANAGERDN" -H $URI1 -w $PASSWD \
+	"$USER" "pwdPolicySubentry:cn=Stricter Policy, ou=Policies, dc=example, dc=com" \
+	>> $TESTOUT 2>&1
+RC=$?
+if test $RC != 6 ; then
+	echo "ldapcompare failed ($RC)!"
+	test $KILLSERVERS != no && kill -HUP $KILLPIDS
+	exit 1
+fi
+
+# URI2 is not running unless we performed chaining test above
+if test -n "$CONSUMERPID"; then
+$LDAPMODIFY -v -D cn=config -H $URI2 -y $CONFIGPWF >> \
+	$TESTOUT 2>&1 << EOMODS
+dn: cn={0}Stricter Policy,olcOverlay={0}ppolicy,olcDatabase={1}$BACKEND,cn=config
+changetype: add
+objectClass: olcPPolicyScopedRule
+olcPPolicyRuleObject: dc=example,dc=com
+olcPPolicyRuleScope: sub
+olcPPolicyRuleGroup: cn=Policy Group, ou=Groups, dc=example, dc=com
+olcPPolicyRulePolicy: cn=Stricter Policy, ou=Policies, dc=example, dc=com
+
+EOMODS
+RC=$?
+if test $RC != 0 ; then
+	echo "ldapmodify failed ($RC)!"
+	test $KILLSERVERS != no && kill -HUP $KILLPIDS
+	exit $RC
+fi
+
+$LDAPCOMPARE -D "$MANAGERDN" -H $URI2 -w $PASSWD \
+	"$USER" "pwdPolicySubentry:cn=Stricter Policy, ou=Policies, dc=example, dc=com" \
+	>> $TESTOUT 2>&1
+RC=$?
+if test $RC != 6 ; then
+	echo "ldapcompare failed ($RC)!"
+	test $KILLSERVERS != no && kill -HUP $KILLPIDS
+	exit 1
+fi
 fi
 
 OLDPASS=$PASS
@@ -743,8 +939,12 @@ DELAY=`echo "$DELAYATTR" | sed -n -e 's/.*expire=\([[:digit:]]*\)/\1/p'`
 DELAY=`expr $DELAY - 10`
 
 echo "Testing password expiration"
-echo "Waiting $DELAY seconds for password to expire..."
-sleep $DELAY
+# $DELAY is empty if we were so slow that the password expired already
+if test -n "$DELAY" ; then
+	echo "Waiting $DELAY seconds for password to expire..."
+	sleep $DELAY
+	sleep 1
+fi
 
 $LDAPSEARCH -H $URI1 -D "$USER" -w $PASS \
 	-b "$BASEDN" -s base > $SEARCHOUT 2>&1
@@ -773,10 +973,10 @@ if test $COUNT = 0 ; then
 	exit 1
 fi
 
-test $KILLSERVERS != no && kill -HUP $KILLPIDS
+test $KILLSERVERS != no && { kill -HUP $KILLPIDS || exit $?; }
 
 echo ">>>>> Test succeeded"
 
-test $KILLSERVERS != no && wait
+test $KILLSERVERS != no && { wait $KILLPIDS || exit $?; }
 
 exit 0

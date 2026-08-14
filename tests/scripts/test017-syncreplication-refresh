@@ -334,12 +334,12 @@ if test $RC != 0 ; then
 	exit $RC
 fi
 
-test $KILLSERVERS != no && kill -HUP $KILLPIDS
+test $KILLSERVERS != no && { kill -HUP $KILLPIDS || exit $?; }
 
 echo "Filtering provider results..."
-$LDIFFILTER < $PROVIDEROUT > $PROVIDERFLT
+$LDIFFILTER -s a < $PROVIDEROUT > $PROVIDERFLT
 echo "Filtering consumer results..."
-$LDIFFILTER < $CONSUMEROUT > $CONSUMERFLT
+$LDIFFILTER -s a < $CONSUMEROUT > $CONSUMERFLT
 
 echo "Comparing retrieved entries from provider and consumer..."
 $CMP $PROVIDERFLT $CONSUMERFLT > $CMPOUT
@@ -351,6 +351,6 @@ fi
 
 echo ">>>>> Test succeeded"
 
-test $KILLSERVERS != no && wait
+test $KILLSERVERS != no && { wait $KILLPIDS || exit $?; }
 
 exit 0

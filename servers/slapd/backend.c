@@ -470,6 +470,7 @@ void backend_destroy_one( BackendDB *bd, int dynamic )
 		free( bd->be_rootpw.bv_val );
 	}
 	acl_destroy( bd->be_acl );
+	restrictop_free( bd->be_restrictop_rules );
 	limits_destroy( bd->be_limits );
 	if ( bd->be_extra_anlist ) {
 		anlist_free( bd->be_extra_anlist, 1, NULL );
@@ -1039,7 +1040,7 @@ backend_check_controls(
 			case LDAP_COMPARE_FALSE:
 				if ( !op->o_bd->be_ctrls[cid] && (*ctrls)->ldctl_iscritical ) {
 #ifdef SLAP_CONTROL_X_WHATFAILED
-					if ( get_whatFailed( op ) ) {
+					if ( wants_whatFailed( op ) ) {
 						char *oids[ 2 ];
 						oids[ 0 ] = (*ctrls)->ldctl_oid;
 						oids[ 1 ] = NULL;
@@ -1076,7 +1077,7 @@ backend_check_controls(
 
 #if 0 /* temporarily removed */
 	/* check should be generalized */
-	if( get_relax(op) && !be_isroot(op)) {
+	if( wants_relax(op) && !be_isroot(op)) {
 		rs->sr_text = "requires manager authorization";
 		rs->sr_err = LDAP_UNWILLING_TO_PERFORM;
 	}
@@ -1097,6 +1098,7 @@ backend_check_restrictions(
 	slap_mask_t opflag;
 	slap_mask_t exopflag = 0;
 	slap_ssf_set_t ssfs, *ssf;
+	RestrictOp *r;
 	int updateop = 0;
 	int starttls = 0;
 	int session = 0;
@@ -1105,6 +1107,7 @@ backend_check_restrictions(
 	requires = frontendDB->be_requires;
 	ssfs = frontendDB->be_ssf_set;
 	ssf = &ssfs;
+	r = frontendDB->be_restrictop_rules;
 
 	if ( op->o_bd ) {
 		slap_ssf_t *fssf, *bssf;
@@ -1123,36 +1126,39 @@ backend_check_restrictions(
 		}
 
 		restrictops |= op->o_bd->be_restrictops;
-		requires |= op->o_bd->be_requires;
+		if ( op->o_bd->be_requires & SLAP_REQUIRE_NONE ) {
+			requires = op->o_bd->be_requires & ~SLAP_REQUIRE_NONE;
+		} else {
+			requires |= op->o_bd->be_requires;
+		}
 		bssf = &op->o_bd->be_ssf_set.sss_ssf;
 		fssf = &ssfs.sss_ssf;
 		for ( i=0; i < (int)(sizeof(ssfs)/sizeof(slap_ssf_t)); i++ ) {
 			if ( bssf[i] ) fssf[i] = bssf[i];
 		}
+
+		if ( op->o_bd->be_restrictop_rules ) {
+			r = op->o_bd->be_restrictop_rules;
+		}
 	}
 
+	opflag = SLAP_OP2RESTRICT(slap_req2op(op->o_tag));
 	switch( op->o_tag ) {
-	case LDAP_REQ_ADD:
-		opflag = SLAP_RESTRICT_OP_ADD;
-		updateop++;
-		break;
+	case LDAP_REQ_UNBIND:
+		opflag = 0;
+		/* FALLTHRU */
 	case LDAP_REQ_BIND:
-		opflag = SLAP_RESTRICT_OP_BIND;
 		session++;
 		break;
-	case LDAP_REQ_COMPARE:
-		opflag = SLAP_RESTRICT_OP_COMPARE;
-		break;
-	case LDAP_REQ_DELETE:
-		updateop++;
-		opflag = SLAP_RESTRICT_OP_DELETE;
-		break;
-	case LDAP_REQ_EXTENDED:
-		opflag = SLAP_RESTRICT_OP_EXTENDED;
 
+	case LDAP_REQ_SEARCH:
+	case LDAP_REQ_COMPARE:
+		break;
+
+	case LDAP_REQ_EXTENDED:
 		if( !opdata ) {
 			/* treat unspecified as a modify */
-			opflag = SLAP_RESTRICT_OP_MODIFY;
+			opflag |= SLAP_RESTRICT_OP_MODIFY;
 			updateop++;
 			break;
 		}
@@ -1180,26 +1186,16 @@ backend_check_restrictions(
 			break;
 		}
 
+		opflag |= SLAP_RESTRICT_OP_MODIFY;
+		/* FALLTHRU */
 		/* treat everything else as a modify */
-		opflag = SLAP_RESTRICT_OP_MODIFY;
+	case LDAP_REQ_ADD:
+	case LDAP_REQ_DELETE:
+	case LDAP_REQ_MODIFY:
+	case LDAP_REQ_RENAME:
 		updateop++;
 		break;
 
-	case LDAP_REQ_MODIFY:
-		updateop++;
-		opflag = SLAP_RESTRICT_OP_MODIFY;
-		break;
-	case LDAP_REQ_RENAME:
-		updateop++;
-		opflag = SLAP_RESTRICT_OP_RENAME;
-		break;
-	case LDAP_REQ_SEARCH:
-		opflag = SLAP_RESTRICT_OP_SEARCH;
-		break;
-	case LDAP_REQ_UNBIND:
-		session++;
-		opflag = 0;
-		break;
 	default:
 		rs->sr_text = "restrict operations internal error";
 		rs->sr_err = LDAP_OTHER;
@@ -1399,6 +1395,11 @@ backend_check_restrictions(
 		rs->sr_err = LDAP_UNWILLING_TO_PERFORM;
 		return rs->sr_err;
  	}
+
+	if ( r && restrictop_apply( op, r ) ) {
+		rs->sr_err = LDAP_UNWILLING_TO_PERFORM;
+		return rs->sr_err;
+	}
 
 	rs->sr_err = LDAP_SUCCESS;
 	return rs->sr_err;
@@ -1728,7 +1729,9 @@ fe_acl_attribute(
 
 	} else {
 		op->o_private = NULL;
-		rc = be_entry_get_rw( op, edn, NULL, entry_at, 0, &e );
+		rc = be_entry_get_rw( op, edn, NULL,
+				is_at_operational( entry_at->ad_type ) ? NULL : entry_at,
+				0, &e );
 		e_priv = op->o_private;
 		op->o_private = o_priv;
 	} 
@@ -1889,7 +1892,9 @@ backend_access(
 
 	} else {
 		op->o_private = NULL;
-		rc = be_entry_get_rw( op, edn, NULL, entry_at, 0, &e );
+		rc = be_entry_get_rw( op, edn, NULL,
+				is_at_operational( entry_at->ad_type ) ? NULL : entry_at,
+				0, &e );
 		e_priv = op->o_private;
 		op->o_private = o_priv;
 	} 

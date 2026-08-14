@@ -63,7 +63,11 @@ LDAP_BEGIN_DECL
 
 #define META_BACK_FCONN_INITED		(0x00100000U)
 #define META_BACK_FCONN_CREATING	(0x00200000U)
+/* connection is invalid, do not read or send, close as soon as possible */
 #define META_BACK_FCONN_INVALID	        (0x00400000U)
+/* connection is closing, do not send, but keep open for reading, reset
+   when no more data is expected */
+#define META_BACK_FCONN_CLOSING	        (0x00800000U)
 
 #define	META_BACK_CONN_INITED(lc)		LDAP_BACK_CONN_ISSET((lc), META_BACK_FCONN_INITED)
 #define	META_BACK_CONN_INITED_SET(lc)		LDAP_BACK_CONN_SET((lc), META_BACK_FCONN_INITED)
@@ -76,6 +80,10 @@ LDAP_BEGIN_DECL
 #define	META_BACK_CONN_INVALID(lc)		LDAP_BACK_CONN_ISSET((lc), META_BACK_FCONN_INVALID)
 #define	META_BACK_CONN_INVALID_SET(lc)		LDAP_BACK_CONN_SET((lc), META_BACK_FCONN_INVALID)
 #define	META_BACK_CONN_INVALID_CLEAR(lc)	LDAP_BACK_CONN_CLEAR((lc), META_BACK_FCONN_INVALID)
+#define	META_BACK_CONN_CLOSING(lc)		    LDAP_BACK_CONN_ISSET((lc), META_BACK_FCONN_CLOSING)
+#define	META_BACK_CONN_CLOSING_SET(lc)		LDAP_BACK_CONN_SET((lc), META_BACK_FCONN_CLOSING)
+#define	META_BACK_CONN_CLOSING_CLEAR(lc)	LDAP_BACK_CONN_CLEAR((lc), META_BACK_FCONN_CLOSING)
+
 
 struct a_metainfo_t;
 struct a_metaconn_t;
@@ -129,14 +137,17 @@ typedef struct a_metasingleconn_t {
 	time_t			msc_time;
 	time_t                  msc_binding_time;
 	time_t                  msc_result_time;
+	time_t               msc_reset_time;
+	time_t               msc_established_time;
 	struct berval          	msc_bound_ndn;
 	struct berval		msc_cred;
 	unsigned		msc_mscflags;
-
+	int                  msc_pending_ops;
 	/* NOTE: lc_lcflags is redefined to msc_mscflags to reuse the macros
 	 * defined for back-ldap */
 #define	lc_lcflags		msc_mscflags
 	volatile int msc_active;
+	struct a_metaconn_t        *mc;
 		/* Connection for the select */
 	Connection *conn;
 } a_metasingleconn_t;
@@ -168,6 +179,8 @@ typedef struct a_metaconn_t {
 	struct a_metainfo_t	*mc_info;
 
 	int pending_ops;
+	/* numeric id for logging and testing purposes */
+	int mc_id;
 	ldap_pvt_thread_mutex_t	mc_om_mutex;
 	/* queue for pending operations */
 	LDAP_STAILQ_HEAD(BCList, bm_context_t) mc_om_list;
@@ -238,6 +251,8 @@ typedef struct a_metacommon_t {
 	slap_retry_info_t	mc_quarantine;
 	time_t			mc_network_timeout;
 	struct timeval	mc_bind_timeout;
+	time_t          mc_conn_ttl;
+	time_t          mc_conn_reset_interval;
 #define META_BIND_TIMEOUT	LDAP_BACK_RESULT_UTIMEOUT
 	time_t			mc_timeout[ SLAP_OP_LAST ];
 } a_metacommon_t;
@@ -297,6 +312,8 @@ typedef struct a_metatarget_t {
 #define	mt_bind_timeout	mt_mc.mc_bind_timeout
 #define	mt_timeout	mt_mc.mc_timeout
 #define	mt_quarantine	mt_mc.mc_quarantine
+#define mt_conn_ttl    mt_mc.mc_conn_ttl
+#define mt_conn_reset_interval mt_mc.mc_conn_reset_interval
 
 #define	META_BACK_TGT_ISSET(mt,f)		( ( (mt)->mt_flags & (f) ) == (f) )
 #define	META_BACK_TGT_ISMASK(mt,m,f)		( ( (mt)->mt_flags & (m) ) == (f) )
@@ -335,6 +352,8 @@ typedef struct a_metatarget_t {
 #define META_BACK_CFG_MAX_TIMEOUT_LOOP		0x70000
 	slap_mask_t		mt_rep_flags;
 	int			mt_timeout_ops;
+	/* last time a connection for this target was reset */
+	time_t		    msc_reset_time;
 } a_metatarget_t;
 
 typedef struct a_metadncache_t {
@@ -358,6 +377,15 @@ typedef int (*asyncmeta_quarantine_f)( struct a_metainfo_t *, int target, void *
 
 struct meta_out_message_t;
 
+/* data for cn=monitor */
+typedef struct asyncmeta_monitor_info_t {
+	monitor_subsys_t	*mi_conn_mss;
+	monitor_subsys_t    *mi_targets_mss;
+	struct berval		mi_ndn;
+	struct berval		mi_conn_rdn;
+	struct berval		mi_targets_rdn;
+} asycnmeta_monitor_info_t;
+
 typedef struct a_metainfo_t {
 	int			mi_ntargets;
 	int			mi_defaulttarget;
@@ -371,7 +399,8 @@ typedef struct a_metainfo_t {
 #define	mi_bind_timeout	mi_mc.mc_bind_timeout
 #define	mi_timeout	mi_mc.mc_timeout
 #define	mi_quarantine	mi_mc.mc_quarantine
-
+#define mi_conn_ttl    mi_mc.mc_conn_ttl
+#define mi_conn_reset_interval mi_mc.mc_conn_reset_interval
 	a_metatarget_t		**mi_targets;
 	a_metacandidates_t	*mi_candidates;
 
@@ -420,6 +449,8 @@ typedef struct a_metainfo_t {
 	int                    mi_max_timeout_ops;
 	int                    mi_max_pending_ops;
 	int                    mi_max_target_conns;
+
+	asycnmeta_monitor_info_t mi_monitor_info;
 	/* mutex for access to the connection structures */
 	ldap_pvt_thread_mutex_t	mi_mc_mutex;
 	int                    mi_num_conns;
@@ -469,7 +500,6 @@ asyncmeta_getconn(
 	SlapReply		*rs,
 	SlapReply               *candidates,
 	int			*candidate,
-	ldap_back_send_t	sendok,
 	int                     alloc_new);
 
 
@@ -480,7 +510,6 @@ asyncmeta_init_one_conn(
 	a_metaconn_t		*mc,
 	int			candidate,
 	int			ispriv,
-	ldap_back_send_t	sendok,
 	int			dolock );
 
 extern void
@@ -620,11 +649,9 @@ int asyncmeta_back_cleanup( Operation *op, SlapReply *rs, bm_context_t *bm );
 
 int
 asyncmeta_clear_one_msc(
-	Operation	*op,
-	a_metaconn_t	*msc,
-	int		candidate,
-	int             unbind,
-	const char *          caller);
+	a_metatarget_t	*mt,
+	a_metasingleconn_t	*msc,
+	const char *caller);
 
 a_metaconn_t *
 asyncmeta_get_next_mc( a_metainfo_t *mi );
@@ -783,6 +810,19 @@ asyncmeta_target_free(a_metatarget_t *mt);
 
 void
 asyncmeta_back_clear_miconns(a_metainfo_t *mi);
+
+/* cn=monitor */
+int
+asyncmeta_back_monitor_db_init( BackendDB *be );
+
+int
+asyncmeta_back_monitor_db_open( BackendDB *be );
+
+int
+asyncmeta_back_monitor_db_close( BackendDB *be );
+
+int
+asyncmeta_back_monitor_db_destroy( BackendDB *be );
 
 /* The the maximum time in seconds after a result has been received on a connection,
  * after which it can be reset if a sender error occurs. Should this be configurable? */

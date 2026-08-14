@@ -55,11 +55,6 @@ after the
 .B overlay
 directive.
 .TP
-.B ppolicy_default <policyDN>
-Specify the DN of the pwdPolicy object to use when no specific policy is
-set on a given user's entry. If there is no specific policy for an entry
-and no default is given, then no policies will be enforced.
-.TP
 .B ppolicy_forward_updates
 Specify that policy state changes that result from Bind operations (such
 as recording failures, lockout, etc.) on a consumer should be forwarded
@@ -118,8 +113,119 @@ Note: Use of a
 is a non-standard extension to the LDAP password
 policy proposal.
 
+.HP
+.hy 0
+.B ppolicy_rules
+.B [dn[.<dnstyle>]=<DN/regex>]
+.B [require_password=yes|no]
+.B [filter=<filter str>]
+.B [group[.expand][/<objectclass>[/<attribute>]]=<DN/pattern>]
+.B no_policy|policy_dn=<policyDN>|policy_dn.expand=<pattern>
+.B [stop|continue]
+.RS
+Specify which pwdPolicy object to use when no specific policy is set on
+a given user's entry. The rules are checked in order and the
+first one to match will apply (but see the
+.B continue
+action). If a rule that specifies
+.B no_policy
+is selected or the selected
+.B policyDN
+is an entry with objectclass
+.B pwdPolicy
+but its contents are not valid, then no policies will be
+enforced.
 
-.SH OBJECT CLASS
+When checking whether a rule applies,
+.B ppolicy
+checks:
+.RS
+.IP \[bu] 2
+The entry's DN against the
+.BR dn[.<dnstyle>]
+.IP \[bu]
+If
+.B require_password
+is
+.BR yes
+(the default), presence of the password attribute (currently only
+.BR userPassword )
+.IP \[bu]
+The entry's contents against the
+.BR filter
+.IP \[bu]
+Whether it is considered a member of the group specified in
+.BR group[.expand]
+.RE
+
+All of which are optional. Matching and meaning of
+.B <dnstyle>
+and
+.B expand
+loosely follow that described in
+.BR slapd.access (5)
+except that the expansions in the pattern space are slightly more
+limited, only the
+.B $<digit>
+form is supported at the moment and only if
+.B dnstyle
+is
+.BR regex .
+It then tries to retrieve
+.B policyDN
+and check that its objectclass is
+.BR pwdPolicy .
+
+If all of the rule checks pass, behaviour depends on the
+.B action
+keyword
+.RB ( stop | continue ).
+If
+.B action
+is
+.BR stop
+(the default), processing ends here with policy that was just
+chosen (or the
+.B no_policy
+decision). If
+.B action
+is
+.BR continue ,
+the decision is remembered, processing continues and can be
+overriden by later rules.
+
+The way to configure this in
+.B cn=config
+is through child entries under the overlay entry with objectclass
+.B olcPPolicyRegexRule
+for regex-based DN matching and
+.B olcPPolicyScopedRule
+for any other
+.BR <dnstyle> .
+
+.RE
+.TP
+.B ppolicy_default <policyDN>
+Specify the DN of the pwdPolicy object to use when no specific policy is
+set on a given user's entry and none of the
+.B ppolicy_rules
+matched. If there is no specific policy for an entry and no
+default is given, then no policies will be enforced. This option
+is deprecated in favour of
+.B ppolicy_rules
+and support for it will be removed in a future release. It
+behaves as if the following rule was the first rule in
+.BR ppolicy_rules :
+.RS
+.LP
+.nf
+    ppolicy_rules policyDN=<policyDN> continue
+.fi
+.LP
+.RE
+
+
+.SH OBJECT CLASSES
 The 
 .B ppolicy
 overlay depends on the
@@ -154,9 +260,9 @@ requires a
 .B cn
 attribute, suitable as the policy entry's rDN.
 
-This implementation also provides an additional
+This implementation also provides two additional objectclasses:
 .B pwdPolicyChecker
-objectclass, used for password quality checking (see below).
+objectclass
 .LP
 .RS 4
 (  1.3.6.1.4.1.4754.2.99.1
@@ -166,6 +272,21 @@ objectclass, used for password quality checking (see below).
     MAY ( pwdCheckModule $ pwdCheckModuleArg $ pwdUseCheckModule ) )
 .RE
 .P
+used for password quality checking and
+.B pwdHashingPolicy
+objectclass
+.LP
+.RS 4
+(  1.3.6.1.4.1.4754.2.99.2
+    NAME 'pwdHashingPolicy'
+    SUP pwdPolicy
+    AUXILIARY
+    MAY ( pwdDefaultHash $ pwdRehashOnBind ) )
+.RE
+.P
+for more fine-grained control over password hashing. See specific attributes
+below for usage.
+
 Every account that should be subject to password policy control should
 have a
 .B
@@ -731,6 +852,40 @@ attribute is now obsolete and is ignored.
    SINGLE\-VALUE )
 .RE
 
+.B pwdDefaultHash
+.P
+If specified, this attribute overrides the configured default password hash for
+objects that are governed by this policy.
+.LP
+.RS 4
+(  1.3.6.1.4.1.4754.1.99.4
+   NAME 'pwdDefaultHash'
+   EQUALITY caseIgnoreMatch
+   SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+   DESC 'Per policy default hash setting'
+   SINGLE\-VALUE )
+.RE
+
+.B pwdRehashOnBind
+.P
+This attribute denotes whether the user's existing password should be
+rehashed. If
+.B pwdReset
+is set to "TRUE",
+.B pwdDefaultHash
+is set to a known password hash and a Simple Bind succeeds, the entry's
+userPassword is replaced with a version using that hash.
+.LP
+.RS 4
+(  1.3.6.1.4.1.4754.1.99.5
+   NAME 'pwdRehashOnBind'
+   EQUALITY booleanMatch
+   SYNTAX 1.3.6.1.4.1.1466.115.121.1.7
+   DESC 'On successful Simple Bind, rehash password
+        with default hash if different'
+   SINGLE\-VALUE )
+.RE
+
 .SH OPERATIONAL ATTRIBUTES
 .P
 The operational attributes used by the
@@ -771,16 +926,24 @@ its definition.
 This attribute refers directly to the
 .B pwdPolicy
 subentry that is to be used for this particular directory user.
-If
-.B pwdPolicySubentry
-exists, it must contain the DN of a valid
+Every account that should be subject to password policy control will
+have a
+.B
+pwdPolicySubentry
+attribute containing the DN of a
 .B pwdPolicy
-object.  If it does not exist, the
-.B ppolicy
-module will enforce the default password policy rules on the
-user associated with this authenticating DN. If there is no
-default, or the referenced subentry does not exist, then no
-policy rules will be enforced.
+entry. The module will use the one stored in the DB if it
+exists, otherwise it will attempt to derive the correct policy to
+apply based on the rules it has been configured with, see
+.BR ppolicy_rules / olcPPolicyScopedRule / olcPPolicyRegexRule
+configuration options. In this way different users may be managed
+according to configurable policies. The value of the effective
+policy DN will be returned if requested in a search request but
+this is a virtual attribute and is
+.B not
+usable in a filter. Modifying/adding this attribute directly is
+.B deprecated
+and the ability to do so will be removed in a future release.
 .LP
 .RS 4
 (  1.3.6.1.4.1.42.2.27.8.1.23

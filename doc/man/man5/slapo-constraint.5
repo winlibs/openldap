@@ -21,28 +21,31 @@ It constrains only LDAP \fIadd\fP, \fImodify\fP and \fIrename\fP commands
 and only seeks to control the \fIadd\fP and \fIreplace\fP values
 of \fImodify\fP and \fIrename\fP requests.
 .LP
-No constraints are applied for operations performed with the
+Constraints can be lifted for operations where the
 .I relax
-control set.
+control is set and the user has
+.B manage
+privileges to the relevant attribute.
 .SH CONFIGURATION
-This
+These
 .B slapd.conf
-option applies to the constraint overlay.
-It should appear after the
+options apply to the constraint overlay. They should appear after the
 .B overlay
 directive.
 .TP
 .B constraint_attribute <attribute_name>[,...] <type> <value> [<extra> [...]]
 Specifies the constraint which should apply to the comma-separated
 attribute list named as the first parameter.
-Six types of constraint are currently supported -
+Eight types of constraint are currently supported -
 .BR regex ,
 .BR negregex ,
 .BR size ,
 .BR count ,
 .BR uri ,
+.BR neguri ,
+.BR set ,
 and
-.BR set .
+.BR negset .
 
 The parameter following the
 .B regex
@@ -52,12 +55,16 @@ type is a Unix style regular expression (See
 .BR regex (7)
 ). The parameter following the
 .B uri
+or
+.B neguri
 type is an LDAP URI. The URI will be evaluated using an internal search.
 It must not include a hostname, and it must include a list of attributes
 to evaluate.
 
 The parameter following the
 .B set
+or
+.B negset
 type is a string that is interpreted according to the syntax in use
 for ACL sets.  This allows one to construct constraints based on the contents
 of the entry.
@@ -94,11 +101,27 @@ is present; it defaults to
 The other parameters of the URI are not allowed.
 .RE
 
+.TP
+.B constraint_allowempty FALSE | TRUE
+Historically,
+.B slapo-constraint
+rejected Modify/Add requests with an empty sequence of modifications. This was
+not intentional and if this option is
+.BR TRUE ,
+such modifications will be allowed so long as they are otherwise valid.
+The default is
+.B FALSE
+to maintain backwards compatibility.
+
 .LP
 Any attempt to add or modify an attribute named as part of the
 constraint overlay specification which does not fit the 
 constraint listed will fail with a
-LDAP_CONSTRAINT_VIOLATION error.
+LDAP_CONSTRAINT_VIOLATION error unless the
+.I relax
+control was set and the user has
+.B manage
+privilege on the attribute in question.
 .SH EXAMPLES
 .LP
 .RS
@@ -110,6 +133,8 @@ constraint_attribute mail regex ^[[:alnum:]]+@mydomain.com$
 constraint_attribute mail negregex ^[[:alnum:]]+@notallowed.com$
 constraint_attribute title uri
   ldap:///dc=catalog,dc=example,dc=com?title?sub?(objectClass=titleCatalog)
+constraint_attribute cn neguri
+  ldap:///ou=People,dc=example,dc=com?cn,sn?sub?(objectClass=inetOrgPerson)
 constraint_attribute cn,sn,givenName set
   "(this/givenName + [ ] + this/sn) & this/cn"
   restrict="ldap:///ou=People,dc=example,dc=com??sub?(objectClass=inetOrgPerson)"
@@ -133,6 +158,22 @@ entries in the given scope. (Note that the
 in a separate database, otherwise the initial set of
 titleCatalog entries could not be populated while the
 constraint is in effect.)
+With the type "neguri" (negated "uri"), it would
+ensure uniqueness of one (or more) attributes against one (or
+more) other attributes. A specification like the above
+would reject any
+.B cn
+attributes whose
+.B any
+values
+.B was already listed
+in another
+.B cn
+or
+.B sn
+attributes of any
+.B inetOrgPerson
+entries in the given scope.
 Finally, it requires the values of the attribute
 .B cn
 to be constructed by pairing values of the attributes
@@ -141,6 +182,8 @@ and
 .BR givenName ,
 separated by a space, but only for entries derived from the objectClass
 .BR inetOrgPerson .
+Should the type "negset" have been used instead of "set", the
+condition would have been reversed.
 .RE
 .SH FILES
 .TP

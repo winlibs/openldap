@@ -25,8 +25,7 @@
 #endif
 # include <time.h>
 
-#if defined(_WIN32) && !defined(HAVE_CLOCK_GETTIME) && \
-	( !defined(_MSC_VER) || _MSC_VER < 1900 )
+#if defined(_WIN32) && !defined(HAVE_CLOCK_GETTIME)
 	struct timespec {
 		time_t	tv_sec;
 		int 	tv_nsec;

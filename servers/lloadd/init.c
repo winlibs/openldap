@@ -35,8 +35,6 @@
 #include "lload.h"
 #include "lber_pvt.h"
 
-#include "ldap_rq.h"
-
 #ifndef BALANCER_MODULE
 /*
  * read-only global variables or variables only written by the listener
@@ -114,10 +112,15 @@ lload_global_destroy( void )
         ch_free( lloadd_identity.bv_val );
         BER_BVZERO( &lloadd_identity );
     }
+    lload_bindconf_free( &bindconf );
 
     lload_exop_destroy();
     ldap_tavl_free( lload_control_actions, (AVL_FREE)lload_restriction_free );
     ldap_tavl_free( lload_exop_actions, (AVL_FREE)lload_restriction_free );
+
+    lloadd_listeners_destroy();
+    /* All closed at shutdown but tools don't go through shutdown */
+    lload_tiers_destroy();
 
 #ifdef HAVE_TLS
     if ( lload_tls_backend_ld ) {
@@ -194,10 +197,6 @@ lload_init( int mode, const char *name )
 
             ldap_pvt_thread_pool_init_q( &connection_pool, connection_pool_max,
                     0, connection_pool_queues );
-
-            ldap_pvt_thread_mutex_init( &slapd_rq.rq_mutex );
-            LDAP_STAILQ_INIT( &slapd_rq.task_list );
-            LDAP_STAILQ_INIT( &slapd_rq.run_list );
 
             rc = lload_global_init();
             break;

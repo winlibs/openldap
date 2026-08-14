@@ -89,7 +89,7 @@ static char *v2ref( BerVarray ref, const char *text )
 		}
 	}
 	
-	if ( text != NULL ) {
+	if ( text != NULL && *text != '\0' ) {
 		len = strlen( text );
 		if (text[len-1] != '\n') {
 		    i = 1;
@@ -107,7 +107,8 @@ static char *v2ref( BerVarray ref, const char *text )
 	strcpy( v2+len, "Referral:" );
 	len += sizeof("Referral:");
 
-	for( i=0; ref[i].bv_val != NULL; i++ ) {
+	for( i=0; !BER_BVISNULL( &ref[i] ) ; i++ ) {
+		if ( BER_BVISEMPTY( &ref[i] ) ) continue;
 		v2 = ch_realloc( v2, len + ref[i].bv_len + 1 );
 		v2[len-1] = '\n';
 		AC_MEMCPY(&v2[len], ref[i].bv_val, ref[i].bv_len );
@@ -505,7 +506,7 @@ send_ldap_controls( Operation *o, BerElement *ber, LDAPControl **c )
 
 #ifdef SLAP_CONTROL_X_SORTEDRESULTS
 	/* this is a hack to avoid having to modify op->s_ctrls */
-	if( o->o_sortedresults ) {
+	if ( wants_sortedresults( o ) ) {
 		BerElementBuffer berbuf;
 		BerElement *sber = (BerElement *) &berbuf;
 		LDAPControl sorted;
@@ -816,7 +817,7 @@ clean2:;
 	if ( rs->sr_flags & REP_CTRLS_MUSTBEFREED ) {
 		rs->sr_flags ^= REP_CTRLS_MUSTBEFREED; /* paranoia */
 		if ( rs->sr_ctrls ) {
-			slap_free_ctrls( op, rs->sr_ctrls );
+			op->o_tmpfree( rs->sr_ctrls, op->o_tmpmemctx );
 			rs->sr_ctrls = NULL;
 		}
 	}
@@ -874,9 +875,23 @@ slap_send_ldap_result( Operation *op, SlapReply *rs )
 
 	rs->sr_type = REP_RESULT;
 
+	assert( rs->sr_err != LDAP_PARTIAL_RESULTS );
+
+	if ( rs->sr_err == LDAP_REFERRAL ) {
+		if ( wants_domainScope( op ) ) rs->sr_ref = NULL;
+
+		if( rs->sr_ref == NULL ) {
+			rs->sr_err = LDAP_NO_SUCH_OBJECT;
+		} else if ( op->o_protocol < LDAP_VERSION3 ) {
+			rs->sr_err = LDAP_PARTIAL_RESULTS;
+		}
+	}
+
 	/* Propagate Abandons so that cleanup callbacks can be processed */
 	if ( rs->sr_err == SLAPD_ABANDON || op->o_abandon )
 		goto abandon;
+
+	assert( !LDAP_API_ERROR( rs->sr_err ) );
 
 	Debug( LDAP_DEBUG_TRACE,
 		"send_ldap_result: %s p=%d\n",
@@ -889,18 +904,6 @@ slap_send_ldap_result( Operation *op, SlapReply *rs )
 		Debug( LDAP_DEBUG_ARGS,
 			"send_ldap_result: referral=\"%s\"\n",
 			rs->sr_ref[0].bv_val ? rs->sr_ref[0].bv_val : "NULL" );
-	}
-	assert( !LDAP_API_ERROR( rs->sr_err ) );
-	assert( rs->sr_err != LDAP_PARTIAL_RESULTS );
-
-	if ( rs->sr_err == LDAP_REFERRAL ) {
-		if( op->o_domain_scope ) rs->sr_ref = NULL;
-
-		if( rs->sr_ref == NULL ) {
-			rs->sr_err = LDAP_NO_SUCH_OBJECT;
-		} else if ( op->o_protocol < LDAP_VERSION3 ) {
-			rs->sr_err = LDAP_PARTIAL_RESULTS;
-		}
 	}
 
 	if ( op->o_protocol < LDAP_VERSION3 ) {
@@ -1210,7 +1213,7 @@ slap_send_search_entry( Operation *op, SlapReply *rs )
 					if ( !SLAP_OPATTRS( rs->sr_attr_flags ))
 						continue;
 					/* if DSA-specific and replicating, skip */
-					if ( op->o_sync != SLAP_CONTROL_NONE &&
+					if ( wants_sync( op ) &&
 						desc->ad_type->sat_usage == LDAP_SCHEMA_DSA_OPERATION )
 						continue;
 				}
@@ -1376,7 +1379,7 @@ slap_send_search_entry( Operation *op, SlapReply *rs )
 					continue;
 				}
 				/* if DSA-specific and replicating, skip */
-				if ( op->o_sync != SLAP_CONTROL_NONE &&
+				if ( wants_sync( op ) &&
 					desc->ad_type->sat_usage == LDAP_SCHEMA_DSA_OPERATION )
 					continue;
 			} else {
@@ -1543,7 +1546,7 @@ error_return:;
 	if ( rs->sr_flags & REP_CTRLS_MUSTBEFREED ) {
 		rs->sr_flags ^= REP_CTRLS_MUSTBEFREED; /* paranoia */
 		if ( rs->sr_ctrls ) {
-			slap_free_ctrls( op, rs->sr_ctrls );
+			op->o_tmpfree( rs->sr_ctrls, op->o_tmpmemctx );
 			rs->sr_ctrls = NULL;
 		}
 	}
@@ -1594,7 +1597,7 @@ slap_send_search_reference( Operation *op, SlapReply *rs )
 		goto rel;
 	}
 
-	if( op->o_domain_scope ) {
+	if ( wants_domainScope( op ) ) {
 		Debug( LDAP_DEBUG_ANY,
 			"send_search_reference: domainScope control in (%s)\n", 
 			edn );
@@ -1701,7 +1704,7 @@ rel:
 	if ( rs->sr_flags & REP_CTRLS_MUSTBEFREED ) {
 		rs->sr_flags ^= REP_CTRLS_MUSTBEFREED; /* paranoia */
 		if ( rs->sr_ctrls ) {
-			slap_free_ctrls( op, rs->sr_ctrls );
+			op->o_tmpfree( rs->sr_ctrls, op->o_tmpmemctx );
 			rs->sr_ctrls = NULL;
 		}
 	}
@@ -1719,7 +1722,7 @@ str2result(
 	int	rc;
 	char	*c;
 
-	*code = LDAP_SUCCESS;
+	*code = LDAP_OTHER;
 	*matched = NULL;
 	*info = NULL;
 

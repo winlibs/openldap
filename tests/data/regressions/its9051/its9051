@@ -38,7 +38,18 @@ echo "Initializing server configuration for provider..."
 mkdir -p ${XDIR} $DBDIR.1 $DBDIR.2 $CFDIR
 . $CONFFILTER $BACKEND < $ITSDIR/slapd-provider.ldif > $CONFLDIF
 $SLAPADD -F $CFDIR -n 0 -l $CONFLDIF
+RC=$?
+if test $RC != 0 ; then
+	echo "slapadd failed ($RC)!"
+	exit $RC
+fi
+
 $SLAPADD -F $CFDIR -q -b $BASEDN -l $ITSDIR/db.ldif
+RC=$?
+if test $RC != 0 ; then
+	echo "slapadd failed ($RC)!"
+	exit $RC
+fi
 
 KILLPIDS=
 CFDIR=${XDIR}/slapd.d
@@ -163,7 +174,7 @@ echo "Exporting accesslog database..."
 $SLAPCAT -F $CFDIR -b cn=accesslog -l $TESTDIR/accesslogdb.ldif
 RC=$?
 
-test $KILLSERVERS != no && kill -HUP $KILLPIDS
+test $KILLSERVERS != no && { kill -HUP $KILLPIDS || exit $?; }
 
 # 1 root entry, 2 binds, 3 searches, 1 compare
 count=7
@@ -180,6 +191,6 @@ else
     fi
 fi
 
-test $KILLSERVERS != no && wait
+test $KILLSERVERS != no && { wait $KILLPIDS || exit $?; }
 
 exit $RC

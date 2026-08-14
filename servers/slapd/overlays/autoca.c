@@ -44,8 +44,12 @@
 
 #if OPENSSL_VERSION_NUMBER >= 0x10100000
 #include <openssl/rsa.h>
+#ifndef X509_get_notBefore
 #define X509_get_notBefore(x)	X509_getm_notBefore(x)
+#endif
+#ifndef X509_get_notAfter
 #define X509_get_notAfter(x)	X509_getm_notAfter(x)
+#endif
 #endif
 
 #if OPENSSL_VERSION_MAJOR >= 3
@@ -272,7 +276,8 @@ typedef struct genargs {
 
 static int autoca_gencert( Operation *op, genargs *args )
 {
-	X509_NAME *subj_name, *issuer_name;
+	X509_NAME *subj_name;
+	const X509_NAME *issuer_name;
 	X509 *subj_cert;
 	struct berval derdn;
 	unsigned char *pp;
@@ -661,6 +666,7 @@ static int autoca_cf( ConfigArgs *c )
 				else
 					rc = 1;
 			}
+			ch_free( c->value_string );
 			break;
 		case ACA_SRVCLASS:
 			{
@@ -670,6 +676,7 @@ static int autoca_cf( ConfigArgs *c )
 				else
 					rc = 1;
 			}
+			ch_free( c->value_string );
 			break;
 		case ACA_USRKEYBITS:
 			if ( c->value_int < MIN_KEYBITS )
@@ -704,6 +711,8 @@ static int autoca_cf( ConfigArgs *c )
 					"suffix must be set" );
 				Debug( LDAP_DEBUG_CONFIG, "autoca_config: %s\n",
 					c->cr_msg );
+				ch_free( c->value_dn.bv_val );
+				ch_free( c->value_ndn.bv_val );
 				rc = ARG_BAD_CONF;
 				break;
 			}
@@ -712,6 +721,8 @@ static int autoca_cf( ConfigArgs *c )
 					"DN is not a subordinate of backend" );
 				Debug( LDAP_DEBUG_CONFIG, "autoca_config: %s\n",
 					c->cr_msg );
+				ch_free( c->value_dn.bv_val );
+				ch_free( c->value_ndn.bv_val );
 				rc = ARG_BAD_CONF;
 				break;
 			}
@@ -798,6 +809,40 @@ static ConfigOCs autoca_ocs[] = {
 };
 
 static int
+autoca_set_extras(
+	Operation *op,
+	Attribute *a,
+	struct berval *tag,
+	myext *extras
+)
+{
+	char *ptr;
+	int i;
+	int len = 0;
+	for ( i=0; i<a->a_numvals; i++ ) {
+		if (strchr(a->a_vals[i].bv_val, ',')) {
+			Debug( LDAP_DEBUG_TRACE, "autoca_set_extras: illegal characters in %s\n",
+				a->a_desc->ad_cname.bv_val );
+			return SLAP_CB_CONTINUE;
+		}
+		len += a->a_vals[i].bv_len;
+	}
+	len += ( tag->bv_len+1 ) * a->a_numvals;
+
+	extras[0].name = "subjectAltName";
+	extras[1].name = NULL;
+	extras[0].value = op->o_tmpalloc( len, op->o_tmpmemctx );
+	ptr = extras[0].value;
+	for ( i=0; i<a->a_numvals; i++ ) {
+		if ( i )
+			*ptr++ = ',';
+		ptr = lutil_strcopy( ptr, tag->bv_val );
+		ptr = lutil_strcopy( ptr, a->a_vals[i].bv_val );
+	}
+	return 0;
+}
+
+static int
 autoca_op_response(
 	Operation *op,
 	SlapReply *rs
@@ -843,10 +888,10 @@ autoca_op_response(
 			a = attr_find( rs->sr_entry->e_attrs, ad_mail );
 			if ( a )
 			{
-				extras[0].name = "subjectAltName";
-				extras[1].name = NULL;
-				extras[0].value = op->o_tmpalloc( sizeof("email:") + a->a_vals[0].bv_len, op->o_tmpmemctx );
-				sprintf(extras[0].value, "email:%s", a->a_vals[0].bv_val);
+				struct berval bv = BER_BVC("email:");
+				rc = autoca_set_extras( op, a, &bv, extras );
+				if ( rc )
+					return rc;
 				args.more_exts = extras;
 			}
 		} else
@@ -856,10 +901,10 @@ autoca_op_response(
 			args.days = ai->ai_srvdays;
 			if ( ad_ipaddr && (a = attr_find( rs->sr_entry->e_attrs, ad_ipaddr )))
 			{
-				extras[0].name = "subjectAltName";
-				extras[1].name = NULL;
-				extras[0].value = op->o_tmpalloc( sizeof("IP:") + a->a_vals[0].bv_len, op->o_tmpmemctx );
-				sprintf(extras[0].value, "IP:%s", a->a_vals[0].bv_val);
+				struct berval bv = BER_BVC("IP:");
+				rc = autoca_set_extras( op, a, &bv, extras );
+				if ( rc )
+					return rc;
 				args.more_exts = extras;
 			}
 		}
@@ -960,6 +1005,10 @@ autoca_db_destroy(
 		X509_free( ai->ai_cert );
 	if ( ai->ai_pkey )
 		EVP_PKEY_free( ai->ai_pkey );
+	if ( ai->ai_localdn.bv_val ) {
+		ch_free( ai->ai_localdn.bv_val );
+		ch_free( ai->ai_localndn.bv_val );
+	}
 	ch_free( ai );
 
 	return 0;

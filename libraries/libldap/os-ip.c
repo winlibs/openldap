@@ -287,8 +287,8 @@ ldap_int_poll(
 	int		rc;
 		
 
-	Debug2(LDAP_DEBUG_TRACE, "ldap_int_poll: fd: %d tm: %ld\n",
-		s, tvp ? tvp->tv_sec : -1L );
+	Debug2(LDAP_DEBUG_TRACE, "ldap_int_poll: fd: %d tm: %lld\n",
+		s, (long long)(tvp ? tvp->tv_sec : -1L) );
 
 #ifdef HAVE_POLL
 	{
@@ -439,8 +439,8 @@ ldap_pvt_connect(LDAP *ld, ber_socket_t s,
 	}
 
 	Debug3(LDAP_DEBUG_TRACE,
-			"ldap_pvt_connect: fd: %d tm: %ld async: %d\n",
-			s, opt_tv ? tv.tv_sec : -1L, async);
+			"ldap_pvt_connect: fd: %d tm: %lld async: %d\n",
+			s, (long long)(opt_tv ? tv.tv_sec : -1L), async);
 
 	if ( opt_tv && ldap_pvt_ndelay_on(ld, s) == -1 )
 		return ( -1 );
@@ -632,6 +632,7 @@ ldap_connect_to_host(LDAP *ld, Sockbuf *sb,
 		Debug1(LDAP_DEBUG_TRACE,
 			"ldap_connect_to_host: unknown proto: %d\n",
 			proto );
+		ld->ld_errno = LDAP_X_SERVER_UNKNOWN;
 		return -1;
 	}
 
@@ -653,9 +654,14 @@ ldap_connect_to_host(LDAP *ld, Sockbuf *sb,
 	LDAP_MUTEX_UNLOCK(&ldap_int_resolv_mutex);
 
 	if ( err != 0 ) {
+		if ( ld->ld_error )
+			LDAP_FREE( ld->ld_error );
+		ld->ld_error = LDAP_STRDUP( AC_GAI_STRERROR( err ));
 		Debug1(LDAP_DEBUG_TRACE,
 			"ldap_connect_to_host: getaddrinfo failed: %s\n",
-			AC_GAI_STRERROR(err) );
+			ld->ld_error );
+		ld->ld_errno = LDAP_X_SERVER_UNKNOWN;
+
 		return -1;
 	}
 	rc = -1;
@@ -768,10 +774,16 @@ ldap_connect_to_host(LDAP *ld, Sockbuf *sb,
 #ifdef HAVE_WINSOCK
 			ldap_pvt_set_errno( WSAGetLastError() );
 #else
+#ifdef HAVE_HSTRERROR
+			if ( ld->ld_error )
+				LDAP_FREE( ld->ld_error );
+			ld->ld_error = LDAP_STRDUP( h_strerror( local_h_errno ));
+#endif
 			/* not exactly right, but... */
 			ldap_pvt_set_errno( EHOSTUNREACH );
 #endif
 			if (ha_buf) LDAP_FREE(ha_buf);
+			ld->ld_errno = LDAP_X_SERVER_UNKNOWN;
 			return -1;
 		}
 
@@ -890,6 +902,8 @@ ldap_host_connected_to( Sockbuf *sb, const char *host )
 	 * this is necessary for kerberos to work right, since the official
 	 * hostname is used as the kerberos instance.
 	 */
+	if ( !ldap_int_hostname )
+		ldap_int_resolve_hostname();
 
 	switch (sa->sa_family) {
 #ifdef LDAP_PF_LOCAL

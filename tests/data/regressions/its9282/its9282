@@ -56,6 +56,12 @@ while [ $n -le $MMR ]; do
 	fi
 	sed -e "s/@SID@/$n/g" -e "s|@URI@|$MYURI|g" $TESTDIR/config${n}.ldif > $CONFLDIF
 	$SLAPADD -F $CFDIR -n 0 -l $CONFLDIF
+	RC=$?
+	if test $RC != 0 ; then
+		echo "slapadd failed ($RC)!"
+		exit $RC
+	fi
+
 	n=`expr $n + 1`
 done
 
@@ -160,7 +166,7 @@ fi
 
 echo -n "Stopping MMR1 slapd..."
 kill -HUP $MPID
-wait $MPID
+wait $MPID || { kill -HUP $KILLPIDS; exit 1; }
 KILLPIDS=`echo "$KILLPIDS " | sed -e "s/ $MPID / /"`;
 sleep $SLEEP2
 echo "done"
@@ -258,10 +264,10 @@ if test $RC != 0 ; then
     exit $RC
 fi
 
-test $KILLSERVERS != no && kill -HUP $KILLPIDS
+test $KILLSERVERS != no && { kill -HUP $KILLPIDS || exit $?; }
 
 echo ">>>>> Test succeeded"
 
-test $KILLSERVERS != no && wait
+test $KILLSERVERS != no && { wait $KILLPIDS || exit $?; }
 
 exit 0

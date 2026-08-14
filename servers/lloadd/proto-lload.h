@@ -62,7 +62,11 @@ LDAP_SLAPD_F (int) request_abandon( LloadConnection *c, LloadOperation *op );
 LDAP_SLAPD_F (int) request_process( LloadConnection *c, LloadOperation *op );
 LDAP_SLAPD_F (int) handle_one_request( LloadConnection *c );
 LDAP_SLAPD_F (void) client_tls_handshake_cb( evutil_socket_t s, short what, void *arg );
-LDAP_SLAPD_F (LloadConnection *) client_init( ber_socket_t s, const char *peername, struct event_base *base, int use_tls );
+LDAP_SLAPD_F (LloadConnection *) client_init( ber_socket_t s,
+        LloadListenerSocket *ls,
+        struct berval *peername,
+        struct event_base *base,
+        int use_tls );
 LDAP_SLAPD_F (void) client_reset( LloadConnection *c );
 LDAP_SLAPD_F (void) client_destroy( LloadConnection *c );
 LDAP_SLAPD_F (void) clients_destroy( int gentle );
@@ -76,8 +80,12 @@ LDAP_SLAPD_F (void) lload_config_destroy( void );
 LDAP_SLAPD_F (int) verb_to_mask( const char *word, slap_verbmasks *v );
 LDAP_SLAPD_F (int) lload_tls_get_config( LDAP *ld, int opt, char **val );
 LDAP_SLAPD_F (void) lload_bindconf_tls_defaults( slap_bindconf *bc );
-LDAP_SLAPD_F (int) lload_backend_parse( const char *word, LloadBackend *b );
-LDAP_SLAPD_F (int) lload_bindconf_parse( const char *word, slap_bindconf *bc );
+LDAP_SLAPD_F (int) lload_backend_parse( struct config_args_s *c,
+        const char *word,
+        LloadBackend *b );
+LDAP_SLAPD_F (int) lload_bindconf_parse( struct config_args_s *c,
+        const char *word,
+        slap_bindconf *bc );
 LDAP_SLAPD_F (int) lload_bindconf_unparse( slap_bindconf *bc, struct berval *bv );
 LDAP_SLAPD_F (int) lload_bindconf_tls_set( slap_bindconf *bc, LDAP *ld );
 LDAP_SLAPD_F (void) lload_bindconf_free( slap_bindconf *bc );
@@ -94,7 +102,10 @@ LDAP_SLAPD_F (void *) handle_pdus( void *ctx, void *arg );
 LDAP_SLAPD_F (void) connection_write_cb( evutil_socket_t s, short what, void *arg );
 LDAP_SLAPD_F (void) connection_read_cb( evutil_socket_t s, short what, void *arg );
 LDAP_SLAPD_F (int) lload_connection_close( LloadConnection *c, void *arg );
-LDAP_SLAPD_F (LloadConnection *) lload_connection_init( ber_socket_t s, const char *peername, int use_tls );
+LDAP_SLAPD_F (LloadConnection *) lload_connection_init( ber_socket_t s,
+        struct berval *localname,
+        struct berval *peername,
+        int use_tls );
 LDAP_SLAPD_F (void) connection_destroy( LloadConnection *c );
 LDAP_SLAPD_F (void) connections_walk_last( ldap_pvt_thread_mutex_t *cq_mutex,
         lload_c_head *cq,
@@ -106,8 +117,10 @@ LDAP_SLAPD_F (void) connections_walk( ldap_pvt_thread_mutex_t *cq_mutex, lload_c
 /*
  * daemon.c
  */
-LDAP_SLAPD_F (int) lload_open_new_listener( const char *urls, LDAPURLDesc *lud );
+LDAP_SLAPD_F (LloadListener *) lload_configure_listener( const char *url, LDAPURLDesc *lud );
+LDAP_SLAPD_F (int) lload_open_new_listener( LloadListener *lr );
 LDAP_SLAPD_F (int) lloadd_listeners_init( const char *urls );
+LDAP_SLAPD_F (void) lloadd_listeners_destroy( void );
 LDAP_SLAPD_F (int) lloadd_daemon_destroy( void );
 LDAP_SLAPD_F (int) lloadd_daemon( struct event_base *daemon_base );
 LDAP_SLAPD_F (LloadListener **) lloadd_get_listeners( void );
@@ -220,11 +233,15 @@ LDAP_SLAPD_F (int) lload_upstream_entry_cmp( const void *l, const void *r );
 LDAP_SLAPD_F (int) forward_final_response( LloadConnection *client, LloadOperation *op, BerElement *ber );
 LDAP_SLAPD_F (int) forward_response( LloadConnection *client, LloadOperation *op, BerElement *ber );
 LDAP_SLAPD_F (void *) upstream_bind( void *ctx, void *arg );
-LDAP_SLAPD_F (LloadConnection *) upstream_init( ber_socket_t s, LloadBackend *b );
+LDAP_SLAPD_F (LloadConnection *) upstream_init( ber_socket_t s,
+        struct berval *localbv,
+        struct berval *peerbv,
+        LloadBackend *b );
 LDAP_SLAPD_F (void) upstream_destroy( LloadConnection *c );
 
 LDAP_SLAPD_V (ber_len_t) sockbuf_max_incoming_client;
 LDAP_SLAPD_V (ber_len_t) sockbuf_max_incoming_upstream;
+LDAP_SLAPD_V (ber_len_t) sockbuf_max_pending_client;
 LDAP_SLAPD_V (int) lload_conn_max_pdus_per_cycle;
 
 LDAP_SLAPD_V (int) lload_write_coherence;

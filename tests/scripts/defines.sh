@@ -15,7 +15,11 @@
 
 umask 077
 
-TESTWD=`pwd`
+OS_WINDOWS=${AC_OS_WINDOWS-no}
+case "$OS_WINDOWS" in
+yes)	TESTWD=`pwd -W` ;;
+*)	TESTWD=`pwd` ;;
+esac
 
 if [ -z "$STARTTIME" ]; then
     STARTTIME=$(date +%s)
@@ -30,15 +34,14 @@ if [ -n "$TESTINST" ]; then
 	BASEPORT=`expr $BASEPORT + $TESTINST \* 10`
 fi
 
+. "$OBJDIR"/tests/AC_defs.sh
+
 # backends
 BACKLDAP=${AC_ldap-ldapno}
 BACKMETA=${AC_meta-metano}
 BACKASYNCMETA=${AC_asyncmeta-asyncmetano}
 BACKPERL=${AC_perl-perlno}
 BACKRELAY=${AC_relay-relayno}
-BACKSQL=${AC_sql-sqlno}
-	RDBMS=${SLAPD_USE_SQL-rdbmsno}
-	RDBMSWRITE=${SLAPD_USE_SQLWRITE-no}
 
 # overlays
 ACCESSLOG=${AC_accesslog-accesslogno}
@@ -103,7 +106,6 @@ DBDIR3=$TESTDIR/db.3.a
 DBDIR4=$TESTDIR/db.4.a
 DBDIR5=$TESTDIR/db.5.a
 DBDIR6=$TESTDIR/db.6.a
-SQLCONCURRENCYDIR=$DATADIR/sql-concurrency
 
 CLIENTDIR="$OBJDIR/clients/tools"
 #CLIENTDIR=/usr/local/bin
@@ -154,14 +156,14 @@ CHAINCONF1=$DATADIR/slapd-chain1.conf
 CHAINCONF2=$DATADIR/slapd-chain2.conf
 GLUESYNCCONF1=$DATADIR/slapd-glue-syncrepl1.conf
 GLUESYNCCONF2=$DATADIR/slapd-glue-syncrepl2.conf
-SQLCONF=$DATADIR/slapd-sql.conf
-SQLSRPROVIDERCONF=$DATADIR/slapd-sql-syncrepl-provider.conf
 TRANSLUCENTLOCALCONF=$DATADIR/slapd-translucent-local.conf
 TRANSLUCENTREMOTECONF=$DATADIR/slapd-translucent-remote.conf
 METACONF=$DATADIR/slapd-meta.conf
 METACONF1=$DATADIR/slapd-meta-target1.conf
 METACONF2=$DATADIR/slapd-meta-target2.conf
 ASYNCMETACONF=$DATADIR/slapd-asyncmeta.conf
+ASYNCMETACONF2=$DATADIR/slapd-asyncmeta-conttl.conf
+ASYNCMETACONF3=$DATADIR/slapd-asyncmeta-nod.conf
 GLUELDAPCONF=$DATADIR/slapd-glue-ldap.conf
 ACICONF=$DATADIR/slapd-aci.conf
 VALSORTCONF=$DATADIR/slapd-valsort.conf
@@ -341,7 +343,6 @@ LDIFTRANSLUCENTMERGED=$DATADIR/test-translucent-merged.ldif
 LDIFMETA=$DATADIR/test-meta.ldif
 LDIFDEREF=$DATADIR/test-deref.ldif
 LDIFVALSORT=$DATADIR/test-valsort.ldif
-SQLADD=$DATADIR/sql-add.ldif
 LDIFUNORDERED=$DATADIR/test-unordered.ldif
 LDIFREORDERED=$DATADIR/test-reordered.ldif
 LDIFMODIFY=$DATADIR/test-modify.ldif
@@ -448,8 +449,6 @@ CHAINOUT=$DATADIR/chain.out
 CHAINREFOUT=$DATADIR/chainref.out
 CHAINMODOUT=$DATADIR/chainmod.out
 GLUESYNCOUT=$DATADIR/gluesync.out
-SQLREAD=$DATADIR/sql-read.out
-SQLWRITE=$DATADIR/sql-write.out
 TRANSLUCENTOUT=$DATADIR/translucent.search.out
 METAOUT=$DATADIR/meta.out
 METACONCURRENCYOUT=$DATADIR/metaconcurrency.out

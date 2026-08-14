@@ -82,6 +82,7 @@ typedef struct log_info {
 	log_base *li_bases;
 	BerVarray li_mincsn;
 	int *li_sids, li_numcsns;
+	int li_yield_factor;
 
 	/*
 	 * Allow partial concurrency, main operation processing serialised with
@@ -106,7 +107,8 @@ enum {
 	LOG_SUCCESS,
 	LOG_OLD,
 	LOG_OLDATTR,
-	LOG_BASE
+	LOG_BASE,
+	LOG_YIELD_FACTOR
 };
 
 static ConfigTable log_cfats[] = {
@@ -141,12 +143,17 @@ static ConfigTable log_cfats[] = {
 			"DESC 'Log old values of these attributes even if unmodified' "
 			"EQUALITY caseIgnoreMatch "
 			"SYNTAX OMsDirectoryString )", NULL, NULL },
-	{ "logbase", "op|writes|reads|session|all< <baseDN", 3, 3, 0,
+	{ "logbase", "op|writes|reads|session|all> <baseDN", 3, 3, 0,
 		ARG_MAGIC|LOG_BASE,
 		log_cf_gen, "( OLcfgOvAt:4.7 NAME 'olcAccessLogBase' "
 			"DESC 'Operation types to log under a specific branch' "
 			"EQUALITY caseIgnoreMatch "
 			"SYNTAX OMsDirectoryString )", NULL, NULL },
+	{ "logpurgebatch", NULL, 2, 2, 0, ARG_MAGIC|ARG_UINT|LOG_YIELD_FACTOR,
+		log_cf_gen, "( OLcfgOvAt:4.8 NAME 'olcAccessLogPurgeBatch' "
+			"DESC 'Pause purge task after every N entries have been purged' "
+			"EQUALITY integerMatch "
+			"SYNTAX OMsInteger SINGLE-VALUE )", NULL, NULL },
 	{ NULL }
 };
 
@@ -157,7 +164,8 @@ static ConfigOCs log_cfocs[] = {
 		"SUP olcOverlayConfig "
 		"MUST olcAccessLogDB "
 		"MAY ( olcAccessLogOps $ olcAccessLogPurge $ olcAccessLogSuccess $ "
-			"olcAccessLogOld $ olcAccessLogOldAttr $ olcAccessLogBase ) )",
+			"olcAccessLogOld $ olcAccessLogOldAttr $ olcAccessLogBase $ "
+			"olcAccessLogPurgeBatch ) )",
 			Cft_Overlay, log_cfats },
 	{ NULL }
 };
@@ -703,7 +711,7 @@ accesslog_purge( void *ctx, void *arg )
 	purge_data pd = { .li = li };
 	char timebuf[LDAP_LUTIL_GENTIME_BUFSIZE];
 	char csnbuf[LDAP_PVT_CSNSTR_BUFSIZE];
-	time_t old = slap_get_time();
+	time_t old;
 
 	connection_fake_init( &conn, &opbuf, ctx );
 	op = &opbuf.ob_op;
@@ -716,7 +724,8 @@ accesslog_purge( void *ctx, void *arg )
 	ava.aa_value.bv_val = timebuf;
 	ava.aa_value.bv_len = sizeof(timebuf);
 
-	old -= li->li_age;
+	gettimeofday( &op->o_qtime, NULL );
+	old = op->o_qtime.tv_sec - li->li_age;
 	slap_timestamp( &old, &ava.aa_value );
 
 	op->o_tag = LDAP_REQ_SEARCH;
@@ -742,6 +751,7 @@ accesslog_purge( void *ctx, void *arg )
 
 	if ( pd.used ) {
 		int i;
+		struct timeval start = { .tv_sec = 0 };
 
 		op->o_callback = &nullsc;
 		op->o_dont_replicate = 1;
@@ -778,6 +788,8 @@ accesslog_purge( void *ctx, void *arg )
 		/* delete the expired entries */
 		op->o_tag = LDAP_REQ_DELETE;
 		for (i=0; i<pd.used; i++) {
+			unsigned int factor = li->li_yield_factor;
+
 			op->o_req_dn = pd.dn[i];
 			op->o_req_ndn = pd.ndn[i];
 			if ( !slapd_shutdown ) {
@@ -787,9 +799,48 @@ accesslog_purge( void *ctx, void *arg )
 			ch_free( pd.ndn[i].bv_val );
 			ch_free( pd.dn[i].bv_val );
 			ldap_pvt_thread_pool_pausewait( &connection_pool );
+			if ( factor && ( i % factor == 0 ) ) {
+				if ( start.tv_sec || start.tv_usec ) {
+					struct timeval diff;
+
+					gettimeofday( &diff, NULL );
+					diff.tv_sec -= start.tv_sec;
+					diff.tv_usec -= start.tv_usec;
+					if ( diff.tv_usec < 0 ) {
+						diff.tv_sec -= 1;
+						diff.tv_usec += 1000000;
+					}
+
+					diff.tv_usec /= factor;
+					diff.tv_usec += (1000000 * (diff.tv_sec % factor)) / factor;
+					diff.tv_sec /= factor;
+
+					Debug( LDAP_DEBUG_TRACE, "accesslog_purge: "
+							"giving other threads a chance for %ld.%06lds\n",
+							diff.tv_sec, diff.tv_usec );
+					select( 0, NULL, NULL, NULL, &diff );
+				}
+				gettimeofday( &start, NULL );
+			} else {
+				ldap_pvt_thread_yield();
+			}
 		}
 		ch_free( pd.ndn );
 		ch_free( pd.dn );
+	}
+
+	if ( LogTest( LDAP_DEBUG_SYNC ) ) {
+		struct timeval now;
+		gettimeofday( &now, NULL );
+		now.tv_sec -= op->o_qtime.tv_sec;
+		now.tv_usec -= op->o_qtime.tv_usec;
+		if ( now.tv_usec < 0 ) {
+			--now.tv_sec; now.tv_usec += 1000000;
+		}
+		Debug( LDAP_DEBUG_SYNC, "accesslog_purge: "
+				"dn=\"%s\" etime=%d.%06d nentries=%d\n",
+				li->li_db->be_suffix[0].bv_val,
+				(int)now.tv_sec, (int)now.tv_usec, pd.used );
 	}
 
 	ldap_pvt_thread_mutex_lock( &slapd_rq.rq_mutex );
@@ -881,6 +932,12 @@ log_cf_gen(ConfigArgs *c)
 			break;
 		}
 		break;
+		case LOG_YIELD_FACTOR:
+			if ( li->li_yield_factor )
+				c->value_int = li->li_yield_factor;
+			else
+				rc = 1;
+			break;
 	case LDAP_MOD_DELETE:
 		switch( c->type ) {
 		case LOG_DB:
@@ -957,6 +1014,9 @@ log_cf_gen(ConfigArgs *c)
 				ch_free( lb );
 			}
 			break;
+		case LOG_YIELD_FACTOR:
+			li->li_yield_factor = 0;
+			break;
 		}
 		break;
 	default:
@@ -987,9 +1047,21 @@ log_cf_gen(ConfigArgs *c)
 			ch_free( c->value_dn.bv_val );
 			break;
 		case LOG_OPS:
-			rc = verbs_to_mask( c->argc, c->argv, logops, &tmask );
-			if ( rc == 0 )
-				li->li_ops |= tmask;
+			if ( verbs_to_mask( c->argc, c->argv, logops, &tmask ) ) {
+				rc = 1;
+				break;
+			}
+			/* Tolerate overlaps in slapd.conf */
+			if ( c->op != SLAP_CONFIG_ADD && li->li_ops & tmask ) {
+				snprintf( c->cr_msg, sizeof( c->cr_msg ),
+					"%s value overlaps with existing configuration",
+					c->argv[0] );
+				Debug( LDAP_DEBUG_CONFIG|LDAP_DEBUG_NONE,
+					"%s: %s\n", c->log, c->cr_msg );
+				rc = 1;
+				break;
+			}
+			li->li_ops |= tmask;
 			break;
 		case LOG_PURGE:
 			li->li_age = log_age_parse( c->argv[1] );
@@ -1030,6 +1102,16 @@ log_cf_gen(ConfigArgs *c)
 			AttributeDescription *ad;
 			const char *text;
 			log_attr **lp = &li->li_oldattrs;
+
+			if ( c->op != SLAP_CONFIG_ADD && c->argc > 2 ) {
+				/* We wouldn't know how to delete these values later */
+				snprintf( c->cr_msg, sizeof( c->cr_msg ),
+					"Please insert multiple names as separate %s values",
+					c->argv[0] );
+				Debug( LDAP_DEBUG_CONFIG|LDAP_DEBUG_NONE,
+					"%s: %s\n", c->log, c->cr_msg );
+				return LDAP_INVALID_SYNTAX;
+			}
 
 			for ( i=0; *lp && ( c->valx < 0 || i < c->valx ); i++ )
 				lp = &(*lp)->next;
@@ -1108,6 +1190,9 @@ log_cf_gen(ConfigArgs *c)
 				rc = ARG_BAD_CONF;
 			}
 			}
+			break;
+		case LOG_YIELD_FACTOR:
+			li->li_yield_factor = c->value_int;
 			break;
 		}
 		break;
@@ -1972,55 +2057,110 @@ accesslog_response(Operation *op, SlapReply *rs)
 	if ( e == op2.ora_e ) entry_free( e );
 	e = NULL;
 
-	if ( ( lo->mask & LOG_OP_WRITES ) && !BER_BVISEMPTY( &op->o_csn ) ) {
-		Modifications mod;
-		int i, sid = slap_parse_csn_sid( &op->o_csn );
+	if ( ( lo->mask & LOG_OP_WRITES ) ) {
+		/*
+		 * Catch a real contextCSN update coming from a plain refresh, do the
+		 * same to our DB.
+		 *
+		 * TODO: we should still be usable as sessionlog source, but maybe not
+		 * quite for deltasync anymore, we can't really make that distinction
+		 * yet.
+		 */
+		if ( SLAPD_SYNC_IS_SYNCCONN( op->o_connid ) &&
+			op->o_dont_replicate == 0 &&
+			op->o_tag == LDAP_REQ_MODIFY &&
+			op->orm_modlist &&
+			op->orm_modlist->sml_op == LDAP_MOD_REPLACE &&
+			op->orm_modlist->sml_desc == slap_schema.si_ad_contextCSN ) {
+			Modifications mod;
 
-		for ( i=0; i < li->li_numcsns; i++ ) {
-			if ( sid <= li->li_sids[i] ) break;
-		}
-		if ( i >= li->li_numcsns || sid != li->li_sids[i] ) {
-			/* SID not in minCSN set, add */
-			struct berval bv[2];
-
-			Debug( LDAP_DEBUG_TRACE, "accesslog_response: "
-					"adding minCSN %s\n",
-					op->o_csn.bv_val );
-			slap_insert_csn_sids( (struct sync_cookie *)&li->li_mincsn, i,
-					sid, &op->o_csn );
-
-			op2.o_tag = LDAP_REQ_MODIFY;
-			op2.o_req_dn = li->li_db->be_suffix[0];
-			op2.o_req_ndn = li->li_db->be_nsuffix[0];
-
-			bv[0] = op->o_csn;
-			BER_BVZERO( &bv[1] );
-
-			mod.sml_numvals = 1;
-			mod.sml_values = bv;
-			mod.sml_nvalues = bv;
-			mod.sml_desc = ad_minCSN;
-			mod.sml_op = LDAP_MOD_ADD;
-			mod.sml_flags = SLAP_MOD_INTERNAL;
+			/*
+			 * ITS#9580 FIXME: This will only work if we log successful writes
+			 * and nothing else, otherwise we're reverting some CSNs (at least
+			 * our own) in the contextCSN to an older value.
+			 *
+			 * Right now we depend on syncprov's checkpoint to clean up after.
+			 */
+			mod = *op->orm_modlist;
 			mod.sml_next = NULL;
 
+			/* Update relevant parts of op, reuse the rest */
+			op2.o_tag = LDAP_REQ_MODIFY;
+			op2.o_csn = op->o_csn;
+			op2.o_req_dn = li->li_db->be_suffix[0];
+			op2.o_req_ndn = li->li_db->be_nsuffix[0];
 			op2.orm_modlist = &mod;
 			op2.orm_no_opattrs = 1;
+			op2.o_dont_replicate = 0;
 
-			Debug( LDAP_DEBUG_SYNC, "accesslog_response: "
-					"adding a new csn=%s into minCSN\n",
-					bv[0].bv_val );
 			rs_reinit( &rs2, REP_RESULT );
 			op2.o_bd->be_modify( &op2, &rs2 );
+
 			if ( rs2.sr_err != LDAP_SUCCESS ) {
-				Debug( LDAP_DEBUG_SYNC, "accesslog_response: "
-						"got result 0x%x adding minCSN %s\n",
-						rs2.sr_err, op->o_csn.bv_val );
+				Debug( LDAP_DEBUG_SYNC, "%s accesslog_response: "
+						"got result 0x%x trying to reset contextCSN\n",
+						op->o_log_prefix, rs2.sr_err );
 			}
-		} else if ( ber_bvcmp( &op->o_csn, &li->li_mincsn[i] ) < 0 ) {
-			Debug( LDAP_DEBUG_ANY, "accesslog_response: "
-					"csn=%s older than existing minCSN csn=%s for this sid\n",
-					op->o_csn.bv_val, li->li_mincsn[i].bv_val );
+
+			/* Replace in-memory mincsn */
+			if ( li->li_mincsn )
+				ber_bvarray_free( li->li_mincsn );
+			if ( li->li_sids )
+				ch_free( li->li_sids );
+			ber_bvarray_dup_x( &li->li_mincsn, op->orm_modlist->sml_values, NULL );
+			li->li_numcsns = op->orm_modlist->sml_numvals;
+			li->li_sids = slap_parse_csn_sids( li->li_mincsn, li->li_numcsns, NULL );
+			slap_sort_csn_sids( li->li_mincsn, li->li_sids, li->li_numcsns, NULL );
+		} else if ( !BER_BVISEMPTY( &op->o_csn ) ) {
+			Modifications mod;
+			int i, sid = slap_parse_csn_sid( &op->o_csn );
+
+			for ( i=0; i < li->li_numcsns; i++ ) {
+				if ( sid <= li->li_sids[i] ) break;
+			}
+			if ( i >= li->li_numcsns || sid != li->li_sids[i] ) {
+				/* SID not in minCSN set, add */
+				struct berval bv[2];
+
+				Debug( LDAP_DEBUG_TRACE, "accesslog_response: "
+						"adding minCSN %s\n",
+						op->o_csn.bv_val );
+				slap_insert_csn_sids( (struct sync_cookie *)&li->li_mincsn, i,
+						sid, &op->o_csn );
+
+				op2.o_tag = LDAP_REQ_MODIFY;
+				op2.o_req_dn = li->li_db->be_suffix[0];
+				op2.o_req_ndn = li->li_db->be_nsuffix[0];
+
+				bv[0] = op->o_csn;
+				BER_BVZERO( &bv[1] );
+
+				mod.sml_numvals = 1;
+				mod.sml_values = bv;
+				mod.sml_nvalues = bv;
+				mod.sml_desc = ad_minCSN;
+				mod.sml_op = LDAP_MOD_ADD;
+				mod.sml_flags = SLAP_MOD_INTERNAL;
+				mod.sml_next = NULL;
+
+				op2.orm_modlist = &mod;
+				op2.orm_no_opattrs = 1;
+
+				Debug( LDAP_DEBUG_SYNC, "accesslog_response: "
+						"adding a new csn=%s into minCSN\n",
+						bv[0].bv_val );
+				rs_reinit( &rs2, REP_RESULT );
+				op2.o_bd->be_modify( &op2, &rs2 );
+				if ( rs2.sr_err != LDAP_SUCCESS ) {
+					Debug( LDAP_DEBUG_SYNC, "accesslog_response: "
+							"got result 0x%x adding minCSN %s\n",
+							rs2.sr_err, op->o_csn.bv_val );
+				}
+			} else if ( ber_bvcmp( &op->o_csn, &li->li_mincsn[i] ) < 0 ) {
+				Debug( LDAP_DEBUG_ANY, "accesslog_response: "
+						"csn=%s older than existing minCSN csn=%s for this sid\n",
+						op->o_csn.bv_val, li->li_mincsn[i].bv_val );
+			}
 		}
 	}
 
@@ -2030,6 +2170,10 @@ done:
 	return SLAP_CB_CONTINUE;
 
 skip:
+	if ( !BER_BVISNULL( &li->li_uuid ) ) {
+		ber_memfree( li->li_uuid.bv_val );
+		BER_BVZERO( &li->li_uuid );
+	}
 	if ( lo->mask & LOG_OP_WRITES ) {
 		/* We haven't transitioned to li_log_mutex yet */
 		ldap_pvt_thread_mutex_unlock( &li->li_op_rmutex );
@@ -2578,7 +2722,7 @@ accesslog_db_open(
 	}
 
 	ldap_pvt_thread_mutex_lock( &slapd_rq.rq_mutex );
-	ldap_pvt_runqueue_insert( &slapd_rq, 3600, accesslog_db_root, on,
+	ldap_pvt_runqueue_insert( &slapd_rq, 0, accesslog_db_root, on,
 		"accesslog_db_root", li->li_db->be_suffix[0].bv_val );
 	ldap_pvt_thread_mutex_unlock( &slapd_rq.rq_mutex );
 

@@ -137,6 +137,33 @@ ldap_int_tls_destroy( struct ldapoptions *lo )
 		LDAP_FREE( lo->ldo_tls_crlfile );
 		lo->ldo_tls_crlfile = NULL;
 	}
+	if ( lo->ldo_tls_randfile ) {
+		LDAP_FREE( lo->ldo_tls_randfile );
+		lo->ldo_tls_randfile = NULL;
+	}
+
+	if ( !BER_BVISNULL( &lo->ldo_tls_cacert ) ) {
+		LDAP_FREE( lo->ldo_tls_cacert.bv_val );
+		BER_BVZERO( &lo->ldo_tls_cacert );
+	}
+	if ( !BER_BVISNULL( &lo->ldo_tls_cert ) ) {
+		LDAP_FREE( lo->ldo_tls_cert.bv_val );
+		BER_BVZERO( &lo->ldo_tls_cert );
+	}
+	if ( !BER_BVISNULL( &lo->ldo_tls_key ) ) {
+		LDAP_FREE( lo->ldo_tls_key.bv_val );
+		BER_BVZERO( &lo->ldo_tls_key );
+	}
+
+	if ( lo->ldo_tls_uris ) {
+		LDAP_VFREE( lo->ldo_tls_uris );
+		lo->ldo_tls_uris = NULL;
+	}
+	if ( lo->ldo_tls_cacerturis ) {
+		LDAP_VFREE( lo->ldo_tls_cacerturis );
+		lo->ldo_tls_cacerturis = NULL;
+	}
+
 	/* tls_pin_hashalg and tls_pin share the same buffer */
 	if ( lo->ldo_tls_pin_hashalg ) {
 		LDAP_FREE( lo->ldo_tls_pin_hashalg );
@@ -445,6 +472,9 @@ ldap_int_tls_connect( LDAP *ld, LDAPConn *conn, const char *host )
 		conn->lconn_status = LDAP_CONNST_CONNECTED;
 		return -1;
 	}
+
+	Debug2( LDAP_DEBUG_CONNS, "TLS: session established tls_proto=%s tls_cipher=%s\n",
+		ldap_pvt_tls_get_version( ssl ), ldap_pvt_tls_get_cipher( ssl ) );
 
 	conn->lconn_status = LDAP_CONNST_CONNECTED;
 	return 0;
@@ -846,7 +876,20 @@ ldap_pvt_tls_get_option( LDAP *ld, int option, void *arg )
 		}
 		break;
 	}
-
+	case LDAP_OPT_X_TLS_URIS:
+		if( lo->ldo_tls_uris == NULL ) {
+			* (char ***) arg = NULL;
+		} else {
+			* (char ***) arg = ldap_value_dup(lo->ldo_tls_uris);
+		}
+		break;
+	case LDAP_OPT_X_TLS_CACERTURIS:
+		if( lo->ldo_tls_cacerturis == NULL ) {
+			* (char ***) arg = NULL;
+		} else {
+			* (char ***) arg = ldap_value_dup(lo->ldo_tls_cacerturis);
+		}
+		break;
 	default:
 		return -1;
 	}
@@ -1104,7 +1147,29 @@ ldap_pvt_tls_set_option( LDAP *ld, int option, void *arg )
 		}
 
 		return rc;
-	}
+		}
+	case LDAP_OPT_X_TLS_URIS: {
+		char *const *uris = (char *const *) arg;
+
+		if( lo->ldo_tls_uris ) {
+			LDAP_VFREE(lo->ldo_tls_uris);
+		}
+		if ( uris ) {
+			lo->ldo_tls_uris = ldap_value_dup(uris);
+		}
+		return 0;
+		}
+	case LDAP_OPT_X_TLS_CACERTURIS: {
+		char *const *uris = (char *const *) arg;
+
+		if( lo->ldo_tls_cacerturis ) {
+			LDAP_VFREE(lo->ldo_tls_cacerturis);
+		}
+		if ( uris ) {
+			lo->ldo_tls_cacerturis = ldap_value_dup(uris);
+		}
+		return 0;
+		}
 	default:
 		return -1;
 	}
@@ -1169,7 +1234,7 @@ ldap_int_tls_start ( LDAP *ld, LDAPConn *conn, LDAPURLDesc *srv )
 		if ( async ) {
 			ld->ld_errno = LDAP_X_CONNECTING;
 			return (ld->ld_errno);
-		} else {
+		} else if ( ld->ld_options.ldo_tm_net.tv_sec >= 0 ) {
 			struct timeval curr_time_tv, delta_tv;
 			int wr=0;
 
@@ -1224,6 +1289,9 @@ ldap_int_tls_start ( LDAP *ld, LDAPConn *conn, LDAPURLDesc *srv )
 				ld->ld_errno = LDAP_TIMEOUT;
 				break;
 			}
+			/* ldap_int_poll switches the socket back to blocking, but we want
+			 * it non-blocking before calling ldap_int_tls_connect */
+			ber_sockbuf_ctrl( sb, LBER_SB_OPT_SET_NONBLOCK, (void*)1 );
 		}
 		ret = ldap_int_tls_connect( ld, conn, host );
 	}
