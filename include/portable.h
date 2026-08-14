@@ -1,11 +1,11 @@
-/* include/portable.h.  Generated from portable.hin by configure.  */
-/* include/portable.hin.  Generated from configure.in by autoheader.  */
+/* include/portable.h.  Generated from slapd-modules.hin by configure.  */
+/* include/portable.hin.  Generated from configure.ac by autoheader.  */
 
 
 /* begin of portable.h.pre */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 1998-2018 The OpenLDAP Foundation
+ * Copyright 1998-2026 The OpenLDAP Foundation
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -30,20 +30,16 @@
 
 /* define this if needed to get threadsafe functions */
 #ifndef THREADSAFE
-/* #undef THREADSAFE */
-#define THREADSAFE
+#define THREADSAFE 1
 #endif
 #ifndef _THREADSAFE
-/* #undef _THREADSAFE */
-#define _THREADSAFE
+#define _THREADSAFE 1
 #endif
 #ifndef THREAD_SAFE
-/* #undef THREAD_SAFE */
-#define THREAD_SAFE
+#define THREAD_SAFE 1
 #endif
 #ifndef _THREAD_SAFE
-/* #undef _THREAD_SAFE */
-#define _THREAD_SAFE
+#define _THREAD_SAFE 1
 #endif
 
 #ifndef _SGI_MP_SOURCE
@@ -52,6 +48,9 @@
 
 /* end of portable.h.pre */
 
+
+/* Define if building universal (internal helper macro) */
+/* #undef AC_APPLE_UNIVERSAL_BUILD */
 
 /* define to use both <string.h> and <strings.h> */
 /* #undef BOTH_STRINGS_H */
@@ -67,9 +66,6 @@
 
 /* define if sys_errlist is not declared in stdio.h or errno.h */
 /* #undef DECL_SYS_ERRLIST */
-
-/* define to enable rewriting in back-ldap and back-meta */
-/* #undef ENABLE_REWRITE */
 
 /* define to enable slapi library */
 /* #undef ENABLE_SLAPI */
@@ -89,6 +85,9 @@
 /* define if you have AIX security lib */
 /* #undef HAVE_AIX_SECURITY */
 
+/* Define to 1 if you have the <argon2.h> header file. */
+/* #undef HAVE_ARGON2_H */
+
 /* Define to 1 if you have the <arpa/inet.h> header file. */
 /* #undef HAVE_ARPA_INET_H */
 
@@ -101,17 +100,14 @@
 /* Define to 1 if you have the `bcopy' function. */
 /* #undef HAVE_BCOPY */
 
-/* define this if Berkeley DB is available */
-/* #undef HAVE_BERKELEY_DB */
-
-/* define if Berkeley DB has DB_THREAD support */
-/* #undef HAVE_BERKELEY_DB_THREAD */
-
 /* Define to 1 if you have the <bits/types.h> header file. */
 /* #undef HAVE_BITS_TYPES_H */
 
 /* Define to 1 if you have the `chroot' function. */
 /* #undef HAVE_CHROOT */
+
+/* Define to 1 if you have the `clock_gettime' function. */
+/* #undef HAVE_CLOCK_GETTIME */
 
 /* Define to 1 if you have the `closesocket' function. */
 #define HAVE_CLOSESOCKET 1
@@ -125,17 +121,14 @@
 /* Define to 1 if you have the <crypt.h> header file. */
 /* #undef HAVE_CRYPT_H */
 
-/* Define to 1 if you have the <cthreads.h> header file. */
-/* #undef HAVE_CTHREADS_H */
+/* define if crypt_r() is also available */
+/* #undef HAVE_CRYPT_R */
 
 /* Define to 1 if you have the `ctime_r' function. */
 /* #undef HAVE_CTIME_R */
 
 /* define if you have Cyrus SASL */
 #define HAVE_CYRUS_SASL 1
-
-/* Define to 1 if you have the <db.h> header file. */
-/* #undef HAVE_DB_H */
 
 /* define if your system supports /dev/poll */
 /* #undef HAVE_DEVPOLL */
@@ -145,7 +138,7 @@
 
 /* Define to 1 if you have the <dirent.h> header file, and it defines `DIR'.
    */
-/* #define HAVE_DIRENT_H */
+/* #undef HAVE_DIRENT_H */
 
 /* Define to 1 if you have the <dlfcn.h> header file. */
 /* #undef HAVE_DLFCN_H */
@@ -183,6 +176,9 @@
 /* Define to 1 if you have the `flock' function. */
 /* #undef HAVE_FLOCK */
 
+/* Define to 1 if you have the `fmemopen' function. */
+/* #undef HAVE_FMEMOPEN */
+
 /* Define to 1 if you have the `fstat' function. */
 #define HAVE_FSTAT 1
 
@@ -217,7 +213,7 @@
 #define HAVE_GETOPT 1
 
 /* Define to 1 if you have the <getopt.h> header file. */
-/* #define HAVE_GETOPT_H */
+/* #undef HAVE_GETOPT_H */
 
 /* Define to 1 if you have the `getpassphrase' function. */
 /* #undef HAVE_GETPASSPHRASE */
@@ -261,9 +257,6 @@
 /* Define to 1 if you have the `hstrerror' function. */
 /* #undef HAVE_HSTRERROR */
 
-/* define if you actually have ICU */
-/* #undef HAVE_ICU */
-
 /* define to you inet_aton(3) is available */
 /* #undef HAVE_INET_ATON */
 
@@ -284,6 +277,15 @@
 
 /* Define to 1 if you have the <io.h> header file. */
 #define HAVE_IO_H 1
+
+/* define if your system supports kqueue */
+/* #undef HAVE_KQUEUE */
+
+/* define if you have libargon2 */
+/* #undef HAVE_LIBARGON2 */
+
+/* define if you have -levent */
+/* #undef HAVE_LIBEVENT */
 
 /* Define to 1 if you have the `gen' library (-lgen). */
 /* #undef HAVE_LIBGEN */
@@ -308,6 +310,9 @@
 
 /* Define to 1 if you have the `socket' library (-lsocket). */
 /* #undef HAVE_LIBSOCKET */
+
+/* define if you have libsodium */
+/* #undef HAVE_LIBSODIUM */
 
 /* Define to 1 if you have the <libutil.h> header file. */
 /* #undef HAVE_LIBUTIL_H */
@@ -336,14 +341,14 @@
 /* Define to 1 if you have the <ltdl.h> header file. */
 /* #undef HAVE_LTDL_H */
 
-/* define if you have Mach Cthreads */
-/* #undef HAVE_MACH_CTHREADS */
-
-/* Define to 1 if you have the <mach/cthreads.h> header file. */
-/* #undef HAVE_MACH_CTHREADS_H */
-
 /* Define to 1 if you have the <malloc.h> header file. */
 #define HAVE_MALLOC_H 1
+
+/* define if you have mbedtls */
+/* #undef HAVE_MBEDTLS */
+
+/* Define to 1 if you have the <mbedtls/ssl.h> header file. */
+/* #undef HAVE_MBEDTLS_SSL_H */
 
 /* Define to 1 if you have the `memcpy' function. */
 #define HAVE_MEMCPY 1
@@ -366,9 +371,6 @@
 /* define this if you have mkversion */
 #define HAVE_MKVERSION 1
 
-/* define if you have MozNSS */
-/* #undef HAVE_MOZNSS */
-
 /* Define to 1 if you have the <ndir.h> header file, and it defines `DIR'. */
 /* #undef HAVE_NDIR_H */
 
@@ -377,9 +379,6 @@
 
 /* define if strerror_r returns char* instead of int */
 /* #undef HAVE_NONPOSIX_STRERROR_R */
-
-/* Define to 1 if you have the <nssutil.h> header file. */
-/* #undef HAVE_NSSUTIL_H */
 
 /* if you have NT Event Log */
 #define HAVE_NT_EVENT_LOG 1
@@ -395,9 +394,6 @@
 
 /* Define to 1 if you have the <openssl/bn.h> header file. */
 #define HAVE_OPENSSL_BN_H 1
-
-/* define if you have OpenSSL with CRL checking capability */
-#define HAVE_OPENSSL_CRL 1
 
 /* Define to 1 if you have the <openssl/crypto.h> header file. */
 #define HAVE_OPENSSL_CRYPTO_H 1
@@ -417,9 +413,6 @@
 /* Define to 1 if you have the <process.h> header file. */
 #define HAVE_PROCESS_H 1
 
-/* Define to 1 if you have the <psap.h> header file. */
-/* #undef HAVE_PSAP_H */
-
 /* define to pthreads API spec revision */
 /* #undef HAVE_PTHREADS */
 
@@ -438,7 +431,7 @@
 /* Define to 1 if you have the `pthread_kill_other_threads_np' function. */
 /* #undef HAVE_PTHREAD_KILL_OTHER_THREADS_NP */
 
-/* Define to 1 if you have the `pthread_rwlock_destroy' function. */
+/* define if you have pthread_rwlock_destroy function */
 /* #undef HAVE_PTHREAD_RWLOCK_DESTROY */
 
 /* Define to 1 if you have the `pthread_setconcurrency' function. */
@@ -474,9 +467,6 @@
 /* define if you have res_query() */
 /* #undef HAVE_RES_QUERY */
 
-/* define if OpenSSL needs RSAref */
-/* #undef HAVE_RSAREF */
-
 /* Define to 1 if you have the <sasl.h> header file. */
 /* #undef HAVE_SASL_H */
 
@@ -509,9 +499,6 @@
 
 /* Define to 1 if you have the `setgid' function. */
 /* #undef HAVE_SETGID */
-
-/* define if setproctitle(3) is available */
-/* #undef HAVE_SETPROCTITLE */
 
 /* Define to 1 if you have the `setpwfile' function. */
 /* #undef HAVE_SETPWFILE */
@@ -546,20 +533,20 @@
 /* Define to 1 if you have the `snprintf' function. */
 #define HAVE_SNPRINTF 1
 
+/* Define to 1 if you have the <sodium.h> header file. */
+/* #undef HAVE_SODIUM_H */
+
 /* if you have spawnlp() */
 #define HAVE_SPAWNLP 1
-
-/* Define to 1 if you have the <sqlext.h> header file. */
-/* #undef HAVE_SQLEXT_H */
-
-/* Define to 1 if you have the <sql.h> header file. */
-/* #undef HAVE_SQL_H */
 
 /* Define to 1 if you have the <stddef.h> header file. */
 #define HAVE_STDDEF_H 1
 
 /* Define to 1 if you have the <stdint.h> header file. */
 #define HAVE_STDINT_H 1
+
+/* Define to 1 if you have the <stdio.h> header file. */
+/* #undef HAVE_STDIO_H */
 
 /* Define to 1 if you have the <stdlib.h> header file. */
 #define HAVE_STDLIB_H 1
@@ -615,22 +602,22 @@
 /* Define to 1 if you have the `strtouq' function. */
 /* #undef HAVE_STRTOUQ */
 
-/* Define to 1 if `msg_accrightslen' is member of `struct msghdr'. */
+/* Define to 1 if `msg_accrightslen' is a member of `struct msghdr'. */
 /* #undef HAVE_STRUCT_MSGHDR_MSG_ACCRIGHTSLEN */
 
-/* Define to 1 if `msg_control' is member of `struct msghdr'. */
+/* Define to 1 if `msg_control' is a member of `struct msghdr'. */
 /* #undef HAVE_STRUCT_MSGHDR_MSG_CONTROL */
 
-/* Define to 1 if `pw_gecos' is member of `struct passwd'. */
+/* Define to 1 if `pw_gecos' is a member of `struct passwd'. */
 /* #undef HAVE_STRUCT_PASSWD_PW_GECOS */
 
-/* Define to 1 if `pw_passwd' is member of `struct passwd'. */
+/* Define to 1 if `pw_passwd' is a member of `struct passwd'. */
 /* #undef HAVE_STRUCT_PASSWD_PW_PASSWD */
 
-/* Define to 1 if `st_blksize' is member of `struct stat'. */
+/* Define to 1 if `st_blksize' is a member of `struct stat'. */
 /* #undef HAVE_STRUCT_STAT_ST_BLKSIZE */
 
-/* Define to 1 if `st_fstype' is member of `struct stat'. */
+/* Define to 1 if `st_fstype' is a member of `struct stat'. */
 /* #undef HAVE_STRUCT_STAT_ST_FSTYPE */
 
 /* define to 1 if st_fstype is char * */
@@ -639,7 +626,7 @@
 /* define to 1 if st_fstype is int */
 /* #undef HAVE_STRUCT_STAT_ST_FSTYPE_INT */
 
-/* Define to 1 if `st_vfstype' is member of `struct stat'. */
+/* Define to 1 if `st_vfstype' is a member of `struct stat'. */
 /* #undef HAVE_STRUCT_STAT_ST_VFSTYPE */
 
 /* Define to 1 if you have the <synch.h> header file. */
@@ -653,6 +640,12 @@
 
 /* Define to 1 if you have the <syslog.h> header file. */
 /* #undef HAVE_SYSLOG_H */
+
+/* define if you have systemd */
+/* #undef HAVE_SYSTEMD */
+
+/* Define to 1 if you have the <systemd/sd-daemon.h> header file. */
+/* #undef HAVE_SYSTEMD_SD_DAEMON_H */
 
 /* Define to 1 if you have the <sys/devpoll.h> header file. */
 /* #undef HAVE_SYS_DEVPOLL_H */
@@ -669,6 +662,9 @@
 
 /* Define to 1 if you have the <sys/errno.h> header file. */
 /* #undef HAVE_SYS_ERRNO_H */
+
+/* Define to 1 if you have the <sys/event.h> header file. */
+/* #undef HAVE_SYS_EVENT_H */
 
 /* Define to 1 if you have the <sys/file.h> header file. */
 #define HAVE_SYS_FILE_H 1
@@ -690,7 +686,7 @@
 /* #undef HAVE_SYS_PARAM_H */
 
 /* Define to 1 if you have the <sys/poll.h> header file. */
-/* #undef HAVE_SYS_PARAM_H */
+/* #undef HAVE_SYS_POLL_H */
 
 /* Define to 1 if you have the <sys/privgrp.h> header file. */
 /* #undef HAVE_SYS_PRIVGRP_H */
@@ -761,9 +757,6 @@
 /* define if you have TLS */
 #define HAVE_TLS 1
 
-/* Define to 1 if you have the <unicode/utypes.h> header file. */
-/* #undef HAVE_UNICODE_UTYPES_H */
-
 /* Define to 1 if you have the <unistd.h> header file. */
 /* #undef HAVE_UNISTD_H */
 
@@ -832,6 +825,9 @@
 #define LBER_TAG_T long
 #endif
 
+/* define to 1 if library is reentrant */
+#define LDAP_API_FEATURE_X_OPENLDAP_REENTRANT 1
+
 /* define to 1 if library is thread safe */
 #define LDAP_API_FEATURE_X_OPENLDAP_THREAD_SAFE 1
 
@@ -850,9 +846,6 @@
 /* define to support PF_LOCAL */
 /* #undef LDAP_PF_LOCAL */
 
-/* define this for LDAP process title support */
-#define LDAP_PROCTITLE 1
-
 /* define this to add SLAPI code */
 /* #undef LDAP_SLAPI */
 
@@ -860,16 +853,19 @@
 /* #undef LDAP_SYSLOG */
 
 /* Version */
-#define LDAP_VENDOR_VERSION 20447
+#define LDAP_VENDOR_VERSION 20700
 
 /* Major */
 #define LDAP_VENDOR_VERSION_MAJOR 2
 
 /* Minor */
-#define LDAP_VENDOR_VERSION_MINOR 4
+#define LDAP_VENDOR_VERSION_MINOR 7
 
 /* Patch */
-#define LDAP_VENDOR_VERSION_PATCH 47
+#define LDAP_VENDOR_VERSION_PATCH 0
+
+/* Define to the sub-directory where libtool stores uninstalled libraries. */
+/* #undef LT_OBJDIR */
 
 /* define if memcmp is not 8-bit clean or is otherwise broken */
 /* #undef NEED_MEMCMP_REPLACEMENT */
@@ -884,7 +880,7 @@
 #define OPENLDAP_PACKAGE "OpenLDAP"
 
 /* Version */
-#define OPENLDAP_VERSION "2.4.47"
+#define OPENLDAP_VERSION "2.7.0"
 
 /* Define to the address where bug reports for this package should be sent. */
 #define PACKAGE_BUGREPORT ""
@@ -898,14 +894,14 @@
 /* Define to the one symbol short name of this package. */
 #define PACKAGE_TARNAME ""
 
+/* Define to the home page for this package. */
+/* #undef PACKAGE_URL */
+
 /* Define to the version of this package. */
 #define PACKAGE_VERSION ""
 
 /* define if sched_yield yields the entire process */
 /* #undef REPLACE_BROKEN_YIELD */
-
-/* Define as the return type of signal handlers (`int' or `void'). */
-#define RETSIGTYPE void
 
 /* Define to the type of arg 1 for `select'. */
 /* #undef SELECT_TYPE_ARG1 */
@@ -916,10 +912,10 @@
 /* Define to the type of arg 5 for `select'. */
 /* #undef SELECT_TYPE_ARG5 */
 
-/* The size of a `int', as computed by sizeof. */
+/* The size of `int', as computed by sizeof. */
 #define SIZEOF_INT 4
 
-/* The size of a `long', as computed by sizeof. */
+/* The size of `long', as computed by sizeof. */
 #define SIZEOF_LONG 4
 
 /* The size of `long long', as computed by sizeof. */
@@ -934,143 +930,28 @@
 /* define to support per-object ACIs */
 /* #undef SLAPD_ACI_ENABLED */
 
-/* define to support BDB backend */
-#define SLAPD_BDB SLAPD_MOD_STATIC
-
 /* define to support cleartext passwords */
-#define SLAPD_CLEARTEXT 1
+/* #undef SLAPD_CLEARTEXT */
 
 /* define to support crypt(3) passwords */
 /* #undef SLAPD_CRYPT */
 
-/* define to support DNS SRV backend */
-/* #undef SLAPD_DNSSRV */
-
-/* define to support HDB backend */
-#define SLAPD_HDB SLAPD_MOD_STATIC
-
-/* define to support LDAP backend */
-/* #undef SLAPD_LDAP */
-
-/* define to support LAN Manager passwords */
-/* #undef SLAPD_LMHASH */
-
-/* define to support MDB backend */
-#define SLAPD_MDB SLAPD_MOD_STATIC
-
-/* define to support LDAP Metadirectory backend */
-/* #undef SLAPD_META */
-
 /* define to support modules */
 /* #undef SLAPD_MODULES */
-
-/* dynamically linked module */
-#define SLAPD_MOD_DYNAMIC 2
-
-/* statically linked module */
-#define SLAPD_MOD_STATIC 1
-
-/* define to support cn=Monitor backend */
-/* #undef SLAPD_MONITOR */
-
-/* define to support NDB backend */
-/* #undef SLAPD_NDB */
-
-/* define to support NULL backend */
-/* #undef SLAPD_NULL */
-
-/* define for In-Directory Access Logging overlay */
-/* #undef SLAPD_OVER_ACCESSLOG */
-
-/* define for Audit Logging overlay */
-/* #undef SLAPD_OVER_AUDITLOG */
-
-/* define for Collect overlay */
-/* #undef SLAPD_OVER_COLLECT */
-
-/* define for Attribute Constraint overlay */
-/* #undef SLAPD_OVER_CONSTRAINT */
-
-/* define for Dynamic Directory Services overlay */
-/* #undef SLAPD_OVER_DDS */
-
-/* define for Dynamic Directory Services overlay */
-/* #undef SLAPD_OVER_DEREF */
-
-/* define for Dynamic Group overlay */
-/* #undef SLAPD_OVER_DYNGROUP */
-
-/* define for Dynamic List overlay */
-/* #undef SLAPD_OVER_DYNLIST */
-
-/* define for Reverse Group Membership overlay */
-/* #undef SLAPD_OVER_MEMBEROF */
-
-/* define for Password Policy overlay */
-/* #undef SLAPD_OVER_PPOLICY */
-
-/* define for Proxy Cache overlay */
-/* #undef SLAPD_OVER_PROXYCACHE */
-
-/* define for Referential Integrity overlay */
-/* #undef SLAPD_OVER_REFINT */
-
-/* define for Referential Integrity overlay */
-/* #undef SLAPD_OVER_RETCODE */
-
-/* define for Rewrite/Remap overlay */
-/* #undef SLAPD_OVER_RWM */
-
-/* define for Sequential Modify overlay */
-/* #undef SLAPD_OVER_SEQMOD */
-
-/* define for ServerSideSort/VLV overlay */
-/* #undef SLAPD_OVER_SSSVLV */
-
-/* define for Syncrepl Provider overlay */
-/* #undef SLAPD_OVER_SYNCPROV */
-
-/* define for Translucent Proxy overlay */
-/* #undef SLAPD_OVER_TRANSLUCENT */
-
-/* define for Attribute Uniqueness overlay */
-/* #undef SLAPD_OVER_UNIQUE */
-
-/* define for Value Sorting overlay */
-/* #undef SLAPD_OVER_VALSORT */
-
-/* define to support PASSWD backend */
-/* #undef SLAPD_PASSWD */
-
-/* define to support PERL backend */
-/* #undef SLAPD_PERL */
-
-/* define to support relay backend */
-/* #undef SLAPD_RELAY */
 
 /* define to support reverse lookups */
 /* #undef SLAPD_RLOOKUPS */
 
-/* define to support SHELL backend */
-/* #undef SLAPD_SHELL */
-
-/* define to support SOCK backend */
-/* #undef SLAPD_SOCK */
-
 /* define to support SASL passwords */
 /* #undef SLAPD_SPASSWD */
-
-/* define to support SQL backend */
-/* #undef SLAPD_SQL */
 
 /* define to support run-time loadable ACL */
 /* #undef SLAP_DYNACL */
 
-/* Define to 1 if you have the ANSI C header files. */
+/* Define to 1 if all of the C90 standard headers exist (not just the ones
+   required in a freestanding environment). This macro is provided for
+   backward compatibility; new code need not use it. */
 #define STDC_HEADERS 1
-
-/* Define to 1 if you can safely include both <sys/time.h> and <time.h>. */
-/* #undef TIME_WITH_SYS_TIME */
 
 /* Define to 1 if your <sys/time.h> declares `struct tm'. */
 /* #undef TM_IN_SYS_TIME */
@@ -1090,9 +971,20 @@
 /* define to use 'long long' for MP */
 #define USE_MP_LONG_LONG 1
 
-/* Define to 1 if your processor stores words with the most significant byte
-   first (like Motorola and SPARC, unlike Intel and VAX). */
-/* #undef WORDS_BIGENDIAN */
+/* Define WORDS_BIGENDIAN to 1 if your processor stores words with the most
+   significant byte first (like Motorola and SPARC, unlike Intel). */
+#if defined AC_APPLE_UNIVERSAL_BUILD
+# if defined __BIG_ENDIAN__
+#  define WORDS_BIGENDIAN 1
+# endif
+#else
+# ifndef WORDS_BIGENDIAN
+#  undef WORDS_BIGENDIAN
+# endif
+#endif
+
+/* Define to the type of arg 3 for `accept'. */
+#define ber_socklen_t int
 
 /* Define to `char *' if <sys/types.h> does not define. */
 #define caddr_t char *
@@ -1123,9 +1015,8 @@
 #define snprintf _snprintf
 #endif
 
-/* Define to `int' if <sys/socket.h> does not define. */
+/* Define like ber_socklen_t if <sys/socket.h> does not define. */
 /* #define socklen_t int*/
-#define ber_socklen_t int
 
 /* Define to `signed int' if <sys/types.h> does not define. */
 /* #undef ssize_t */
@@ -1136,6 +1027,7 @@
 /* define as empty if volatile is not supported */
 /* #undef volatile */
 
+/* define to snprintf routine */
 #if _MSC_VER >= 15000
 /* define to snprintf routine */
 #define vsnprintf _vsnprintf
@@ -1145,11 +1037,14 @@
 # endif
 #endif
 
+
 /* begin of portable.h.post */
 
+#define RETSIGTYPE void
+
 #ifdef _MSC_VER
-#define strncasecmp _strnicmp
-#define strcasecmp _stricmp
+#	define strncasecmp _strnicmp
+#	define strcasecmp _stricmp
 #endif
 
 #ifdef _WIN32
@@ -1198,4 +1093,121 @@
 
 #endif /* _LDAP_PORTABLE_H */
 /* end of portable.h.post */
+/* slapd module configuration */
 
+#define SLAPD_MOD_STATIC	1	/* statically linked module */
+#define SLAPD_MOD_DYNAMIC	2	/* dynamically linked module */
+
+/* Backends */
+
+/* define to support dnssrv backend */
+/* #undef SLAPD_DNSSRV */
+
+/* define to support ldap backend */
+/* #undef SLAPD_LDAP */
+
+/* define to support mdb database backend */
+/* #undef SLAPD_MDB */
+
+/* define to support metadirectory backend */
+/* #undef SLAPD_META */
+
+/* define to support asynchronous metadirectory backend */
+/* #undef SLAPD_ASYNCMETA */
+
+/* define to support null backend */
+/* #undef SLAPD_NULL */
+
+/* define to support passwd backend */
+/* #undef SLAPD_PASSWD */
+
+/* define to support relay backend */
+/* #undef SLAPD_RELAY */
+
+/* define to support sock backend */
+/* #undef SLAPD_SOCK */
+
+/* define to support WiredTiger backend */
+/* #undef SLAPD_WT */
+
+/* Overlays */
+
+/* define to support In-Directory Access Logging overlay */
+/* #undef SLAPD_OVER_ACCESSLOG */
+
+/* define to support Audit Logging overlay */
+/* #undef SLAPD_OVER_AUDITLOG */
+
+/* define to support Automatic Certificate Authority overlay */
+/* #undef SLAPD_OVER_AUTOCA */
+
+/* define to support Collectve attributes overlay */
+/* #undef SLAPD_OVER_COLLECT */
+
+/* define to support Attribute Constraint overlay */
+/* #undef SLAPD_OVER_CONSTRAINT */
+
+/* define to support Dynamic Directory Services overlay */
+/* #undef SLAPD_OVER_DDS */
+
+/* define to support Dereference overlay */
+/* #undef SLAPD_OVER_DEREF */
+
+/* define to support Dynamic Group overlay */
+/* #undef SLAPD_OVER_DYNGROUP */
+
+/* define to support Dynamic List overlay */
+/* #undef SLAPD_OVER_DYNLIST */
+
+/* define to support Home Directory Management overlay */
+/* #undef SLAPD_OVER_HOMEDIR */
+
+/* define to support Reverse Group Membership overlay */
+/* #undef SLAPD_OVER_MEMBEROF */
+
+/* define to support Nested Group overlay */
+/* #undef SLAPD_OVER_NESTGROUP */
+
+/* define to support OTP 2-factor authentication overlay */
+/* #undef SLAPD_OVER_OTP */
+
+/* define to support Password Policy overlay */
+/* #undef SLAPD_OVER_PPOLICY */
+
+/* define to support Proxy Cache overlay */
+/* #undef SLAPD_OVER_PROXYCACHE */
+
+/* define to support Referential Integrity overlay */
+/* #undef SLAPD_OVER_REFINT */
+
+/* define to support Deferred Authentication overlay */
+/* #undef SLAPD_OVER_REMOTEAUTH */
+
+/* define to support Return Code testing overlay */
+/* #undef SLAPD_OVER_RETCODE */
+
+/* define to support Rewrite/Remap overlay */
+/* #undef SLAPD_OVER_RWM */
+
+/* define to support Sequential Modify overlay */
+/* #undef SLAPD_OVER_SEQMOD */
+
+/* define to support ServerSideSort/VLV overlay */
+/* #undef SLAPD_OVER_SSSVLV */
+
+/* define to support Syncrepl Provider overlay */
+/* #undef SLAPD_OVER_SYNCPROV */
+
+/* define to support Translucent Proxy overlay */
+/* #undef SLAPD_OVER_TRANSLUCENT */
+
+/* define to support Attribute Uniqueness overlay */
+/* #undef SLAPD_OVER_UNIQUE */
+
+/* define to support Value Sorting overlay */
+/* #undef SLAPD_OVER_VALSORT */
+
+/* Password modules */
+
+/* define to support Argon2 password hashing module */
+/* #undef SLAPD_PWMOD_PW_ARGON2 */
