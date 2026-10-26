@@ -19,11 +19,12 @@
 
 #include <ac/unistd.h>
 
-/* crypt() may be defined in a separate include file */
-#ifdef HAVE_CRYPT_H
-#	include <crypt.h>
+#if defined(HAVE_CRYPT_H) && (defined(HAVE_CRYPT_R) || !defined(HAVE_UNISTD_H))
+/* crypt() is defined in <unistd.h> if that exists, otherwise <crypt.h>.
+ * crypt_r() is only defined in <crypt.h> */
+# include <crypt.h>
 #else
-	extern char *(crypt)();
+ LDAP_LIBC_F(char *) (crypt) LDAP_P((const char *key, const char *salt));
 #endif
 
 #endif /* _AC_CRYPT_H */

@@ -13,7 +13,7 @@
 ## top-level directory of the distribution or, alternatively, at
 ## <http://www.OpenLDAP.org/license.html>.
 
-LIBRARY = olber32_a.lib
+LIBRARY = liblber.la
 
 NT_SRCS = nt_err.c
 NT_OBJS = nt_err.lo
@@ -21,7 +21,6 @@ NT_OBJS = nt_err.lo
 UNIX_SRCS = stdio.c
 UNIX_OBJS = stdio.lo
 
-LT_CFLAGS += -Zi -Fdolber32_a.pdb
 LIB_DEFS = -DLBER_LIBRARY
 
 SRCS= assert.c decode.c encode.c io.c bprint.c debug.c \
@@ -43,7 +42,9 @@ UNIX_LINK_LIBS = $(AC_LIBS)
 UNIX_SYMBOL_VERSION_SCRIPT=lber.map
 NT_SYMBOL_VERSION_SCRIPT=
 SYMBOL_VERSION_SCRIPT=$(@PLAT@_SYMBOL_VERSION_SCRIPT)
-@DO_VERSIONED_SYMBOLS@SYMBOL_VERSION_FLAGS=$(OL_VERSIONED_SYMBOLS)$(SYMBOL_VERSION_SCRIPT)
+UNIX_SYMBOL_VERSION_FLAGS=$(OL_VERSIONED_SYMBOLS)$(SYMBOL_VERSION_SCRIPT)
+NT_SYMBOL_VERSION_FLAGS=
+@DO_VERSIONED_SYMBOLS@SYMBOL_VERSION_FLAGS=$(@PLAT@_SYMBOL_VERSION_FLAGS)
 
 $(UNIX_SYMBOL_VERSION_SCRIPT): $(srcdir)/$(UNIX_SYMBOL_VERSION_SCRIPT).in $(LDAP_INCDIR)/liblber-config.h
 	$(CPP) -x c -o $@ $(LT_CPPFLAGS) $(srcdir)/$(UNIX_SYMBOL_VERSION_SCRIPT).in
@@ -57,3 +58,4 @@ install-local: FORCE
 	-$(MKDIR) $(DESTDIR)$(libdir)
 	$(LTINSTALL) $(INSTALLFLAGS) -m 644 $(LIBRARY) $(DESTDIR)$(libdir)
 	$(LTFINISH) $(DESTDIR)$(libdir)
+

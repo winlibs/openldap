@@ -260,6 +260,7 @@ int main( int argc, char **argv )
 
 	(void) ldap_pvt_thread_initialize();
 	ldap_pvt_thread_mutex_init( &logfile_mutex );
+	ldap_pvt_thread_mutex_init( &logname_mutex );
 
 #ifdef HAVE_TLS
 	rc = ldap_create( &slap_tls_ld );
@@ -779,6 +780,7 @@ unhandled_option:;
 			_exit( rc );
 		} else {
 			close( waitfds[0] );
+			slap_set_logprefix();
 		}
 	}
 #endif /* HAVE_WINSOCK */
@@ -956,6 +958,7 @@ stop:
 #endif
 
 	ldap_pvt_thread_mutex_destroy( &logfile_mutex );
+	ldap_pvt_thread_mutex_destroy( &logname_mutex );
 	MAIN_RETURN(rc);
 }
 

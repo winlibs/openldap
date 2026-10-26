@@ -1256,6 +1256,7 @@ LDAP_SLAPD_F (int) loglevel_print LDAP_P(( FILE *out ));
 LDAP_SLAPD_F (void) slap_debug_print LDAP_P(( const char *data ));
 LDAP_SLAPD_F (int) logfile_open LDAP_P(( const char *path ));
 LDAP_SLAPD_F (void) logfile_close LDAP_P(( void ));
+LDAP_SLAPD_F (void) slap_set_logprefix LDAP_P(( void ));
 LDAP_SLAPD_F (void) slap_syslog_set LDAP_P(( int l ));
 LDAP_SLAPD_F (int) slap_syslog_get LDAP_P(( void ));
 LDAP_SLAPD_F (void) slap_debug_set LDAP_P(( int l ));
@@ -1272,6 +1273,7 @@ slap_parse_debug_unknowns LDAP_P(( void ));
 LDAP_SLAPD_F (void)
 slap_check_unknown_level LDAP_P(( char *levelstr, int level ));
 LDAP_SLAPD_V(ldap_pvt_thread_mutex_t) logfile_mutex;
+LDAP_SLAPD_V(ldap_pvt_thread_mutex_t) logname_mutex;
 LDAP_SLAPD_V(int) slap_debug_orig;
 LDAP_SLAPD_V (char *)	serverName;
 
@@ -2137,6 +2139,7 @@ LDAP_SLAPD_V (ber_len_t) sockbuf_max_incoming_auth;
 LDAP_SLAPD_V (int)		slap_conn_max_pending;
 LDAP_SLAPD_V (int)		slap_conn_max_pending_auth;
 LDAP_SLAPD_V (int)		slap_max_filter_depth;
+LDAP_SLAPD_V (int)		slap_max_qtime;
 
 LDAP_SLAPD_V (slap_mask_t)	global_allows;
 LDAP_SLAPD_V (slap_mask_t)	global_disallows;

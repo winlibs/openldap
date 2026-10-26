@@ -571,7 +571,7 @@ static ConfigTable nsscfg[] = {
 		"pwdmgr_dn", 2, 2, 0,
 		ARG_OFFSET|ARG_BERVAL,
 		(void *)offsetof(struct nssov_info, ni_pam_pwdmgr_dn),
-		"(OLcfgCtAt:3.13 NAME 'olcPamPwdmgrDn' "
+		"(OLcfgCtAt:3.13 NAME 'olcNssPamPwdmgrDn' "
 			"DESC 'Password Manager DN' "
 			"EQUALITY distinguishedNameMatch "
 			"SYNTAX OMsDN SINGLE-VALUE )", NULL, NULL },
@@ -579,10 +579,18 @@ static ConfigTable nsscfg[] = {
 		"pwdmgr_pwd", 2, 2, 0,
 		ARG_OFFSET|ARG_BERVAL,
 		(void *)offsetof(struct nssov_info, ni_pam_pwdmgr_pwd),
-		"(OLcfgCtAt:3.14 NAME 'olcPamPwdmgrPwd' "
+		"(OLcfgCtAt:3.14 NAME 'olcNssPamPwdmgrPwd' "
 			"DESC 'Password Manager Pwd' "
 			"EQUALITY octetStringMatch "
 			"SYNTAX OMsOctetString SINGLE-VALUE )", NULL, NULL },
+	{ "nssov-pam-forward-updates",
+		"on|off", 1, 2, 0,
+		ARG_OFFSET|ARG_ON_OFF,
+		(void *)offsetof(struct nssov_info, ni_pam_forward_updates),
+		"(OLcfgCtAt:3.15 NAME 'olcNssPamForwardUpdates' "
+			"DESC 'Allow loginStatus updates to be forwarded via updateref' "
+			"EQUALITY booleanMatch "
+			"SYNTAX OMsBoolean SINGLE-VALUE )", NULL, NULL },
 	{ NULL, NULL, 0,0,0, ARG_IGNORED }
 };
 
@@ -594,7 +602,9 @@ static ConfigOCs nssocs[] = {
 		"MAY ( olcNssSsd $ olcNssMap $ olcNssPam $ olcNssPamDefHost $ "
 			"olcNssPamGroupDN $ olcNssPamGroupAD $ "
 			"olcNssPamMinUid $ olcNssPamMaxUid $ olcNssPamSession $ "
-			"olcNssPamTemplateAD $ olcNssPamTemplate ) )",
+			"olcNssPamTemplateAD $ olcNssPamTemplate $ "
+			"olcNssPamPwdProhibitMsg $ olcNssPamPwdmgrDn $ "
+			"olcNssPamPwdmgrPwd $ olcNssPamForwardUpdates ) )",
 		Cft_Overlay, nsscfg },
 	{ NULL, 0, NULL }
 };

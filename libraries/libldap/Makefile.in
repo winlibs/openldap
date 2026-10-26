@@ -13,7 +13,7 @@
 ## top-level directory of the distribution or, alternatively, at
 ## <http://www.OpenLDAP.org/license.html>.
 
-LIBRARY = oldap32_a.lib
+LIBRARY = libldap.la
 
 PROGRAMS = apitest dntest ftest ltest urltest testavl
 
@@ -52,7 +52,6 @@ OBJS	= bind.lo open.lo result.lo error.lo compare.lo search.lo \
 LDAP_INCDIR= ../../include
 LDAP_LIBDIR= ../../libraries
 
-LT_CFLAGS += -Zi -Fdoldap32_a.pdb
 LIB_DEFS = -DLDAP_LIBRARY
 
 XLIBS = $(LIBRARY) $(LDAP_LIBLBER_LA) $(LDAP_LIBLUTIL_A)
@@ -63,7 +62,9 @@ UNIX_LINK_LIBS = $(LDAP_LIBLBER_LA) $(AC_LIBS) $(SECURITY_LIBS) $(LTHREAD_LIBS)
 UNIX_SYMBOL_VERSION_SCRIPT=ldap.map
 NT_SYMBOL_VERSION_SCRIPT=
 SYMBOL_VERSION_SCRIPT=$(@PLAT@_SYMBOL_VERSION_SCRIPT)
-@DO_VERSIONED_SYMBOLS@SYMBOL_VERSION_FLAGS=$(OL_VERSIONED_SYMBOLS)$(SYMBOL_VERSION_SCRIPT)
+UNIX_SYMBOL_VERSION_FLAGS=$(OL_VERSIONED_SYMBOLS)$(SYMBOL_VERSION_SCRIPT)
+NT_SYMBOL_VERSION_FLAGS=
+@DO_VERSIONED_SYMBOLS@SYMBOL_VERSION_FLAGS=$(@PLAT@_SYMBOL_VERSION_FLAGS)
 
 $(UNIX_SYMBOL_VERSION_SCRIPT): $(srcdir)/$(UNIX_SYMBOL_VERSION_SCRIPT).in $(LDAP_INCDIR)/libldap-config.h
 	$(CPP) -x c -o $@ $(LT_CPPFLAGS) $(srcdir)/$(UNIX_SYMBOL_VERSION_SCRIPT).in
@@ -101,3 +102,4 @@ install-local: $(CFFILES) FORCE
 		fi; \
 		$(INSTALL) $(INSTALLFLAGS) -m 644 $(srcdir)/$$i $(DESTDIR)$(sysconfdir)/$$i.default; \
 	done
+

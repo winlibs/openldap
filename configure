@@ -17287,7 +17287,7 @@ return regfree ();
   return 0;
 }
 _ACEOF
-for ac_lib in '' libregex gnuregex
+for ac_lib in '' regex gnuregex
 do
   if test -z "$ac_lib"; then
     ac_res="none required"
@@ -18160,7 +18160,7 @@ then :
   printf %s "(cached) " >&6
 else $as_nop
   ac_check_lib_save_LIBS=$LIBS
-LIBS="-llibssl -llibcrypto $LIBS"
+LIBS="-lssl -lcrypto $LIBS"
 cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
 
@@ -18205,7 +18205,7 @@ fi
 printf "%s\n" "#define HAVE_OPENSSL 1" >>confdefs.h
 
 
-			TLS_LIBS="-llibssl -llibcrypto"
+			TLS_LIBS="-lssl -lcrypto"
 		fi
 	fi
 fi
@@ -23631,7 +23631,7 @@ then :
   printf %s "(cached) " >&6
 else $as_nop
   ac_check_lib_save_LIBS=$LIBS
-LIBS="-llibsasl  $LIBS"
+LIBS="-lsasl  $LIBS"
 cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
 
@@ -23661,7 +23661,7 @@ fi
 printf "%s\n" "$ac_cv_lib_sasl_sasl_client_init" >&6; }
 if test "x$ac_cv_lib_sasl_sasl_client_init" = xyes
 then :
-  ol_link_sasl="-llibsasl"
+  ol_link_sasl="-lsasl"
 fi
 
 fi
@@ -25971,19 +25971,19 @@ rm -f core conftest.err conftest.$ac_objext conftest.beam conftest.$ac_ext
 	LIBSRCS="$LIBSRCS getpeereid.c"
 fi
 
-# if test "$ac_cv_func_snprintf" != yes ||
-#    test "$ac_cv_func_vsnprintf" != yes; then
-# 	if test "$ac_cv_func_snprintf" != yes; then
+if test "$ac_cv_func_snprintf" != yes ||
+   test "$ac_cv_func_vsnprintf" != yes; then
+	if test "$ac_cv_func_snprintf" != yes; then
 
-# printf "%s\n" "#define snprintf ber_pvt_snprintf" >>confdefs.h
+printf "%s\n" "#define snprintf ber_pvt_snprintf" >>confdefs.h
 
-# 	fi
-# 	if test "$ac_cv_func_vsnprintf" != yes; then
+	fi
+	if test "$ac_cv_func_vsnprintf" != yes; then
 
-# printf "%s\n" "#define vsnprintf ber_pvt_vsnprintf" >>confdefs.h
+printf "%s\n" "#define vsnprintf ber_pvt_vsnprintf" >>confdefs.h
 
-# 	fi
-# fi
+	fi
+fi
 
 
 if test "$ol_enable_slapi" != no ; then
@@ -26506,7 +26506,7 @@ for ac_i in : $LIBOBJS; do test "x$ac_i" = x: && continue
   ac_i=`printf "%s\n" "$ac_i" | sed "$ac_script"`
   # 2. Prepend LIBOBJDIR.  When used with automake>=1.10 LIBOBJDIR
   #    will be set to the directory where LIBOBJS objects are built.
-  as_fn_append ac_libobjs " \${LIBOBJDIR}$ac_i\$U.o"
+  as_fn_append ac_libobjs " \${LIBOBJDIR}$ac_i\$U.$ac_objext"
   as_fn_append ac_ltlibobjs " \${LIBOBJDIR}$ac_i"'$U.lo'
 done
 LIBOBJS=$ac_libobjs
@@ -28701,3 +28701,5 @@ if test -n "$ac_unrecognized_opts" && test "$enable_option_checking" != no; then
   { printf "%s\n" "$as_me:${as_lineno-$LINENO}: WARNING: unrecognized options: $ac_unrecognized_opts" >&5
 printf "%s\n" "$as_me: WARNING: unrecognized options: $ac_unrecognized_opts" >&2;}
 fi
+
+

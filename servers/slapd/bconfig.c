@@ -523,6 +523,12 @@ static ConfigTable config_back_cf_table[] = {
 			"SYNTAX OMsInteger SINGLE-VALUE )", NULL,
 			{ .v_int = SLAP_MAX_FILTER_DEPTH_DEFAULT }
 	},
+	{ "maxQtime", "usec", 2, 2, 0, ARG_UINT,
+		&slap_max_qtime, "( OLcfgGlAt:106 NAME 'olcMaxQtime' "
+			"EQUALITY integerMatch "
+			"SYNTAX OMsInteger SINGLE-VALUE )", NULL,
+			{ .v_uint = 0 }
+	},
 	{ "multiprovider", "on|off", 2, 2, 0, ARG_DB|ARG_ON_OFF|ARG_MAGIC|CFG_MULTIPROVIDER,
 		&config_generic, "( OLcfgDbAt:0.16 NAME ( 'olcMultiProvider' 'olcMirrorMode' ) "
 			"EQUALITY booleanMatch "
@@ -1007,6 +1013,7 @@ static ConfigOCs cf_ocs[] = {
 		 "olcIndexIntLen $ "
 		 "olcListenerThreads $ olcLocalSSF $ olcLogFile $ olcLogFileFormat $ olcLogLevel $ "
 		 "olcLogFileOnly $ olcLogFileRotate $ olcMaxFilterDepth $ "
+		 "olcMaxQtime $ "
 		 "olcPasswordCryptSaltFormat $ olcPasswordHash $ olcPidFile $ "
 		 "olcPluginLogFile $ olcReadOnly $ olcReferral $ "
 		 "olcReplogFile $ olcRequires $ olcRestrict $ olcReverseLookup $ "
@@ -6518,6 +6525,15 @@ config_back_modify( Operation *op, SlapReply *rs )
 	}
 	ldap_pvt_thread_rdwr_wlock( &cfb->cb_rwlock );
 
+	/* check again after lock acquired. Concurrent writes may have changed things. */
+	ce = config_find_base( cfb->cb_root, &op->o_req_ndn, &last, op );
+	if ( !ce ) {
+		if ( last )
+			rs->sr_matched = last->ce_entry->e_name.bv_val;
+		rs->sr_err = LDAP_NO_SUCH_OBJECT;
+		goto out2;
+	}
+
 	/* Strategy:
 	 * 1) perform the Modify on the cached Entry.
 	 * 2) verify that the Entry still satisfies the schema.
@@ -6565,6 +6581,7 @@ config_back_modify( Operation *op, SlapReply *rs )
 		}
 	}
 
+out2:
 	ldap_pvt_thread_rdwr_wunlock( &cfb->cb_rwlock );
 unpause:;
 	if ( do_pause )
@@ -6748,6 +6765,15 @@ config_back_modrdn( Operation *op, SlapReply *rs )
 	}
 
 	ldap_pvt_thread_rdwr_wlock( &cfb->cb_rwlock );
+
+	/* check again after lock acquired. */
+	ce = config_find_base( cfb->cb_root, &op->o_req_ndn, &last, op );
+	if ( !ce ) {
+		if ( last )
+			rs->sr_matched = last->ce_entry->e_name.bv_val;
+		rs->sr_err = LDAP_NO_SUCH_OBJECT;
+		goto out2;
+	}
 
 	if ( ce->ce_type == Cft_Schema ) {
 		req_modrdn_s modr = op->oq_modrdn;
@@ -6946,6 +6972,18 @@ config_back_delete( Operation *op, SlapReply *rs )
 
 		if ( op->o_abandon ) {
 			rs->sr_err = SLAPD_ABANDON;
+			goto out2;
+		}
+
+		/* check again after lock acquired. */
+		ce = config_find_base( cfb->cb_root, &op->o_req_ndn, &last, op );
+		if ( !ce ) {
+			if ( last )
+				rs->sr_matched = last->ce_entry->e_name.bv_val;
+			rs->sr_err = LDAP_NO_SUCH_OBJECT;
+			goto out2;
+		} else if ( ce->ce_kids ) {
+			rs->sr_err = LDAP_NOT_ALLOWED_ON_NONLEAF;
 			goto out2;
 		}
 

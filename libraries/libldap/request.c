@@ -167,7 +167,7 @@ ldap_send_initial_request(
 #endif
 	LDAP_MUTEX_LOCK( &ld->ld_req_mutex );
 	rc = ldap_send_server_request( ld, ber, msgid, NULL,
-		NULL, NULL, NULL, 0, 0 );
+		NULL, NULL, NULL, 0, 0, NULL );
 	LDAP_MUTEX_UNLOCK( &ld->ld_req_mutex );
 	LDAP_MUTEX_UNLOCK( &ld->ld_conn_mutex );
 	return(rc);
@@ -228,7 +228,8 @@ ldap_send_server_request(
 	LDAPConn *lc,
 	LDAPreqinfo *bind,
 	int m_noconn,
-	int m_res )
+	int m_res,
+	struct timeval *lend )
 {
 	LDAPRequest	*lr;
 	int		incparent, rc;
@@ -252,7 +253,7 @@ ldap_send_server_request(
 					++parentreq->lr_outrefcnt;
 				}
 				lc = ldap_new_connection( ld, srvlist, 0,
-					1, bind, 1, m_res );
+					1, bind, 1, m_res, lend );
 			}
 		}
 	}
@@ -449,7 +450,7 @@ find_tls_ext( LDAPURLDesc *srv )
  */
 LDAPConn *
 ldap_new_connection( LDAP *ld, LDAPURLDesc **srvlist, int use_ldsb,
-	int connect, LDAPreqinfo *bind, int m_req, int m_res )
+	int connect, LDAPreqinfo *bind, int m_req, int m_res, struct timeval *lend )
 {
 	LDAPConn	*lc;
 	int		async = 0;
@@ -635,6 +636,18 @@ ldap_new_connection( LDAP *ld, LDAPURLDesc **srvlist, int use_ldsb,
 				for ( err = 1; err > 0; ) {
 					struct timeval	tv = { 0, 100000 };
 					LDAPMessage	*res = NULL;
+
+					if ( lend ) {
+						gettimeofday( &tv, NULL );
+						tv.tv_sec = lend->tv_sec - tv.tv_sec;
+						tv.tv_usec = lend->tv_usec - tv.tv_usec;
+						if ( tv.tv_usec < 0 ) {
+							tv.tv_usec += 1000000;
+							tv.tv_sec--;
+						}
+						if ( tv.tv_sec < 0 )
+							tv.tv_sec = 0;
+					}
 
 					switch ( ldap_result( ld, msgid, LDAP_MSG_ALL, &tv, &res ) ) {
 					case -1:
@@ -830,8 +843,8 @@ ldap_free_connection( LDAP *ld, LDAPConn *lc, int force, int unbind )
 
 		if ( lc->lconn_rebind_queue != NULL) {
 			int i;
-			for( i = 0; lc->lconn_rebind_queue[i] != NULL; i++ ) {
-				LDAP_VFREE( lc->lconn_rebind_queue[i] );
+			for( i = 0; lc->lconn_rebind_queue[i].lr_origreq != NULL; i++ ) {
+				LDAP_VFREE( lc->lconn_rebind_queue[i].lr_refarray );
 			}
 			LDAP_FREE( lc->lconn_rebind_queue );
 		}
@@ -893,11 +906,11 @@ ldap_dump_connection( LDAP *ld, LDAPConn *lconns, int all )
 			if ( lc->lconn_rebind_queue != NULL) {
 				int	i;
 
-				for ( i = 0; lc->lconn_rebind_queue[i] != NULL; i++ ) {
+				for ( i = 0; lc->lconn_rebind_queue[i].lr_origreq != NULL; i++ ) {
 					int	j;
-					for( j = 0; lc->lconn_rebind_queue[i][j] != 0; j++ ) {
+					for( j = 0; lc->lconn_rebind_queue[i].lr_refarray[j] != 0; j++ ) {
 						Debug3( LDAP_DEBUG_TRACE, "    queue %d entry %d - %s\n",
-							i, j, lc->lconn_rebind_queue[i][j] );
+							i, j, lc->lconn_rebind_queue[i].lr_refarray[j] );
 					}
 				}
 			} else {
@@ -1092,6 +1105,7 @@ static int ldap_int_nextref(
  *  (IN) refs = array of pointers to referral strings that we will chase
  *              The array will be free'd by this function when no longer needed
  *  (IN) sref != 0 if following search reference
+ *  (IN) lend = timeout time
  *  (OUT) errstrp = Place to return a string of referrals which could not be followed
  *  (OUT) hadrefp = 1 if successfully followed referral
  *
@@ -1100,7 +1114,8 @@ static int ldap_int_nextref(
  * Protected by res_mutex, conn_mutex and req_mutex	(try_read1msg)
  */
 int
-ldap_chase_v3referrals( LDAP *ld, LDAPRequest *lr, char **refs, int sref, char **errstrp, int *hadrefp )
+ldap_chase_v3referrals( LDAP *ld, LDAPRequest *lr, char **refs, int sref, struct timeval *lend,
+	char **errstrp, int *hadrefp )
 {
 	char		*unfollowed;
 	int		 unfollowedcnt = 0;
@@ -1219,7 +1234,7 @@ ldap_chase_v3referrals( LDAP *ld, LDAPRequest *lr, char **refs, int sref, char *
 				if( lc->lconn_rebind_queue == NULL ) {
 					/* Create a referral list */
 					lc->lconn_rebind_queue =
-						(char ***) LDAP_MALLOC( sizeof(void *) * 2);
+						(LDAPRefreq*) LDAP_MALLOC( sizeof(LDAPRefreq) * 2);
 
 					if( lc->lconn_rebind_queue == NULL) {
 						ld->ld_errno = LDAP_NO_MEMORY;
@@ -1227,27 +1242,38 @@ ldap_chase_v3referrals( LDAP *ld, LDAPRequest *lr, char **refs, int sref, char *
 						goto done;
 					}
 
-					lc->lconn_rebind_queue[0] = refarray;
-					lc->lconn_rebind_queue[1] = NULL;
+					lc->lconn_rebind_queue[0].lr_origreq = origreq;
+					lc->lconn_rebind_queue[0].lr_lr = lr;
+					lc->lconn_rebind_queue[0].lr_refarray = refarray;
+					lc->lconn_rebind_queue[1].lr_origreq = NULL;
+					lc->lconn_rebind_queue[1].lr_lr = NULL;
+					lc->lconn_rebind_queue[1].lr_refarray = NULL;
 					refarray = NULL;
 
 				} else {
+					LDAPRefreq *ptr;
 					/* Count how many referral arrays we already have */
-					for( j = 0; lc->lconn_rebind_queue[j] != NULL; j++) {
+					for( j = 0; lc->lconn_rebind_queue[j].lr_origreq != NULL; j++) {
 						/* empty */;
 					}
 
 					/* Add the new referral to the list */
-					lc->lconn_rebind_queue = (char ***) LDAP_REALLOC(
-						lc->lconn_rebind_queue, sizeof(void *) * (j + 2));
+					ptr = (LDAPRefreq *) LDAP_REALLOC(
+						lc->lconn_rebind_queue, sizeof(LDAPRefreq) * (j + 2));
 
-					if( lc->lconn_rebind_queue == NULL ) {
+					if( ptr == NULL ) {
 						ld->ld_errno = LDAP_NO_MEMORY;
+						/* let ldap_free_connection free the queue */
 						rc = -1;
 						goto done;
 					}
-					lc->lconn_rebind_queue[j] = refarray;
-					lc->lconn_rebind_queue[j+1] = NULL;
+					lc->lconn_rebind_queue = ptr;
+					lc->lconn_rebind_queue[j].lr_origreq = origreq;
+					lc->lconn_rebind_queue[j].lr_lr = lr;
+					lc->lconn_rebind_queue[j].lr_refarray = refarray;
+					lc->lconn_rebind_queue[j+1].lr_origreq = NULL;
+					lc->lconn_rebind_queue[j+1].lr_lr = NULL;
+					lc->lconn_rebind_queue[j+1].lr_refarray = NULL;
 					refarray = NULL;
 				}
 
@@ -1286,7 +1312,7 @@ ldap_chase_v3referrals( LDAP *ld, LDAPRequest *lr, char **refs, int sref, char *
 		rinfo.ri_msgid = origreq->lr_origid;
 		rinfo.ri_url = refarray[i];
 		rc = ldap_send_server_request( ld, ber, id,
-			origreq, &srv, NULL, &rinfo, 0, 1 );
+			origreq, &srv, NULL, &rinfo, 0, 1, lend );
 		if ( rc < 0 ) {
 			/* Failure, try next referral in the list */
 			Debug3( LDAP_DEBUG_ANY, "Unable to chase referral \"%s\" (%d: %s)\n",
@@ -1320,10 +1346,14 @@ ldap_chase_v3referrals( LDAP *ld, LDAPRequest *lr, char **refs, int sref, char *
 				srv = NULL;
 
 				/* Pull entries off end of queue so list always null terminated */
-				for( j = 0; lc->lconn_rebind_queue[j] != NULL; j++ )
+				for( j = 0; lc->lconn_rebind_queue[j].lr_origreq != NULL; j++ )
 					;
-				refarray = lc->lconn_rebind_queue[j - 1];
-				lc->lconn_rebind_queue[j-1] = NULL;
+				refarray = lc->lconn_rebind_queue[j - 1].lr_refarray;
+				origreq = lc->lconn_rebind_queue[j - 1].lr_origreq;
+				lr = lc->lconn_rebind_queue[j - 1].lr_lr;
+				lc->lconn_rebind_queue[j-1].lr_origreq = NULL;
+				lc->lconn_rebind_queue[j-1].lr_lr = NULL;
+				lc->lconn_rebind_queue[j-1].lr_refarray = NULL;
 				/* we pulled off last entry from queue, free queue */
 				if ( j == 1 ) {
 					LDAP_FREE( lc->lconn_rebind_queue );
@@ -1360,6 +1390,7 @@ ldap_chase_referrals( LDAP *ld,
 	LDAPRequest *lr,
 	char **errstrp,
 	int sref,
+	struct timeval *lend,
 	int *hadrefp )
 {
 	int		rc, count, id;
@@ -1473,7 +1504,7 @@ ldap_chase_referrals( LDAP *ld,
 		rinfo.ri_msgid = origreq->lr_origid;
 
 		rc = ldap_send_server_request( ld, ber, id,
-			lr, &srv, NULL, &rinfo, 0, 1 );
+			lr, &srv, NULL, &rinfo, 0, 1, lend );
 		LDAP_FREE( rinfo.ri_url );
 
 		if( rc >= 0 ) {

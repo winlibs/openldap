@@ -65,6 +65,7 @@ char *serverName;
 int slap_debug_orig;
 
 ldap_pvt_thread_mutex_t logfile_mutex;
+ldap_pvt_thread_mutex_t logname_mutex;
 
 static off_t logfile_fsize;
 static time_t logfile_fcreated;
@@ -145,6 +146,7 @@ slap_debug_print( const char *data )
 			if ( rotate ) {
 				int rc, savefd;
 				strcpy( logpaths[0]+logpathlen, ".tmp" );
+				ldap_pvt_thread_mutex_lock( &logname_mutex );
 				if ( rename( logfile_path, logpaths[0] )) {
 					rc = errno;
 					if ( !logfile_rotfail ) {
@@ -158,26 +160,29 @@ slap_debug_print( const char *data )
 						logfile_rotfail = 1;
 					}
 					rotate = 0;	/* don't bother since it will fail */
+					ldap_pvt_thread_mutex_unlock( &logname_mutex );
 				} else {
 					logfile_rotfail = 0;
 				}
-				savefd = logfile_fd;
-				logfile_fd = -1;
-				if (( rc = logfile_open( logfile_path ))) {
-					logfile_fd = savefd;
-					if ( !logfile_openfail ) {
-						char buf[BUFSIZ];
-						char ebuf[128];
-						int len = snprintf(buf, sizeof( buf ), "ERROR! logfile couldn't be reopened, err=%d \"%s\"\n",
-							rc, AC_STRERROR_R( rc, ebuf, sizeof(ebuf) ));
-						if ( !logfile_only )
-							!write( 2, buf, len );
-						!write( logfile_fd, buf, len );
-						logfile_openfail = 1;
+				if ( rotate ) {	/* only reopen if rename succeeded */
+					savefd = logfile_fd;
+					logfile_fd = -1;
+					if (( rc = logfile_open( logfile_path ))) {
+						logfile_fd = savefd;
+						if ( !logfile_openfail ) {
+							char buf[BUFSIZ];
+							char ebuf[128];
+							int len = snprintf(buf, sizeof( buf ), "ERROR! logfile couldn't be reopened, err=%d \"%s\"\n",
+								rc, AC_STRERROR_R( rc, ebuf, sizeof(ebuf) ));
+							if ( !logfile_only )
+								!write( 2, buf, len );
+							!write( logfile_fd, buf, len );
+							logfile_openfail = 1;
+						}
+					} else {
+						close( savefd );
+						logfile_openfail = 0;
 					}
-				} else {
-					close( savefd );
-					logfile_openfail = 0;
 				}
 			}
 		}
@@ -235,6 +240,7 @@ slap_debug_print( const char *data )
 		}
 		sprintf( logpaths[0]+logpathlen, ".tmp" );
 		rename( logpaths[0], logpaths[1] );
+		ldap_pvt_thread_mutex_unlock( &logname_mutex );
 	}
 }
 
@@ -254,40 +260,49 @@ logfile_open( const char *path )
 	struct stat st;
 	int fd, saved_errno;
 
-	/* the logfile is for slapd only, not tools */
-	if ( !( slapMode & SLAP_SERVER_MODE ))
-		return 0;
-
-	fd = open( path, O_CREAT|O_WRONLY|O_APPEND, 0640 );
-	if ( fd < 0 ) {
-		saved_errno = errno;
-fail:
-		logfile_only = 0;	/* make sure something gets output */
-		return saved_errno;
+	if ( !logfile_path[0] ) {
+		logpathlen = strlen( path );
+		if ( logpathlen >= sizeof(logfile_path) )
+			return ENAMETOOLONG;
 	}
 
-	if ( fstat( fd, &st ) ) {
-		saved_errno = errno;
-		close( fd );
-		goto fail;
+	/* the logfile is for slapd only, not tools */
+	if ( slapMode & SLAP_SERVER_MODE ) {
+		fd = open( path, O_CREAT|O_WRONLY|O_APPEND, 0640 );
+		if ( fd < 0 ) {
+			saved_errno = errno;
+fail:
+			logfile_only = 0;	/* make sure something gets output */
+			return saved_errno;
+		}
+
+		if ( fstat( fd, &st ) ) {
+			saved_errno = errno;
+			close( fd );
+			goto fail;
+		}
+
+		logfile_fsize = st.st_size;
+		logfile_fcreated = st.st_ctime;	/* not strictly true but close enough */
+		logfile_fd = fd;
 	}
 
 	if ( !logfile_path[0] ) {
-		logpathlen = strlen( path );
-		if ( logpathlen >= sizeof(logfile_path) ) {
-			saved_errno = ENAMETOOLONG;
-			goto fail;
-		}
 		strcpy( logfile_path, path );
 		strcpy( logpaths[0], path );
 		strcpy( logpaths[1], path );
 	}
 
-	logfile_fsize = st.st_size;
-	logfile_fcreated = st.st_ctime;	/* not strictly true but close enough */
-	logfile_fd = fd;
-
 	return 0;
+}
+
+void
+slap_set_logprefix( void )
+{
+	if ( syslog_prefix ) {
+		splen = sprintf( syslog_prefix, "%s %s %s[%d]: ", ( logfile_format == LFMT_RFC3339_UTC ) ?
+			RFC3339_STAMP : SYSLOG_STAMP, global_host, serverName, getpid() );
+	}
 }
 
 const char *
@@ -852,8 +867,7 @@ reset:
 			len = strlen( global_host ) + 1 + strlen( serverName ) + 1 + sizeof(("[123456789]:")) +
 				(( logfile_format == LFMT_RFC3339_UTC) ? sizeof( RFC3339_STAMP ) : sizeof( SYSLOG_STAMP ));
 			syslog_prefix = ch_malloc( len );
-			splen = sprintf( syslog_prefix, "%s %s %s[%d]: ", ( logfile_format == LFMT_RFC3339_UTC ) ?
-				RFC3339_STAMP : SYSLOG_STAMP, global_host, serverName, getpid() );
+			slap_set_logprefix();
 			}
 			break;
 

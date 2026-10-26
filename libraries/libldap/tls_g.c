@@ -62,6 +62,7 @@ typedef struct tlsg_session {
 	gnutls_session_t session;
 	tlsg_ctx *ctx;
 	struct berval peer_der_dn;
+	int peer_valid;
 } tlsg_session;
 
 static int tlsg_parse_ciphers( tlsg_ctx *ctx, char *suites );
@@ -472,7 +473,9 @@ tlsg_session_accept( tls_session *session )
 			rc = 0;
 		else {
 			rc = tlsg_cert_verify( s );
-			if ( rc && s->ctx->reqcert == LDAP_OPT_X_TLS_ALLOW )
+			if ( !rc )
+				s->peer_valid = 1;
+			else if ( s->ctx->reqcert == LDAP_OPT_X_TLS_ALLOW )
 				rc = 0;
 		}
 	}
@@ -577,6 +580,8 @@ static int
 tlsg_session_peer_dn( tls_session *session, struct berval *der_dn )
 {
 	tlsg_session *s = (tlsg_session *)session;
+	if ( !s->peer_valid )
+		return LDAP_INVALID_CREDENTIALS;
 	if ( !s->peer_der_dn.bv_val ) {
 		const gnutls_datum_t *peer_cert_list;
 		unsigned int list_size;
@@ -922,6 +927,8 @@ tlsg_session_peercert( tls_session *sess, struct berval *der )
 	const gnutls_datum_t *peer_cert_list;
 	unsigned int list_size;
 
+	if (!s->peer_valid)
+		return -1;
 	peer_cert_list = gnutls_certificate_get_peers( s->session, &list_size );
 	if (!peer_cert_list)
 		return -1;
@@ -1175,22 +1182,19 @@ tlsg_sb_read( Sockbuf_IO_Desc *sbiod, void *buf, ber_len_t len)
 	p = (struct tls_data *)sbiod->sbiod_pvt;
 
 	ret = gnutls_record_recv ( p->session->session, buf, len );
-	switch (ret) {
-	case GNUTLS_E_INTERRUPTED:
-	case GNUTLS_E_AGAIN:
-		sbiod->sbiod_sb->sb_trans_needs_read = 1;
+
+	sbiod->sbiod_sb->sb_trans_needs_read = 0;
+	sbiod->sbiod_sb->sb_trans_needs_write = 0;
+	if ( tlsg_session_upflags( sbiod->sbiod_sb, (tls_session *)p->session, ret ) ) {
 		sock_errset(EWOULDBLOCK);
 		ret = 0;
-		break;
-	case GNUTLS_E_REHANDSHAKE:
+	} else if ( ret == GNUTLS_E_REHANDSHAKE ) {
 		for ( ret = gnutls_handshake ( p->session->session );
 		      ret == GNUTLS_E_INTERRUPTED || ret == GNUTLS_E_AGAIN;
 		      ret = gnutls_handshake ( p->session->session ) );
 		sbiod->sbiod_sb->sb_trans_needs_read = 1;
+		sock_errset(EWOULDBLOCK);
 		ret = 0;
-		break;
-	default:
-		sbiod->sbiod_sb->sb_trans_needs_read = 0;
 	}
 	return ret;
 }
@@ -1208,12 +1212,11 @@ tlsg_sb_write( Sockbuf_IO_Desc *sbiod, void *buf, ber_len_t len)
 
 	ret = gnutls_record_send ( p->session->session, (char *)buf, len );
 
-	if ( ret == GNUTLS_E_INTERRUPTED || ret == GNUTLS_E_AGAIN ) {
-		sbiod->sbiod_sb->sb_trans_needs_write = 1;
+	sbiod->sbiod_sb->sb_trans_needs_read = 0;
+	sbiod->sbiod_sb->sb_trans_needs_write = 0;
+	if ( tlsg_session_upflags( sbiod->sbiod_sb, (tls_session *)p->session, ret ) ) {
 		sock_errset(EWOULDBLOCK);
 		ret = 0;
-	} else {
-		sbiod->sbiod_sb->sb_trans_needs_write = 0;
 	}
 	return ret;
 }

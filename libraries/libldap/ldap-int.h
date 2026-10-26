@@ -359,6 +359,14 @@ struct ldapoptions {
 #endif
 };
 
+/*
+ * structure for a queue of deferred referrals
+ */
+typedef struct ldap_refreq {
+	struct ldapreq *lr_origreq;
+	struct ldapreq *lr_lr;
+	char **lr_refarray;
+} LDAPRefreq;
 
 /*
  * structure for representing an LDAP server connection
@@ -374,7 +382,7 @@ typedef struct ldap_conn {
 	time_t		lconn_created;	/* time */
 	time_t		lconn_lastused;	/* time */
 	int			lconn_rebind_inprogress;	/* set if rebind in progress */
-	char		***lconn_rebind_queue;		/* used if rebind in progress */
+	LDAPRefreq	*lconn_rebind_queue;		/* used if rebind in progress */
 	int			lconn_status;
 #define LDAP_CONNST_NEEDSOCKET		1
 #define LDAP_CONNST_CONNECTING		2
@@ -385,7 +393,6 @@ typedef struct ldap_conn {
 
 	struct ldap_conn *lconn_next;
 } LDAPConn;
-
 
 /*
  * structure used to track outstanding requests
@@ -793,9 +800,9 @@ LDAP_F (void) ldap_set_ber_options( LDAP *ld, BerElement *ber );
 
 LDAP_F (int) ldap_send_server_request( LDAP *ld, BerElement *ber,
 	ber_int_t msgid, LDAPRequest *parentreq, LDAPURLDesc **srvlist,
-	LDAPConn *lc, LDAPreqinfo *bind, int noconn, int m_res );
+	LDAPConn *lc, LDAPreqinfo *bind, int noconn, int m_res, struct timeval *lend );
 LDAP_F (LDAPConn *) ldap_new_connection( LDAP *ld, LDAPURLDesc **srvlist,
-	int use_ldsb, int connect, LDAPreqinfo *bind, int m_req, int m_res );
+	int use_ldsb, int connect, LDAPreqinfo *bind, int m_req, int m_res, struct timeval *lend );
 LDAP_F (LDAPRequest *) ldap_find_request_by_msgid( LDAP *ld, ber_int_t msgid );
 LDAP_F (void) ldap_return_request( LDAP *ld, LDAPRequest *lr, int freeit );
 LDAP_F (int) ldap_req_cmp( const void *l, const void *r );
@@ -805,9 +812,9 @@ LDAP_F (void) ldap_free_connection( LDAP *ld, LDAPConn *lc, int force, int unbin
 LDAP_F (void) ldap_dump_connection( LDAP *ld, LDAPConn *lconns, int all );
 LDAP_F (void) ldap_dump_requests_and_responses( LDAP *ld );
 LDAP_F (int) ldap_chase_referrals( LDAP *ld, LDAPRequest *lr,
-	char **errstrp, int sref, int *hadrefp );
+	char **errstrp, int sref, struct timeval *lend, int *hadrefp );
 LDAP_F (int) ldap_chase_v3referrals( LDAP *ld, LDAPRequest *lr,
-	char **refs, int sref, char **referralsp, int *hadrefp );
+	char **refs, int sref, struct timeval *lend, char **referralsp, int *hadrefp );
 LDAP_F (int) ldap_append_referral( LDAP *ld, char **referralsp, char *s );
 LDAP_F (int) ldap_int_flush_request( LDAP *ld, LDAPRequest *lr );
 
